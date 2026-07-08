@@ -74,7 +74,7 @@ _VARIABLE_STOPWORDS: set[str] = {
     "must", "shall", "was", "were", "been", "being", "am", "are", "if",
     "then", "than", "there", "their", "them", "they", "he", "she", "his",
     "her", "him", "our", "me", "my", "you", "your", "but", "yet", "nor",
-    "without", "into", "onto", "through", "during", "before", "after",
+    "without", "onto", "through", "during", "before", "after",
     "above", "below", "between", "among", "within", "against", "under",
     "over", "again", "further", "once", "here", "when", "where", "why",
     "how", "all", "any", "both", "each", "few", "more", "most", "other",
@@ -83,7 +83,7 @@ _VARIABLE_STOPWORDS: set[str] = {
     "whomever", "one", "two", "three", "four", "five", "six", "seven",
     "eight", "nine", "ten", "derive", "solve", "show", "prove", "find",
     "obtain", "simplify", "calculate", "compute", "reduce", "eliminate",
-    "using", "where", "when", "what", "expression", "equation", "function",
+    "using", "expression", "equation", "function",
     "model", "law", "formula", "value",
 }
 

@@ -607,7 +607,6 @@ def register_session_tools(mcp: Any) -> None:
             return result
 
         verification_summary = result.get("verification_summary", {})
-        target_reached = result.get("target_reached", False)
         warnings = list(result.get("warnings", []))
         is_verified = (
             verification_summary.get("overall") == "verified"

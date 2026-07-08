@@ -1,5 +1,5 @@
 """Tests for Phase 5 - External source integration in orchestration tools."""
-# ruff: noqa: F821  # MockMCP from conftest.py
+# ruff: noqa: F821, E402  # MockMCP from conftest.py; sys.path imports
 
 from __future__ import annotations
 

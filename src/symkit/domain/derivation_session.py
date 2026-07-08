@@ -1001,8 +1001,8 @@ class DerivationSession:
             if isinstance(current, sp.Equality) and isinstance(target, sp.Equality):
                 current_form = current.lhs - current.rhs
                 target_form = target.lhs - target.rhs
-                return sp.simplify(current_form - target_form) == 0
-            return sp.simplify(current - target) == 0
+                return bool(sp.simplify(current_form - target_form) == 0)
+            return bool(sp.simplify(current - target) == 0)
         except Exception:
             return False
 

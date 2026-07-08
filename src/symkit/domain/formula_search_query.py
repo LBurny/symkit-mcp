@@ -15,14 +15,14 @@ from __future__ import annotations
 import re
 import unicodedata
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
 from symkit.resources import load_yaml_resource
 
 
 def _load_config() -> dict[str, Any]:
     """Load the bundled formula-search configuration."""
-    return load_yaml_resource("formula_search_config.yaml")
+    return cast("dict[str, Any]", load_yaml_resource("formula_search_config.yaml"))
 
 
 @lru_cache(maxsize=1)
@@ -35,14 +35,14 @@ def _config() -> dict[str, Any]:
 def _domain_alias_map() -> dict[str, str]:
     """Return a flat alias → canonical-domain mapping."""
     cfg = _config()
-    return cfg.get("domain_aliases", {})
+    return cast("dict[str, str]", cfg.get("domain_aliases", {}))
 
 
 @lru_cache(maxsize=1)
 def _formula_alias_map() -> dict[str, list[str]]:
     """Return canonical-name → list-of-aliases mapping."""
     cfg = _config()
-    return cfg.get("formula_aliases", {})
+    return cast("dict[str, list[str]]", cfg.get("formula_aliases", {}))
 
 
 @lru_cache(maxsize=1)

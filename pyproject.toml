@@ -1,6 +1,6 @@
 [project]
 name = "symkit-mcp"
-version = "0.2.5"
+version = "1.0.0"
 description = "SymKit MCP - Symbolic derivation and verification toolkit for AI agents via MCP."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -19,7 +19,7 @@ keywords = [
     "verification",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
@@ -131,6 +131,9 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --cov=src --cov-report=term-missing"
+markers = [
+    "e2e: End-to-end MCP smoke tests",
+]
 
 [dependency-groups]
 dev = [

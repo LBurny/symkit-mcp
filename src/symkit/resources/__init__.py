@@ -11,7 +11,7 @@ import yaml
 
 def resource_path(name: str) -> Path:
     """Return the filesystem path to a resource file bundled with SymKit."""
-    return Path(files(__name__) / name)
+    return Path(str(files(__name__) / name))
 
 
 def load_yaml_resource(name: str) -> Any:

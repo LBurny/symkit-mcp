@@ -22,15 +22,15 @@ from symkit.infrastructure.adapters.local_formula import LocalFormulaAdapter
 from symkit_mcp.tools._state import get_session
 
 if TYPE_CHECKING:
-    pass
+    from symkit.infrastructure.adapters.base import BaseAdapter
 
 
 # Singleton local adapter instance used by all tools. The adapter is lazily
 # initialized from the default ``formulas/library`` directory.
-_local_adapter: LocalFormulaAdapter | None = None
+_local_adapter: BaseAdapter | None = None
 
 
-def _get_local_adapter() -> LocalFormulaAdapter:
+def _get_local_adapter() -> BaseAdapter:
     """Return the shared local adapter instance."""
     global _local_adapter  # noqa: PLW0603
     if _local_adapter is None:
@@ -48,7 +48,7 @@ def _reset_local_adapter() -> None:
 _LEGACY_SOURCES = ("wikidata", "biomodels", "scipy")
 
 
-def _get_legacy_adapter(source: str):
+def _get_legacy_adapter(source: str) -> BaseAdapter:
     """Return a legacy adapter for the requested source."""
     if source == "wikidata":
         from symkit.infrastructure.adapters.wikidata_formulas import (

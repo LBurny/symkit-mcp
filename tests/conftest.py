@@ -96,4 +96,4 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         module = getattr(item, "module", None)
         if module is not None and not hasattr(module, "MockMCP"):
-            setattr(module, "MockMCP", MockMCP)
+            module.MockMCP = MockMCP

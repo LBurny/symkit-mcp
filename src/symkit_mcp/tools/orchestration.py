@@ -224,7 +224,7 @@ def register_orchestration_tools(mcp: Any) -> None:
                     var, props = parsed
                     prop_list = [p for p in props if p]
                     if prop_list:
-                        ctx = ctx.with_assumption(var, **{p: True for p in prop_list})
+                        ctx = ctx.with_assumption(var, **dict.fromkeys(prop_list, True))
                         session.assumption_engine.assume(
                             var, *prop_list, level=AssumptionLevel.SESSION
                         )

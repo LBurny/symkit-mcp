@@ -104,6 +104,10 @@ class BaseAdapter(ABC):
         """
         ...
 
+    def search_by_category(self, category: str, query: str = "", limit: int = 20) -> list[FormulaInfo]:  # noqa: ARG002
+        """Search within a specific category (optional implementation)."""
+        return []
+
     def list_categories(self) -> list[str]:
         """List all categories (optional implementation)."""
         return []

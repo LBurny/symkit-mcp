@@ -66,3 +66,9 @@ formulas/derived/
 
 # ZCode local metadata
 .zcode/
+
+# Local test virtualenvs
+symkit-test-venv/
+
+# Superpowers plans (no commit required)
+docs/superpowers/plans/

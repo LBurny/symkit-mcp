@@ -209,7 +209,7 @@ class WikidataFormulaAdapter(BaseAdapter):
 
         try:
             api_url = "https://www.wikidata.org/w/api.php"
-            search_params = {
+            search_params: dict[str, str | int] = {
                 "action": "wbsearchentities",
                 "search": query,
                 "language": "en",

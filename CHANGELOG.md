@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-08
+
 ### Changed
 
 - 🏷️ **Project rebranded to SymKit** — a general-purpose symbolic formula derivation engine
@@ -24,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed outdated references to non-existent tools, skills, and Memory Bank
 - 🌐 **Source comments internationalized**
   - All Chinese comments and docstrings in `src/` translated to English
+- 📦 **Version bumped to 1.0.0** across `pyproject.toml`, `src/symkit/__init__.py`, and `src/symkit_mcp/__init__.py`; updated `Development Status` classifier to `5 - Production/Stable`.
+- 🚀 **Initial PyPI release automation** via `.github/workflows/release.yml` using Trusted Publishing (OIDC): pushes to `main` publish to TestPyPI, and `v*` tags publish to PyPI.
 
 ## [0.2.5] - 2026-07-07
 

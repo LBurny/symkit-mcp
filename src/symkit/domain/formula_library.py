@@ -173,7 +173,7 @@ class FormulaLibrary:
 
     def list_formula_ids(self, category: str | None = None) -> list[str]:
         """List formula ids, optionally filtered by category."""
-        entries = self._entries.values()
+        entries: list[FormulaEntry] = list(self._entries.values())
         if category:
             entries = [e for e in entries if e.category == category]
         return sorted(e.id for e in entries)

@@ -34,8 +34,7 @@ _RELEVANCE_STOPWORDS: set[str] = {
     "all", "any", "both", "each", "few", "own", "can", "could", "will",
     "would", "should", "shall", "may", "might", "must", "have", "has", "had",
     "do", "does", "did", "we", "you", "he", "she", "they", "them", "their",
-    "there", "i", "me", "my", "our", "us", "him", "his", "her", "she",
-    "equation", "equations", "formula", "formulas", "expression", "expressions",
+    "i", "me", "my", "our", "us", "him", "his", "her", "equation", "equations", "formula", "formulas", "expression", "expressions",
 }
 
 
