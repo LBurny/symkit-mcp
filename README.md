@@ -237,7 +237,7 @@ Replace `--directory` with the absolute path to your local `symkit-mcp` clone. `
 ### From source
 
 ```bash
-git clone https://github.com/u9401066/symkit-mcp.git
+git clone https://github.com/LBurny/symkit-mcp.git
 cd symkit-mcp
 uv sync --all-extras
 uv run symkit-mcp

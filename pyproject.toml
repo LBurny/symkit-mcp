@@ -60,10 +60,10 @@ dev = [
 symkit-mcp = "symkit_mcp.server:main"
 
 [project.urls]
-Homepage = "https://github.com/u9401066/symkit-mcp"
-Documentation = "https://github.com/u9401066/symkit-mcp/tree/master/docs"
-Repository = "https://github.com/u9401066/symkit-mcp"
-Issues = "https://github.com/u9401066/symkit-mcp/issues"
+Homepage = "https://github.com/LBurny/symkit-mcp"
+Documentation = "https://github.com/LBurny/symkit-mcp/tree/master/docs"
+Repository = "https://github.com/LBurny/symkit-mcp"
+Issues = "https://github.com/LBurny/symkit-mcp/issues"
 
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple/"
