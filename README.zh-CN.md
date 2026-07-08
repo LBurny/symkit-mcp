@@ -106,10 +106,10 @@ SymKit 提供 **41 个 MCP 工具**，分为 8 个类别。日常通过少数高
 |---|---|---|
 | **统一数学** | `math` | 1 |
 | **会话管理** | `session_start`、`session_show`、`session_rollback`、`session_complete` 等 | 17 |
-| **假设管理** | `assume`、`show_assumptions`、`assume_for_step` 等 | 6 |
-| **公式搜索** | `formula_search`、`formula_get`、`formula_constants` 等 | 6 |
-| **符号注册** | `register_symbol`、`lookup_symbol` 等 | 4 |
-| **代码生成** | `generate_python_function`、`generate_latex_derivation` 等 | 4 |
+| **假设管理** | `assume`、`show_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 6 |
+| **公式搜索** | `formula_search`、`formula_get`、`formula_add`、`formula_categories` | 4 |
+| **符号注册** | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 |
+| **代码生成** | `generate_python_function`、`generate_latex_derivation`、`generate_derivation_report`、`generate_sympy_script` | 4 |
 | **推导与编排** | `derive`、`intent_execute`、`list_patterns` | 3 |
 | **工具发现** | `tool_categories`、`tool_recommend` | 2 |
 

@@ -106,10 +106,10 @@ SymKit exposes **41 MCP tools** across 8 categories. Everything routes through a
 |---|---|---|
 | **Unified Math** | `math` | 1 |
 | **Session Management** | `session_start`, `session_show`, `session_rollback`, `session_complete`, ... | 17 |
-| **Assumptions** | `assume`, `show_assumptions`, `assume_for_step`, ... | 6 |
-| **Formula Search** | `formula_search`, `formula_get`, `formula_constants`, ... | 6 |
-| **Symbol Registry** | `register_symbol`, `lookup_symbol`, ... | 4 |
-| **Code Generation** | `generate_python_function`, `generate_latex_derivation`, ... | 4 |
+| **Assumptions** | `assume`, `show_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 6 |
+| **Formula Search** | `formula_search`, `formula_get`, `formula_add`, `formula_categories` | 4 |
+| **Symbol Registry** | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 |
+| **Code Generation** | `generate_python_function`, `generate_latex_derivation`, `generate_derivation_report`, `generate_sympy_script` | 4 |
 | **Derivation & Orchestration** | `derive`, `intent_execute`, `list_patterns` | 3 |
 | **Tool Discovery** | `tool_categories`, `tool_recommend` | 2 |
 
