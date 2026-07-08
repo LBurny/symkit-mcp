@@ -290,7 +290,7 @@ uv run symkit-mcp
 
 SymKit is built on the foundation of [nsforge-mcp](https://github.com/u9401066/nsforge-mcp), which pioneered the neurosymbolic formula-derivation approach. The original Chinese README of nsforge-mcp can be found [here](https://github.com/u9401066/nsforge-mcp/blob/master/README.zh-TW.md).
 
-SymKit works alongside [sympy-mcp](https://github.com/space-cadet/sympy-mcp), which provides the underlying SymPy-based symbolic computation and base formula lookup that SymKit builds upon.
+SymKit works alongside [sympy-mcp](https://github.com/sdiehl/sympy-mcp), which provides the underlying SymPy-based symbolic computation and base formula lookup that SymKit builds upon.
 
 ## 📄 License
 

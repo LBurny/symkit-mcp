@@ -271,7 +271,7 @@ uv run symkit-mcp
 
 SymKit 基于 [nsforge-mcp](https://github.com/u9401066/nsforge-mcp) 的成果进一步发展而来。nsforge-mcp 开创了神经符号公式推导的探索方向，其原始中文 README 可参见[此处](https://github.com/u9401066/nsforge-mcp/blob/master/README.zh-TW.md)。
 
-SymKit 与 [sympy-mcp](https://github.com/space-cadet/sympy-mcp) 协同工作，后者提供了 SymKit 所依赖的底层 SymPy 符号计算和基础公式查询能力。
+SymKit 与 [sympy-mcp](https://github.com/sdiehl/sympy-mcp) 协同工作，后者提供了 SymKit 所依赖的底层 SymPy 符号计算和基础公式查询能力。
 
 ## 📄 许可证
 
