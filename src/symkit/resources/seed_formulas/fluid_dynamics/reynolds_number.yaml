@@ -1,0 +1,32 @@
+---
+id: "reynolds_number"
+name: "Reynolds number"
+aliases:
+  - "Re"
+  - "Reynolds"
+  - "Reynolds number definition"
+domain: "fluid_dynamics"
+category: "fluid_dynamics"
+description: "Dimensionless number representing the ratio of inertial to viscous forces"
+sympy_str: "Re = rho * v * L / mu"
+latex: "Re = \\frac{\\rho v L}{\\mu}"
+tags:
+  - "dimensionless"
+  - "fluid"
+  - "turbulence"
+  - "similarity"
+variables:
+  rho:
+    description: "density"
+    unit: "kg/m^3"
+  v:
+    description: "flow velocity"
+    unit: "m/s"
+  L:
+    description: "characteristic length"
+    unit: "m"
+  mu:
+    description: "dynamic viscosity"
+    unit: "Pa·s"
+references:
+  - "https://en.wikipedia.org/wiki/Reynolds_number"

@@ -1,0 +1,33 @@
+---
+id: "euler_equations_inviscid"
+name: "Euler equations (inviscid)"
+aliases:
+  - "Euler equations"
+  - "inviscid Euler equations"
+  - "Euler momentum equation"
+domain: "fluid_dynamics"
+category: "fluid_dynamics"
+description: "Momentum equation for inviscid (zero viscosity) fluid flow"
+sympy_str: "Eq(Derivative(u, t) + convective(u, u), -grad(p) / rho)"
+latex: "\\frac{\\partial \\vec u}{\\partial t} + \\vec u \\cdot \\nabla \\vec u = -\\frac{1}{\\rho} \\nabla p"
+tags:
+  - "euler"
+  - "fluid"
+  - "pde"
+  - "inviscid"
+  - "momentum"
+variables:
+  u:
+    description: "velocity vector"
+    unit: "m/s"
+  p:
+    description: "pressure"
+    unit: "Pa"
+  rho:
+    description: "density"
+    unit: "kg/m^3"
+  t:
+    description: "time"
+    unit: "s"
+references:
+  - "https://en.wikipedia.org/wiki/Euler_equations_(fluid_dynamics)"

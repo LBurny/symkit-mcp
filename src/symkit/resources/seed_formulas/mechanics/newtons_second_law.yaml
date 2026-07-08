@@ -1,0 +1,29 @@
+---
+id: "newtons_second_law"
+name: "Newton's second law"
+aliases:
+  - "Newton's second law"
+  - "F = ma"
+  - "Newton's law of motion"
+domain: "mechanics"
+category: "mechanics"
+description: "Net force equals mass times acceleration"
+sympy_str: "F = m * a"
+latex: "F = m a"
+tags:
+  - "mechanics"
+  - "force"
+  - "acceleration"
+  - "newton"
+variables:
+  F:
+    description: "net force"
+    unit: "N"
+  m:
+    description: "mass"
+    unit: "kg"
+  a:
+    description: "acceleration"
+    unit: "m/s^2"
+references:
+  - "https://en.wikipedia.org/wiki/Newton%27s_laws_of_motion"

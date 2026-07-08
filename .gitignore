@@ -1,0 +1,62 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+vendor/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+*.sublime-*
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+
+# Test coverage
+coverage/
+.coverage
+htmlcov/
+
+# Type checker and linter caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.dmypy.json
+
+# Sensitive data
+*.pem
+*.key
+secrets/
+
+# Runtime session artifacts
+derivation_sessions/
+memory-bank/
+
+# Generated formula outputs
+formulas/derived/

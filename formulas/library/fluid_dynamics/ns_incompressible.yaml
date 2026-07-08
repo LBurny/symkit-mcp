@@ -1,0 +1,33 @@
+---
+id: "ns_incompressible"
+name: "Navier-Stokes equations (incompressible)"
+aliases:
+  - "Navier-Stokes equations"
+  - "NS equations"
+  - "incompressible Navier-Stokes"
+domain: "fluid_dynamics"
+category: "fluid_dynamics"
+description: "Momentum equation for incompressible viscous fluid flow"
+sympy_str: "Eq(Derivative(u, t) + convective(u, u), -grad(p) + nu*laplacian(u))"
+latex: "\\frac{\\partial \\vec u}{\\partial t} + \\vec u \\cdot \\nabla \\vec u = -\\nabla p + \\nu \\nabla^2 \\vec u"
+tags:
+  - "navier-stokes"
+  - "fluid"
+  - "pde"
+  - "momentum"
+  - "viscous"
+variables:
+  u:
+    description: "velocity vector"
+    unit: "m/s"
+  p:
+    description: "pressure"
+    unit: "Pa"
+  nu:
+    description: "kinematic viscosity"
+    unit: "m^2/s"
+  t:
+    description: "time"
+    unit: "s"
+references:
+  - "https://en.wikipedia.org/wiki/Navier%E2%80%93Stokes_equations"

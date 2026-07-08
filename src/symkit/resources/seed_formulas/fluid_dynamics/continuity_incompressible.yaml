@@ -1,0 +1,24 @@
+---
+id: "continuity_incompressible"
+name: "Continuity equation (incompressible)"
+aliases:
+  - "continuity equation"
+  - "incompressibility condition"
+  - "mass conservation incompressible"
+domain: "fluid_dynamics"
+category: "fluid_dynamics"
+description: "Mass conservation for incompressible flow"
+sympy_str: "Eq(div(u), 0)"
+latex: "\\nabla \\cdot \\vec u = 0"
+tags:
+  - "continuity"
+  - "fluid"
+  - "pde"
+  - "mass conservation"
+  - "incompressible"
+variables:
+  u:
+    description: "velocity vector"
+    unit: "m/s"
+references:
+  - "https://en.wikipedia.org/wiki/Continuity_equation"

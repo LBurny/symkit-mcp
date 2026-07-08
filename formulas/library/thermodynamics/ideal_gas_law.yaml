@@ -1,0 +1,35 @@
+---
+id: "ideal_gas_law"
+name: "Ideal gas law"
+aliases:
+  - "ideal gas equation"
+  - "PV = nRT"
+  - "perfect gas law"
+domain: "thermodynamics"
+category: "thermodynamics"
+description: "Equation of state for an ideal gas"
+sympy_str: "P * V = n * R * T"
+latex: "P V = n R T"
+tags:
+  - "thermodynamics"
+  - "gas"
+  - "equation of state"
+  - "pressure"
+variables:
+  P:
+    description: "pressure"
+    unit: "Pa"
+  V:
+    description: "volume"
+    unit: "m^3"
+  n:
+    description: "amount of substance"
+    unit: "mol"
+  R:
+    description: "ideal gas constant"
+    unit: "J/(mol·K)"
+  T:
+    description: "temperature"
+    unit: "K"
+references:
+  - "https://en.wikipedia.org/wiki/Ideal_gas_law"

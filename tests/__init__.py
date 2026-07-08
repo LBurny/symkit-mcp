@@ -1,0 +1,3 @@
+"""
+SymKit Tests Package
+"""

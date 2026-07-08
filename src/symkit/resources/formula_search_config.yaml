@@ -1,0 +1,103 @@
+# Formula search configuration for SymKit
+#
+# This file centralizes domain aliases and formula-name aliases so that
+# LLM-generated natural-language queries can be normalized into the canonical
+# forms used by the Wikidata / SciPy / BioModels adapters.
+
+# Map common domain names/aliases to the canonical domain keys used internally.
+# The canonical keys should match the categories stored in the local YAML library
+# (e.g. "fluid_dynamics" is used by FormulaEntry.category).
+domain_aliases:
+  # Fluid mechanics
+  fluid_dynamics: fluid_dynamics
+  fluid: fluid_dynamics
+  fluid_mechanics: fluid_dynamics
+  cfd: fluid_dynamics
+  fluid_flow: fluid_dynamics
+  aerodynamics: fluid_dynamics
+  hydrodynamics: fluid_dynamics
+
+  # Thermodynamics / heat
+  thermodynamics: thermodynamics
+  thermal: thermodynamics
+  heat: thermodynamics
+  statistical_mechanics: thermodynamics
+
+  # Electromagnetism
+  electromagnetism: electromagnetism
+  electromagnetic: electromagnetism
+  electrodynamics: electromagnetism
+  maxwell: electromagnetism
+  em: electromagnetism
+
+  # Quantum mechanics
+  quantum_mechanics: quantum_mechanics
+  quantum: quantum_mechanics
+  quantum_field_theory: quantum_mechanics
+  qft: quantum_mechanics
+  schrodinger: quantum_mechanics
+  schrödinger: quantum_mechanics
+
+  # General relativity / cosmology
+  general_relativity: general_relativity
+  gravity: general_relativity
+  gravitation: general_relativity
+  relativity: general_relativity
+  cosmology: general_relativity
+  astrophysics: general_relativity
+
+  # Classical mechanics
+  mechanics: mechanics
+  newtonian: mechanics
+  classical_mechanics: mechanics
+  solid_mechanics: mechanics
+
+  # Optics
+  optics: optics
+  light: optics
+  photonics: optics
+
+  # Chemistry
+  chemistry: chemistry
+  chemical: chemistry
+  physical_chemistry: chemistry
+
+  # Pharmacology / biology
+  pharmacokinetics: pharmacokinetics
+  pk: pharmacokinetics
+  pharmacodynamics: pharmacodynamics
+  pd: pharmacodynamics
+  enzyme_kinetics: enzyme_kinetics
+  pkpd: pharmacokinetics
+
+# Map canonical formula names to common aliases.  These aliases are used to
+# expand a query into multiple search variants when the adapters do not
+# already support alias lookup (e.g. Wikidata's skos:altLabel).
+formula_aliases:
+  "navier-stokes equations":
+    - "ns equations"
+    - "navier stokes equations"
+    - "navier-stokes"
+    - "navier stokes"
+  "euler equations":
+    - "euler fluid equations"
+    - "inviscid euler equations"
+  "reynolds number":
+    - "re"
+    - "reynolds"
+    - "reynolds number"
+  "maxwell's equations":
+    - "maxwell equations"
+    - "maxwells equations"
+  "schrödinger equation":
+    - "schrodinger equation"
+    - "schroedinger equation"
+  "ideal gas law":
+    - "ideal gas equation"
+    - "pv nrt"
+  "arrhenius equation":
+    - "arrhenius"
+    - "activation energy equation"
+  "fourier's law":
+    - "fourier law"
+    - "heat conduction law"
