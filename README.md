@@ -98,9 +98,9 @@ User: Calculate and verify ∫(x² + 3x) dx.
 → Verify: d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 🛠️ 43 MCP tools, one coherent workflow
+## 🛠️ 41 MCP tools, one coherent workflow
 
-SymKit exposes **43 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
+SymKit exposes **41 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
 
 | Category | Tools | Count |
 |---|---|---|
@@ -218,11 +218,11 @@ The same JSON works in any MCP-compatible client (Claude Desktop, Cherry Studio,
   "mcpServers": {
     "symkit": {
       "command": "uv",
-      "args": [
+        "args": [
         "run",
         "--no-sync",
         "--directory",
-        "i:\\Formulation\\example\\nsforge-mcp-sigma",
+        "<your-local-symkit-mcp-path>",
         "python",
         "-m",
         "symkit_mcp.server"
@@ -254,7 +254,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # SymPy engine, adapters, persistence
 │   └── symkit_mcp/          # MCP server layer
 │       ├── server.py
-│       └── tools/           # 43 MCP tools
+│       └── tools/           # 41 MCP tools
 ├── formulas/                # Seed formula library (source tree)
 ├── tests/                   # 295 tests
 └── pyproject.toml

@@ -98,9 +98,9 @@ SymKit：
 → 验证：d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 🛠️ 43 个 MCP 工具，一套连贯工作流
+## 🛠️ 41 个 MCP 工具，一套连贯工作流
 
-SymKit 提供 **43 个 MCP 工具**，分为 8 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
+SymKit 提供 **41 个 MCP 工具**，分为 8 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
 
 | 类别 | 工具 | 数量 |
 |---|---|---|
@@ -208,11 +208,11 @@ pip install symkit-mcp
   "mcpServers": {
     "symkit": {
       "command": "uv",
-      "args": [
+        "args": [
         "run",
         "--no-sync",
         "--directory",
-        "i:\\Formulation\\example\\nsforge-mcp-sigma",
+        "<your-local-symkit-mcp-path>",
         "python",
         "-m",
         "symkit_mcp.server"
@@ -235,7 +235,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # SymPy 引擎、适配器、持久化
 │   └── symkit_mcp/          # MCP 服务器层
 │       ├── server.py
-│       └── tools/           # 43 个 MCP 工具
+│       └── tools/           # 41 个 MCP 工具
 ├── formulas/                # 推导成果仓库
 ├── tests/                   # 281 个测试
 └── pyproject.toml
