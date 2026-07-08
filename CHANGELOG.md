@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-08
+
 ### Changed
 
 - 🐍 **Lowered Python requirement from 3.12+ to 3.10+** to make `pip install symkit-mcp` available on more environments.
