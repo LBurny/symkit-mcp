@@ -3,7 +3,7 @@
 > **Mathematica-style symbolic computation, powered by LLMs.**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
 [![Tests](https://img.shields.io/badge/tests-266%20passed-brightgreen.svg)]()
 [![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
@@ -173,7 +173,7 @@ SymKit is designed to extend, not replace, your scientific computing stack. It h
 
 ### Requirements
 
-- **Python 3.12+**
+- **Python 3.10+**
 - **uv** (recommended)
 
 ```bash

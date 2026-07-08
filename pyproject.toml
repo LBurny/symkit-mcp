@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "SymKit MCP - Symbolic derivation and verification toolkit for AI agents via MCP."
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 authors = [
     { name = "SymKit Team" }
 ]
@@ -24,6 +24,8 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Mathematics",
@@ -77,7 +79,7 @@ build-backend = "hatchling.build"
 packages = ["src/symkit", "src/symkit_mcp"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py310"
 line-length = 100
 src = ["src", "tests"]
 
@@ -110,7 +112,7 @@ known-first-party = ["symkit", "symkit_mcp"]
 "src/symkit/domain/value_objects.py" = ["UP042"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true

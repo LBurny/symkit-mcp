@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- 🐍 **Lowered Python requirement from 3.12+ to 3.10+** to make `pip install symkit-mcp` available on more environments.
+
+### Fixed
+
+- 🔢 **Corrected MCP tool count from 43 to 41** across `README.md`, `README.zh-CN.md`, `ARCHITECTURE.md`, `docs/symkit-design.md`, and `docs/symkit-design.zh-CN.md`.
+
 ## [1.0.0] - 2026-07-08
 
 ### Changed
@@ -21,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed development-only workspace files (`.claude/`, `memory-bank/`, `.vscode/`)
   - Rewrote `.gitignore` in English with broader coverage
 - 📝 **Documentation refreshed**
-  - Rewrote `README.md` and `README.zh-CN.md` with general-purpose examples and the correct **43-tool** count
+  - Rewrote `README.md` and `README.zh-CN.md` with general-purpose examples and the correct **41-tool** count
   - Updated `ARCHITECTURE.md`, `CLAUDE.md`, and `ROADMAP.md` to match the current tool set
   - Removed outdated references to non-existent tools, skills, and Memory Bank
 - 🌐 **Source comments internationalized**
