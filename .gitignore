@@ -60,3 +60,9 @@ memory-bank/
 
 # Generated formula outputs
 formulas/derived/
+
+# Subagent workspace
+.superpowers/
+
+# ZCode local metadata
+.zcode/
