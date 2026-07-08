@@ -77,6 +77,8 @@ def _preprocess_latex_vector_calculus(s: str) -> str:
     - ``\vec{u} \cdot \nabla \vec{u}`` -> ``convective(u, u)``
     - ``\frac{\partial u}{\partial t}`` -> ``diff(u, t)``
     - ``\partial_t u`` -> ``diff(u, t)``
+    - ``\frac{D u}{D t}`` -> ``diff(u, t)``
+    - ``\frac{D}{Dt} u`` / ``\frac{D}{Dt}(u)`` -> ``diff(u, t)``
     """
     # Helper: match an identifier optionally wrapped in braces.
     ident = r"(?:\{([A-Za-z][A-Za-z0-9]*)\}|([A-Za-z][A-Za-z0-9]*))"
@@ -121,7 +123,25 @@ def _preprocess_latex_vector_calculus(s: str) -> str:
     # 7. Laplacian: \nabla^2 u -> laplacian(u)
     s = re.sub(r"\\nabla\^2\s*" + ident, r"laplacian(\1\2)", s)
 
-    # 8. Gradient: \nabla h -> grad(h) (last, so it doesn't catch div/curl/lap)
+    # 8. Material derivative: \frac{D u}{D t} -> diff(u, t)
+    #    Must run before gradient conversion so \nabla in the same expression stays intact.
+    s = re.sub(
+        r"\\frac\{D\s+" + ident + r"\}\{D\s+([A-Za-z])\}",
+        r"diff(\1\2, \3)",
+        s,
+    )
+    s = re.sub(
+        r"\\frac\{D\}\{Dt\}\s*" + ident,
+        r"diff(\1\2, t)",
+        s,
+    )
+    s = re.sub(
+        r"\\frac\{D\}\{Dt\}\s*\(\s*" + ident + r"\s*\)",
+        r"diff(\1\2, t)",
+        s,
+    )
+
+    # 9. Gradient: \nabla h -> grad(h) (last, so it doesn't catch div/curl/lap)
     s = re.sub(r"\\nabla\s+" + ident, r"grad(\1\2)", s)
 
     return s
