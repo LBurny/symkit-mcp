@@ -58,7 +58,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 - **人机协同**：支持在推导中插入假设、限制、观察、修正建议等非计算性知识。
 - **LaTeX 友好**：原生支持 LaTeX 输入、下标符号、希腊字母和物理星号上标（如 `\beta^*`）。
 
-项目的对外主契约是 43 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
+项目的对外主契约是 41 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
 
 ---
 
@@ -155,7 +155,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 
 ### 4.4 MCP Tool 层
 
-对外暴露 43 个 MCP 工具，每个模块聚焦一类能力：
+对外暴露 41 个 MCP 工具，每个模块聚焦一类能力：
 
 | 文件 | 主要职责 |
 |---|---|
@@ -334,17 +334,17 @@ timestamp: str
 
 ### 8.1 工具分类
 
-SymKit 共暴露 43 个 MCP 工具，按功能分为 8 类：
+SymKit 共暴露 41 个 MCP 工具，按功能分为 8 类：
 
 | 工具模块 | 代表工具 | 数量 | 定位 |
 |---|---|---|---|
-| `math` | `math()`、`assume()` | 2 | 统一计算入口与全局假设 |
-| `session` | `session_start`、`session_show`、`session_complete` | 17 | 统一推导会话工作流 |
-| `formula` | `formula_search`、`formula_constants`、`formula_get` | 6 | 外部公式检索 |
-| `assumptions` | `assume_for_step`、`list_assumptions` | 5 | 步骤级假设管理 |
-| `symbols` | `register_symbol`、`lookup_symbol` | 4 | 符号语义管理 |
-| `codegen` | `generate_python_function`、`generate_latex_derivation` | 4 | 代码/报告生成 |
-| `orchestration` | `derive()`、`intent_execute()` | 3 | 高层自动化编排 |
+| `math` | `math()` | 1 | 统一计算入口 |
+| `session` | `session_start`、`session_show`、`session_complete` 等 | 17 | 统一推导会话工作流 |
+| `assumptions` | `assume`、`show_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 6 | 全局与步骤级假设管理 |
+| `formula` | `formula_search`、`formula_get`、`formula_add`、`formula_categories` | 4 | 外部公式检索 |
+| `symbols` | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 | 符号语义管理 |
+| `codegen` | `generate_python_function`、`generate_latex_derivation`、`generate_derivation_report`、`generate_sympy_script` | 4 | 代码/报告生成 |
+| `orchestration` | `derive()`、`intent_execute()`、`list_patterns()` | 3 | 高层自动化编排 |
 | `meta` | `tool_categories()`、`tool_recommend()` | 2 | 工具发现与推荐 |
 
 `math()` 已覆盖以前分散在多个工具中的功能，统一为单一入口，避免 LLM 在众多旧工具中迷失。
@@ -649,5 +649,5 @@ _current_context: MathContext = MathContext()   # 当前数学上下文（假设
 - `derive()` 在长推导或启用网络适配器时可能触发 MCP 客户端超时；复杂任务建议分步使用 `session_start` + `math(..., session=True)`。
 - 复合 LaTeX 等式 `"A = B, \\quad C = D"` 仅记录第一条等式，其余会生成 `parse_warnings`，请单独调用记录。
 - 含网络的外部适配器默认不启用，避免默认依赖网络。
-- 当前版本共 43 个 MCP 工具；`formula_pk_models` 和 `formula_kinetic_laws` 是历史遗留的领域分类工具，后续可能重命名为更通用的名称。
+- 当前版本共 41 个 MCP 工具；`formula_pk_models` 和 `formula_kinetic_laws` 是历史遗留的领域分类工具，后续可能重命名为更通用的名称。
 

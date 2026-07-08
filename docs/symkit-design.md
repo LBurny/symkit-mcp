@@ -59,7 +59,7 @@ SymKit is a **domain-agnostic** general-purpose formula derivation engine suitab
 - **Human-AI Collaboration**: Supports inserting assumptions, limitations, observations, and correction suggestions into the derivation.
 - **LaTeX Friendly**: Natively supports LaTeX input, subscript symbols, Greek letters, and physical star superscripts (e.g., `\beta^*`).
 
-The external contract is a set of 43 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
+The external contract is a set of 41 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
 
 ---
 
@@ -156,7 +156,7 @@ Technical implementation details:
 
 ### 4.4 MCP Tool Layer
 
-Exposes 43 MCP tools; each module focuses on one capability area:
+Exposes 41 MCP tools; each module focuses on one capability area:
 
 | File | Responsibility |
 |---|---|
@@ -335,17 +335,17 @@ When rolling back, deleting, or inserting notes, `DerivationSession` no longer d
 
 ### 8.1 Tool Categories
 
-SymKit exposes 43 MCP tools organized into 8 categories:
+SymKit exposes 41 MCP tools organized into 8 categories:
 
 | Tool Module | Representative Tools | Count | Purpose |
 |---|---|---|---|
-| `math` | `math()`, `assume()` | 2 | Unified computation entry and global assumptions |
-| `session` | `session_start`, `session_show`, `session_complete` | 17 | Unified derivation session workflow |
-| `formula` | `formula_search`, `formula_constants`, `formula_get` | 6 | External formula search |
-| `assumptions` | `assume_for_step`, `list_assumptions` | 5 | Step-level assumption management |
-| `symbols` | `register_symbol`, `lookup_symbol` | 4 | Symbol semantics management |
-| `codegen` | `generate_python_function`, `generate_latex_derivation` | 4 | Code/report generation |
-| `orchestration` | `derive()`, `intent_execute()` | 3 | High-level automation orchestration |
+| `math` | `math()` | 1 | Unified computation entry |
+| `session` | `session_start`, `session_show`, `session_complete`, ... | 17 | Unified derivation session workflow |
+| `assumptions` | `assume`, `show_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 6 | Global and step-level assumption management |
+| `formula` | `formula_search`, `formula_get`, `formula_add`, `formula_categories` | 4 | External formula search |
+| `symbols` | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 | Symbol semantics management |
+| `codegen` | `generate_python_function`, `generate_latex_derivation`, `generate_derivation_report`, `generate_sympy_script` | 4 | Code/report generation |
+| `orchestration` | `derive()`, `intent_execute()`, `list_patterns()` | 3 | High-level automation orchestration |
 | `meta` | `tool_categories()`, `tool_recommend()` | 2 | Tool discovery and recommendation |
 
 `math()` consolidates functionality previously scattered across many tools into a single entry point, preventing LLMs from getting lost among many similar tools.
@@ -651,5 +651,5 @@ Current status: 293 tests pass; Ruff and MyPy report no errors.
 - `derive()` may trigger MCP client timeouts during long derivations or when network adapters are enabled; for complex tasks, use `session_start` + `math(..., session=True)` step by step.
 - Compound LaTeX equations `"A = B, \\quad C = D"` only record the first equation; the rest generate `parse_warnings`. Record them separately.
 - Network-dependent external adapters are disabled by default to avoid default network dependencies.
-- The current version has 43 MCP tools; `formula_pk_models` and `formula_kinetic_laws` are legacy domain-specific category tools and may be renamed to more general names in future versions.
+- The current version has 41 MCP tools; `formula_pk_models` and `formula_kinetic_laws` are legacy domain-specific category tools and may be renamed to more general names in future versions.
 
