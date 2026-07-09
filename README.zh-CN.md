@@ -212,10 +212,6 @@ symkit-mcp --version
 #### 方式 B —— `pip`
 
 ```bash
-# 可选但推荐：把安装与系统包隔离开
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
 # 安装
 pip install symkit-mcp
 
@@ -223,7 +219,7 @@ pip install symkit-mcp
 symkit-mcp --version
 ```
 
-如果希望每个 CLI 工具都跑在各自隔离环境里、不必手动维护 venv，推荐
+如果希望每个 CLI 工具都跑在各自隔离环境里，推荐
 [`pipx`](https://pypa.github.io/pipx/)（`pipx install symkit-mcp`）。
 
 #### 方式 C —— 从源码安装（用于开发或未发布改动）

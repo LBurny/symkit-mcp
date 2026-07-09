@@ -212,10 +212,6 @@ with `uv tool upgrade symkit-mcp`, and uninstall with `uv tool uninstall symkit-
 #### Option B — `pip`
 
 ```bash
-# Optional but recommended: isolate the install from system packages
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
 # Install
 pip install symkit-mcp
 
@@ -224,8 +220,7 @@ symkit-mcp --version
 ```
 
 Prefer [`pipx`](https://pypa.github.io/pipx/) (`pipx install symkit-mcp`) if
-you want each CLI tool in its own isolated environment without managing a
-venv by hand.
+you want each CLI tool in its own isolated environment.
 
 #### Option C — From source (development or unreleased changes)
 
