@@ -174,17 +174,77 @@ SymKit is designed to extend, not replace, your scientific computing stack. It h
 ### Requirements
 
 - **Python 3.10+**
-- **uv** (recommended)
+- An MCP-compatible client: Claude Desktop, Claude Code, Cherry Studio, …
+- **uv** (recommended) **or** pip
+
+### Step 1 — Install SymKit
+
+Pick **one** of the three install paths below. Each produces a runnable
+`symkit-mcp` command you point your MCP client at in Step 3.
+
+#### Option A — `uv` (recommended)
+
+[`uv`](https://docs.astral.sh/uv/) is a fast Python package manager. Install
+SymKit as an isolated global CLI tool — no virtualenv to manage, no clashes
+with your system Python:
 
 ```bash
-# Install
-uv add symkit-mcp
+# 1. Install uv itself (if you don't have it yet)
+#    macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+#    Windows (PowerShell)
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Or use pip
-pip install symkit-mcp
+# 2. Install SymKit as a global CLI tool
+uv tool install symkit-mcp
+
+# 3. Verify it's on your PATH
+symkit-mcp --version
 ```
 
-### Where data lives
+`uv tool install` places a `symkit-mcp` entry point on your PATH. Upgrade later
+with `uv tool upgrade symkit-mcp`, and uninstall with `uv tool uninstall symkit-mcp`.
+
+> **No-install alternative:** `uvx symkit-mcp` runs the latest published
+> release on the fly, caching it behind the scenes. Useful for one-off runs
+> or for the MCP client config in Step 3 — no `uv tool install` required.
+
+#### Option B — `pip`
+
+```bash
+# Optional but recommended: isolate the install from system packages
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+# Install
+pip install symkit-mcp
+
+# Verify
+symkit-mcp --version
+```
+
+Prefer [`pipx`](https://pypa.github.io/pipx/) (`pipx install symkit-mcp`) if
+you want each CLI tool in its own isolated environment without managing a
+venv by hand.
+
+#### Option C — From source (development or unreleased changes)
+
+```bash
+git clone https://github.com/LBurny/symkit-mcp.git
+cd symkit-mcp
+
+# Install the project + dev/test extras into a local .venv
+uv sync --all-extras
+
+# Run the server straight from the checkout — no install step needed
+uv run symkit-mcp
+```
+
+`uv run` executes against the local source tree, so you can edit and re-run
+immediately. Pull the latest deps after changing `pyproject.toml` with
+`uv sync`.
+
+### Step 2 — Where data lives
 
 After install, SymKit stores runtime data in a per-user directory (resolved via
 `platformdirs`): derived formulas and session JSONs persist under
@@ -194,11 +254,31 @@ environment variable to override this location. Seed formulas (Reynolds number,
 Navier-Stokes, …) ship read-only inside the package; user-added formulas via
 `formula_add` are written to the writable overlay and override seeds by id.
 
-### Connect to Claude Desktop / Cherry Studio
+### Step 3 — Connect to your client
 
-The same JSON works in any MCP-compatible client (Claude Desktop, Cherry Studio, etc.).
+SymKit speaks MCP over stdio, so the same server works with every
+MCP-compatible client. The config differs only in *shape*: Claude Desktop and
+Cherry Studio take a JSON object, Claude Code takes a CLI command.
 
-**If you installed from PyPI:**
+#### Claude Desktop / Cherry Studio (JSON config)
+
+Add an `mcpServers` entry to your client's config file (`claude_desktop_config.json`
+for Claude Desktop; the equivalent settings panel for Cherry Studio).
+
+**Installed via `uv tool` / `pip` / `pipx`** (the `symkit-mcp` command is on PATH):
+
+```json
+{
+  "mcpServers": {
+    "symkit": {
+      "command": "symkit-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+**Run on the fly without installing** (uvx pulls and caches the latest release):
 
 ```json
 {
@@ -211,14 +291,14 @@ The same JSON works in any MCP-compatible client (Claude Desktop, Cherry Studio,
 }
 ```
 
-**If you are running from the local source directory (no install needed):**
+**Running from a local source checkout** (no install needed):
 
 ```json
 {
   "mcpServers": {
     "symkit": {
       "command": "uv",
-        "args": [
+      "args": [
         "run",
         "--no-sync",
         "--directory",
@@ -232,16 +312,48 @@ The same JSON works in any MCP-compatible client (Claude Desktop, Cherry Studio,
 }
 ```
 
-Replace `--directory` with the absolute path to your local `symkit-mcp` clone. `--no-sync` skips dependency resolution on every launch; run `uv sync` manually when dependencies change.
+Replace `<your-local-symkit-mcp-path>` with the absolute path to your local
+`symkit-mcp` clone. `--no-sync` skips dependency resolution on every launch;
+run `uv sync` manually when dependencies change.
 
-### From source
+> **Windows PATH gotcha:** if Claude Desktop fails to launch the server with a
+> "command not found" error, the app's process PATH may not include your
+> `Scripts/` or uv tool directory. Switch the `command` to an absolute path,
+> e.g. `"C:/Users/you/AppData/Local/uv/tools/symkit-mcp/Scripts/symkit-mcp.exe"`.
+
+#### Claude Code (CLI config)
+
+Claude Code is configured with the `claude mcp` command instead of a JSON file.
+The command after `--` is exactly what Claude Code will spawn as the server:
 
 ```bash
-git clone https://github.com/LBurny/symkit-mcp.git
-cd symkit-mcp
-uv sync --all-extras
-uv run symkit-mcp
+# Installed via uv tool / pip / pipx:
+claude mcp add symkit -- symkit-mcp
+
+# Run on the fly without installing:
+claude mcp add symkit -- uvx symkit-mcp
+
+# From a local source checkout:
+claude mcp add symkit -- uv run --no-sync \
+  --directory /path/to/symkit-mcp python -m symkit_mcp.server
 ```
+
+Choose the scope that fits:
+
+| Scope | Flag | Where it lives | Who sees it |
+|---|---|---|---|
+| **local** (default) | `--scope local` | your machine, this project only | you |
+| **project** | `--scope project` | `<repo>/.mcp.json`, committable | the team |
+| **user** | `--scope user` | your machine, all projects | you |
+
+Verify the server registered and is reachable:
+
+```bash
+claude mcp list        # list all configured servers
+claude mcp get symkit  # show symkit's config + connection status
+```
+
+Restart Claude Code if a server was added during a running session.
 
 ## 🏗️ Clean architecture, built to extend
 
