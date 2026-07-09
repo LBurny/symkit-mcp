@@ -255,8 +255,7 @@ uv run symkit-mcp
 ### 第 3 步 —— 接入客户端
 
 SymKit 通过 stdio 通信 MCP，因此同一台服务器适配所有 MCP 兼容客户端。
-配置仅在*形态*上不同：Claude Desktop 和 Cherry Studio 接收 JSON 对象，
-Claude Code 接收 CLI 命令。
+下方是 Claude Desktop 与 Cherry Studio 的 JSON 配置。
 
 #### Claude Desktop / Cherry Studio（JSON 配置）
 
@@ -318,40 +317,6 @@ Cherry Studio 为对应的设置面板）中加入 `mcpServers` 条目。
 > found"，多半是应用进程的 PATH 没包含你的 `Scripts/` 或 uv 工具目录。
 > 把 `command` 改成绝对路径即可，例如
 > `"C:/Users/you/AppData/Local/uv/tools/symkit-mcp/Scripts/symkit-mcp.exe"`。
-
-#### Claude Code（CLI 配置）
-
-Claude Code 用 `claude mcp` 命令配置，而非 JSON 文件。`--` 之后的命令
-就是 Claude Code 将要作为服务器拉起的内容：
-
-```bash
-# 通过 uv tool / pip / pipx 安装的：
-claude mcp add symkit -- symkit-mcp
-
-# 免安装即时运行：
-claude mcp add symkit -- uvx symkit-mcp
-
-# 从本地源码检出目录运行：
-claude mcp add symkit -- uv run --no-sync \
-  --directory /path/to/symkit-mcp python -m symkit_mcp.server
-```
-
-按需选择作用域：
-
-| 作用域 | 标志 | 存放位置 | 可见范围 |
-|---|---|---|---|
-| **local**（默认） | `--scope local` | 本机、仅当前项目 | 自己 |
-| **project** | `--scope project` | `<repo>/.mcp.json`，可提交 | 团队 |
-| **user** | `--scope user` | 本机、所有项目 | 自己 |
-
-确认服务器已注册且可达：
-
-```bash
-claude mcp list        # 列出所有已配置的服务器
-claude mcp get symkit  # 查看 symkit 的配置与连接状态
-```
-
-如果在会话运行期间新增了服务器，需重启 Claude Code。
 
 ## 🏗️ 架构清晰，易于扩展
 

@@ -257,8 +257,8 @@ Navier-Stokes, …) ship read-only inside the package; user-added formulas via
 ### Step 3 — Connect to your client
 
 SymKit speaks MCP over stdio, so the same server works with every
-MCP-compatible client. The config differs only in *shape*: Claude Desktop and
-Cherry Studio take a JSON object, Claude Code takes a CLI command.
+MCP-compatible client. Below is the JSON config for Claude Desktop and Cherry
+Studio.
 
 #### Claude Desktop / Cherry Studio (JSON config)
 
@@ -320,40 +320,6 @@ run `uv sync` manually when dependencies change.
 > "command not found" error, the app's process PATH may not include your
 > `Scripts/` or uv tool directory. Switch the `command` to an absolute path,
 > e.g. `"C:/Users/you/AppData/Local/uv/tools/symkit-mcp/Scripts/symkit-mcp.exe"`.
-
-#### Claude Code (CLI config)
-
-Claude Code is configured with the `claude mcp` command instead of a JSON file.
-The command after `--` is exactly what Claude Code will spawn as the server:
-
-```bash
-# Installed via uv tool / pip / pipx:
-claude mcp add symkit -- symkit-mcp
-
-# Run on the fly without installing:
-claude mcp add symkit -- uvx symkit-mcp
-
-# From a local source checkout:
-claude mcp add symkit -- uv run --no-sync \
-  --directory /path/to/symkit-mcp python -m symkit_mcp.server
-```
-
-Choose the scope that fits:
-
-| Scope | Flag | Where it lives | Who sees it |
-|---|---|---|---|
-| **local** (default) | `--scope local` | your machine, this project only | you |
-| **project** | `--scope project` | `<repo>/.mcp.json`, committable | the team |
-| **user** | `--scope user` | your machine, all projects | you |
-
-Verify the server registered and is reachable:
-
-```bash
-claude mcp list        # list all configured servers
-claude mcp get symkit  # show symkit's config + connection status
-```
-
-Restart Claude Code if a server was added during a running session.
 
 ## 🏗️ Clean architecture, built to extend
 
