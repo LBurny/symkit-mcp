@@ -8,6 +8,7 @@
   邮箱：<siwuxiebuaa@gmail.com>
 
 - **Tz Ping Gau** (@u9401066) — 贡献者
+  邮箱：<u9401066@gap.kmu.edu.tw>
 
 - **Claude** — AI 辅助开发
   邮箱：<noreply@anthropic.com>
