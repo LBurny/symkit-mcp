@@ -1,18 +1,18 @@
 # Contributors
 
-感谢所有为本项目做出贡献的人。
+Thank you to everyone who has contributed to this project.
 
-## 主要贡献者
+## Core Contributors
 
-- **LeleLi** (@LBurny) — 项目所有者、主要维护者
-  邮箱：<siwuxiebuaa@gmail.com>
+- **LeleLi** (@LBurny) — Project owner, primary maintainer
+  Email: <siwuxiebuaa@gmail.com>
 
-- **Tz Ping Gau** (@u9401066) — 贡献者
-  邮箱：<u9401066@gap.kmu.edu.tw>
+- **Tz Ping Gau** (@u9401066) — Contributor
+  Email: <u9401066@gap.kmu.edu.tw>
 
-- **Claude** — AI 辅助开发
-  邮箱：<noreply@anthropic.com>
+- **Claude** — AI-assisted development
+  Email: <noreply@anthropic.com>
 
-## 如何贡献
+## How to Contribute
 
-请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Please see [CONTRIBUTING.md](CONTRIBUTING.md).

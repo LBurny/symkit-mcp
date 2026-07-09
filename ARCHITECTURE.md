@@ -1,12 +1,12 @@
 # Architecture
 
-SymKit MCP 架构文档 (v0.2.4)
+SymKit MCP Architecture Document (v1.0.1)
 
 ---
 
-## 系统概览
+## System Overview
 
-SymKit 是一个**通用符号推导引擎**，通过 MCP (Model Context Protocol) 为 AI 代理提供精确的符号推理能力。
+SymKit is a **general-purpose symbolic derivation engine** that provides AI agents with precise symbolic reasoning capabilities through the Model Context Protocol (MCP).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -37,64 +37,64 @@ SymKit 是一个**通用符号推导引擎**，通过 MCP (Model Context Protoco
 
 ---
 
-## DDD 分层架构
+## DDD Layered Architecture
 
 ### 1. Domain Layer (`src/symkit/domain/`)
 
-纯业务逻辑，无外部依赖。
+Pure business logic with no external dependencies.
 
-| 模块 | 说明 |
-|------|------|
+| Module | Description |
+|--------|-------------|
 | `entities/` | Formula, DerivationStep, DerivationSession |
 | `value_objects/` | Expression, Assumption, Metadata |
 | `services/` | SymPyEngine, DerivationEngine |
-| `repositories/` | FormulaRepository (抽象接口) |
+| `repositories/` | FormulaRepository (abstract interface) |
 
 ### 2. Application Layer (`src/symkit/application/`)
 
-协调 Domain 与 Infrastructure。
+Coordinates Domain and Infrastructure.
 
-| 模块 | 说明 |
-|------|------|
-| `use_cases/` | 推导、验证、公式管理用例 |
-| `dto/` | 数据传输对象 |
+| Module | Description |
+|--------|-------------|
+| `use_cases/` | Derivation, verification, and formula management use cases |
+| `dto/` | Data transfer objects |
 
 ### 3. Infrastructure Layer (`src/symkit/infrastructure/`)
 
-外部系统接口。
+Interfaces to external systems.
 
-| 模块 | 说明 |
-|------|------|
-| `persistence/` | YAML/JSON 文件存储 |
-| `formula_repository_impl.py` | FormulaRepository 实作 |
+| Module | Description |
+|--------|-------------|
+| `persistence/` | YAML/JSON file storage |
+| `formula_repository_impl.py` | FormulaRepository implementation |
 
 ### 4. MCP Layer (`src/symkit_mcp/`)
 
-MCP 协议接口，独立于内核库。
+MCP protocol interface, independent of the core library.
 
-| 模块 | 说明 |
-|------|------|
-| `server.py` | MCP Server 入口 |
-| `tools/` | 41 个 MCP 工具实作 |
-
----
-
-## 工具分类 (41 Tools)
-
-| 类别 | 数量 | 说明 |
-|------|------|------|
-| **Session** | 17 | 推导会话管理、步骤操作 |
-| **Math** | 1 | 统一数学入口（微积分、矩阵、ODE、变换等） |
-| **Assumption** | 6 | 符号假设管理 |
-| **Formula** | 4 | 外部公式搜索与分类 |
-| **Symbol** | 4 | 符号注册、查找、冲突检测 |
-| **Codegen** | 4 | Python/LaTeX/Markdown/SymPy 生成 |
-| **Derivation/Orchestration** | 3 | 高层推导编排 |
-| **Tool Discovery** | 2 | 工具发现与推荐 |
+| Module | Description |
+|--------|-------------|
+| `server.py` | MCP Server entry point |
+| `tools/` | 41 MCP tool implementations |
 
 ---
 
-## 数据流
+## Tool Categories (41 Tools)
+
+| Category | Count | Description |
+|----------|-------|-------------|
+| **Session** | 17 | Derivation session management and step operations |
+| **Math** | 1 | Unified math entry point (calculus, matrices, ODE, transforms, etc.) |
+| **Assumption** | 6 | Symbolic assumption management |
+| **Formula** | 4 | External formula search and classification |
+| **Symbol** | 4 | Symbol registration, lookup, and conflict detection |
+| **Codegen** | 4 | Python / LaTeX / Markdown / SymPy generation |
+| **Derivation / Orchestration** | 3 | High-level derivation orchestration |
+| **Tool Discovery** | 2 | Tool discovery and recommendations |
+
+---
+
+## Data Flow
 
 ```
 User Request → MCP Tool → Use Case → Domain Service → SymPy Engine
@@ -103,51 +103,51 @@ User Request → MCP Tool → Use Case → Domain Service → SymPy Engine
                               Infrastructure (YAML/JSON)
 ```
 
-### 推导工作流范例
+### Derivation Workflow Example
 
-1. `session_start()` - 开始会话
-2. `session_record_step()` - 记录每步
-3. `math()` - 执行符号操作（微分、积分、求解等）
-4. `session_show()` - 显示当前状态
-5. `session_complete()` - 存盘
+1. `session_start()` - Start a session.
+2. `session_record_step()` - Record each step.
+3. `math()` - Perform symbolic operations (differentiation, integration, solving, etc.).
+4. `session_show()` - Display the current state.
+5. `session_complete()` - Persist the session.
 
 ---
 
-## 目录结构
+## Directory Structure
 
 ```
 symkit-mcp/
 ├── src/
 │   ├── symkit/              # Core Library (DDD)
-│   │   ├── domain/           # 纯业务逻辑
-│   │   ├── application/      # 用例协调
-│   │   └── infrastructure/   # 持久化、外部适配器
+│   │   ├── domain/          # Pure business logic
+│   │   ├── application/     # Use-case coordination
+│   │   └── infrastructure/  # Persistence, external adapters
 │   └── symkit_mcp/          # MCP Server
-│       ├── server.py         # 入口
-│       └── tools/            # 41 个工具
-├── formulas/                 # 公式仓库
-│   ├── derivations/          # 推导示例（Markdown）
-│   └── fluid_dynamics/       # 已保存公式示例
-├── examples/                 # Python 示例
-├── tests/                    # 测试
+│       ├── server.py        # Entry point
+│       └── tools/           # 41 tools
+├── formulas/                # Formula repository
+│   ├── derivations/         # Derivation examples (Markdown)
+│   └── fluid_dynamics/      # Saved formula examples
+├── examples/                # Python examples
+├── tests/                   # Tests
 └── pyproject.toml
 ```
 
 ---
 
-## 技术栈
+## Tech Stack
 
 - **Python**: 3.10+
-- **SymPy**: 符号计算引擎
+- **SymPy**: Symbolic computation engine
 - **MCP SDK**: Model Context Protocol
-- **uv**: 套件管理
-- **Ruff**: Linting
-- **pytest**: 测试框架
+- **uv**: Package manager
+- **Ruff**: Linter
+- **pytest**: Testing framework
 
 ---
 
-## 相关文档
+## Related Documents
 
-- [README.md](README.md) - 项目说明
-- [CONSTITUTION.md](CONSTITUTION.md) - 开发原则
-- [docs/symkit-vs-sympy-mcp.md](docs/symkit-vs-sympy-mcp.md) - 技能指南
+- [README.md](README.md) - Project overview
+- [CONSTITUTION.md](CONSTITUTION.md) - Development principles
+- [docs/symkit-vs-sympy-mcp.md](docs/symkit-vs-sympy-mcp.md) - Skill guide

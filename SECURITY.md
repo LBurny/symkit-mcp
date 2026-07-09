@@ -1,35 +1,36 @@
-# 安全政策
+# Security Policy
 
-## 支持版本
+## Supported Versions
 
-| 版本 | 支持状态 |
+| Version | Supported          |
 | ------- | ------------------ |
-| 0.x.x   | :white_check_mark: |
+| 1.x.x   | :white_check_mark: |
+| 0.x.x   | :x:                |
 
-## 回报漏洞
+## Reporting a Vulnerability
 
-如果你发现安全漏洞，请**不要**公开在 Issues 中回报。
+If you discover a security vulnerability, please **do not** report it publicly via Issues.
 
-### 回报方式
+### Reporting Methods
 
-1. 发送邮件至：[siwuxiebuaa@gmail.com](mailto:siwuxiebuaa@gmail.com)
-2. 或使用 GitHub 的私人漏洞回报功能
+1. Send an email to: [siwuxiebuaa@gmail.com](mailto:siwuxiebuaa@gmail.com)
+2. Use GitHub's private vulnerability reporting feature
 
-### 回报内容
+### What to Include
 
-请包含以下信息：
+Please include the following information:
 
-- 漏洞描述
-- 重现步骤
-- 可能的影响范围
-- 建议的修复方式（如果有）
+- Vulnerability description
+- Steps to reproduce
+- Potential impact scope
+- Suggested remediation (if any)
 
-### 回应时程
+### Response Timeline
 
-- 48 小时内确认收到回报
-- 7 天内初步评估
-- 90 天内修复（视严重程度调整）
+- Acknowledgment within 48 hours
+- Initial assessment within 7 days
+- Fix within 90 days (depending on severity)
 
-### 感谢
+### Acknowledgments
 
-我们感谢所有负责任地回报安全问题的研究人员。
+We thank all researchers who responsibly disclose security issues.

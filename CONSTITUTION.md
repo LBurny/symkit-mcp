@@ -1,90 +1,101 @@
-# 项目宪法 (Project Constitution)
+# Project Constitution
 
-本文档定义项目的最高原则，所有贡献者和自动化工具必须遵守。
+This document defines the highest-level principles of the project. All contributors and automated tools must follow it.
 
 ---
 
-## 第一章：架构原则
+## Chapter 1: Architecture Principles
 
-### 第 1 条：DDD 领域驱动设计
-1. 项目采用 Domain-Driven Design 架构。
-2. 内核领域逻辑与基础设施分离。
-3. 使用统一语言（Ubiquitous Language）描述业务概念。
+### Article 1: Domain-Driven Design (DDD)
 
-### 第 2 条：数据访问层独立
-1. Data Access Layer 必须独立于业务逻辑。
-2. Repository Pattern 为推荐的数据访问方式。
-3. 禁止在 Domain Layer 直接操作外部存储或网络。
+1. The project adopts Domain-Driven Design architecture.
+2. Core domain logic is separated from infrastructure.
+3. Use Ubiquitous Language to describe business concepts.
 
-### 第 3 条：分层架构
+### Article 2: Independent Data Access Layer
+
+1. The Data Access Layer must be independent of business logic.
+2. The Repository Pattern is the recommended data access approach.
+3. The Domain Layer must not directly manipulate external storage or networks.
+
+### Article 3: Layered Architecture
+
 ```
-├── Domain/          # 内核领域（纯业务逻辑，无外部依赖）
-├── Application/     # 应用层（用例、服务编排）
-├── Infrastructure/  # 基础设施（DAL、外部服务）
-└── Presentation/    # 呈现层（API、MCP 工具）
+├── Domain/          # Core domain (pure business logic, no external dependencies)
+├── Application/     # Application layer (use cases, service orchestration)
+├── Infrastructure/  # Infrastructure layer (DAL, external services)
+└── Presentation/    # Presentation layer (API, MCP tools)
 ```
 
 ---
 
-## 第二章：文档原则
+## Chapter 2: Documentation Principles
 
-### 第 4 条：文档优先
-1. 代码是文档的「编译产物」。
-2. 修改代码前先更新规格文档。
-3. README 是项目的「门面」，必须保持最新。
+### Article 4: Documentation First
 
-### 第 5 条：Changelog 规范
-1. 遵循 Keep a Changelog 格式。
-2. 使用语义化版本号。
-3. 每次 commit 前检查是否需要更新。
+1. Code is the "compiled output" of documentation.
+2. Update specification documents before modifying code.
+3. README is the project's "front door" and must be kept up to date.
+
+### Article 5: Changelog Convention
+
+1. Follow the Keep a Changelog format.
+2. Use Semantic Versioning.
+3. Check whether the changelog needs updating before every commit.
 
 ---
 
-## 第三章：开发哲学
+## Chapter 3: Development Philosophy
 
-### 第 6 条：测试即文档
-1. 测试代码是最好的使用范例。
-2. 零散测试也是测试，写进 `tests/` 文件夹。
-3. 不要在 REPL 或 notebook 中测试后就丢弃。
+### Article 6: Tests as Documentation
 
-> 💡 **名言：「想要零散测试的时候，就写测试文件进 tests/ 文件夹吧！」**
+1. Test code is the best usage example.
+2. Ad-hoc tests are still tests; put them in the `tests/` folder.
+3. Do not discard tests run in a REPL or notebook.
+
+> 💡 **Tip: "When you want to write an ad-hoc test, write it into a file in tests/!"**
 >
-> 今天的零散测试，就是明天的回归测试。
+> Today's ad-hoc test is tomorrow's regression test.
 
-### 第 7 条：环境即代码
-1. 虚拟环境配置必须可重现。
-2. 依赖必须明确版本锁定。
-3. 环境设置纳入版本控制。
+### Article 7: Environment as Code
 
-### 第 8 条：主动重构原则
-1. **持续重构**：代码应随时保持可重构状态。
-2. **单一职责**：一个模块/类别/函数只做一件事。
-3. **适时拆分**：当文件/函数过长时必须拆分。
-4. **架构守护**：重构时必须维持 DDD 分层架构。
+1. Virtual environment configuration must be reproducible.
+2. Dependencies must be explicitly pinned.
+3. Environment setup is part of version control.
 
-> 💡 **名言：「重构不是改天换地，而是持续的小步快跑」**
+### Article 8: Proactive Refactoring
+
+1. **Continuous refactoring**: code should always be kept refactorable.
+2. **Single responsibility**: one module/class/function should do one thing.
+3. **Timely splitting**: split files and functions when they become too long.
+4. **Architecture guard**: maintain the DDD layered architecture during refactoring.
+
+> 💡 **Tip: "Refactoring is not a big rewrite; it is continuous small steps."**
 >
-> 每次提交都应该比上次更干净。
+> Every commit should be cleaner than the last.
 
 ---
 
-## 第四章：子法授权
+## Chapter 4: Sub-law Delegation
 
-### 第 9 条：子法层级
+### Article 9: Sub-law Hierarchy
+
 ```
-宪法 (CONSTITUTION.md)
-  └── 子法 (.github/bylaws/*.md)
+Constitution (CONSTITUTION.md)
+  └── Bylaws (.github/bylaws/*.md)
 ```
 
-### 第 10 条：子法优先级
-1. 子法不得违反宪法。
-2. 冲突时以较高层级为准。
+### Article 10: Sub-law Priority
+
+1. Bylaws must not violate the Constitution.
+2. In case of conflict, the higher-level document takes precedence.
 
 ---
 
-## 附则
+## Supplementary Provisions
 
-### 第 11 条：修宪进程
-1. 修改宪法须记录原因。
-2. 重大修改须更新版本号。
-3. 本宪法版本：v1.0.0
+### Article 11: Amendment Process
+
+1. Amendments to the Constitution must record the reason.
+2. Major amendments require a version bump.
+3. Constitution version: v1.0.0
