@@ -190,9 +190,9 @@ with your system Python:
 
 ```bash
 # 1. Install uv itself (if you don't have it yet)
-#    macOS / Linux:
+# macOS / Linux:
 curl -LsSf https://astral.sh/uv/install.sh | sh
-#    Windows (PowerShell):
+# Windows (PowerShell):
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 # 2. Install SymKit as a global CLI tool
