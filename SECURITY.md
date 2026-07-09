@@ -12,7 +12,7 @@
 
 ### 回报方式
 
-1. 发送邮件至：[security@example.com]
+1. 发送邮件至：[siwuxiebuaa@gmail.com](mailto:siwuxiebuaa@gmail.com)
 2. 或使用 GitHub 的私人漏洞回报功能
 
 ### 回报内容
