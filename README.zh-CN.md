@@ -190,9 +190,9 @@ Python 冲突：
 
 ```bash
 # 1. 先安装 uv 本身（如果还没有）
-#    macOS / Linux
+#    macOS / Linux：
 curl -LsSf https://astral.sh/uv/install.sh | sh
-#    Windows (PowerShell)
+#    Windows (PowerShell)：
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 # 2. 将 SymKit 安装为全局 CLI 工具
