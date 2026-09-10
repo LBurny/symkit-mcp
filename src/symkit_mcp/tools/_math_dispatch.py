@@ -120,6 +120,33 @@ def _build_subs_dict(
     return subs, None
 
 
+def _rekey_subs_to_expression(
+    expr: sp.Basic,
+    subs: dict[sp.Basic, Any],
+) -> dict[sp.Basic, Any]:
+    """Rebind substitution keys to the symbols actually present in *expr*.
+
+    ``expr`` may have been parsed with context assumptions, so its symbols
+    carry flags (``Symbol('c', positive=True)``) that differ from the plain
+    ``Symbol('c')`` keys built by :func:`_build_subs_dict`.  ``subs`` matches
+    atoms exactly and would silently no-op; rebind each key by name (run-008).
+    """
+    rebound: dict[sp.Basic, Any] = {}
+    for key, val in subs.items():
+        if expr.has(key):
+            rebound[key] = val
+            continue
+        if isinstance(key, sp.Symbol):
+            target = next(
+                (s for s in expr.free_symbols if str(s) == str(key)), None
+            )
+            if target is not None:
+                rebound[target] = val
+                continue
+        rebound[key] = val
+    return rebound
+
+
 def _parse_ode(expr_str: str, func: str, var: str) -> sp.Basic | sp.Equality | None:
     """Parse an ODE expression such as ``diff(C, t) + k*C`` into SymPy form.
 
@@ -460,7 +487,8 @@ def _execute_operation_inner(
             subs, subs_error = _build_subs_dict(substitution)
             if subs_error is not None:
                 return subs_error
-            parsed = parsed.subs(subs).doit()
+            assert subs is not None
+            parsed = parsed.subs(_rekey_subs_to_expression(parsed, subs)).doit()
         result = parsed.evalf()
 
     # ── SOLVE ──
@@ -534,7 +562,7 @@ def _execute_operation_inner(
             return subs_error
         assert subs is not None
         input_obj = expr
-        result = expr.subs(subs).doit()
+        result = expr.subs(_rekey_subs_to_expression(expr, subs)).doit()
 
     # ── ENGINE-BASED OPERATIONS ──
     elif operation in _ENGINE_OPS:

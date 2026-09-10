@@ -91,3 +91,28 @@ def test_default_valued_parameters_do_not_warn(fresh_session_manager):
     )
     assert res["success"]
     assert not res.get("warnings")
+
+
+def test_evalf_substitution_with_context_assumptions(fresh_session_manager):
+    """Regression (run-008): earlier per-call assumptions persist in the shared
+    context; evalf then parsed the expression with assumption-bearing symbols
+    while substitution keys were plain symbols, so subs silently no-opped and
+    the result kept free symbols. Substitute must behave the same either way."""
+    _ = fresh_session_manager
+    tools = _tools()
+    seeded = tools["math"](
+        operation="simplify",
+        expression="m",
+        assumptions=["m positive", "k positive", "c positive"],
+        session=False,
+    )
+    assert seeded["success"], seeded
+    for op in ("evalf", "substitute"):
+        res = tools["math"](
+            operation=op,
+            expression="sqrt(4*m*k - c**2)/(2*m)",
+            substitution={"m": "1", "k": "10", "c": "0.4"},
+            session=False,
+        )
+        assert res["success"], res
+        assert abs(float(res["expression"]) - 3.15594676761190) < 1e-9
