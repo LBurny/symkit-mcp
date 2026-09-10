@@ -17,6 +17,20 @@ from symkit.domain.services import SymbolicEngine
 from symkit.domain.value_objects import MathContext, SimplificationLevel
 
 
+def _coord_sub_symbol(expr: Any, name: str, coord: Any) -> Any:
+    """Substitute the coordinate symbol ``name`` into *expr* by NAME.
+
+    Parsed expressions may carry assumption-bearing symbols
+    (``Symbol('x', positive=True)``); a bare ``sp.Symbol(name)`` subs key
+    would not match and the substitution would silently no-op, leaving the
+    expression dependent on plain symbols instead of the basis — gradient
+    then returned a zero vector and divergence/curl 0 (run-017)."""
+    target = next(
+        (s for s in getattr(expr, "free_symbols", ()) if str(s) == name), None
+    )
+    return expr.subs(target if target is not None else sp.Symbol(name), coord)
+
+
 def _build_vector_field(expr: Any, coords: list[str], N: Any) -> Any:
     """Build a sympy.vector vector field from components or expression.
 
@@ -39,22 +53,22 @@ def _build_vector_field(expr: Any, coords: list[str], N: Any) -> Any:
             for j, c in enumerate(coords):
                 coord_var = {0: N.x, 1: N.y, 2: N.z}.get(j)
                 if coord_var:
-                    coord_expr = coord_expr.subs(sp.Symbol(c), coord_var)
+                    coord_expr = _coord_sub_symbol(coord_expr, c, coord_var)
             term = coord_expr * basis[i]
             field = term if field is None else field + term
         return field if field is not None else 0 * N.i
 
     # Single expression — treat as scalar*x.i for 1D, or build from coords
     if len(coords) == 1:
-        return expr.subs(sp.Symbol(coords[0]), N.x) * N.i
+        return _coord_sub_symbol(expr, coords[0], N.x) * N.i
     elif len(coords) == 2:
-        x_comp = expr.subs(sp.Symbol(coords[0]), N.x)
-        y_comp = expr.subs(sp.Symbol(coords[1]), N.y)
+        x_comp = _coord_sub_symbol(expr, coords[0], N.x)
+        y_comp = _coord_sub_symbol(expr, coords[1], N.y)
         return x_comp * N.i + y_comp * N.j
     else:
-        x_comp = expr.subs(sp.Symbol(coords[0]), N.x)
-        y_comp = expr.subs(sp.Symbol(coords[1]), N.y)
-        z_comp = expr.subs(sp.Symbol(coords[2]), N.z)
+        x_comp = _coord_sub_symbol(expr, coords[0], N.x)
+        y_comp = _coord_sub_symbol(expr, coords[1], N.y)
+        z_comp = _coord_sub_symbol(expr, coords[2], N.z)
         return x_comp * N.i + y_comp * N.j + z_comp * N.k
 
 
@@ -268,15 +282,18 @@ class SymPyEngine(SymbolicEngine):
         try:
             from sympy.vector import CoordSys3D, gradient
             N = CoordSys3D("N")
-            # Map coordinate symbols to vector components
-            coord_map: dict[str, Any] = {}
-            if len(coords) >= 3:
-                coord_map = {coords[0]: N.x, coords[1]: N.y, coords[2]: N.z}
-            elif len(coords) == 2:
-                coord_map = {coords[0]: N.x, coords[1]: N.y}
-            else:
-                coord_map = {coords[0]: N.x}
-            scalar = expr.sympy_expr.subs({sp.Symbol(k): v for k, v in coord_map.items()})
+            # Map coordinate symbols to vector components, matching by NAME —
+            # parsed symbols may carry assumptions (run-017).
+            basis = [N.x, N.y, N.z]
+            subs_map: dict[Any, Any] = {}
+            for name in coords[:3]:
+                target = next(
+                    (s for s in expr.sympy_expr.free_symbols if str(s) == name),
+                    None,
+                )
+                if target is not None:
+                    subs_map[target] = basis[coords.index(name)]
+            scalar = expr.sympy_expr.xreplace(subs_map)
             result = gradient(scalar, N)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
@@ -301,6 +318,10 @@ class SymPyEngine(SymbolicEngine):
             N = CoordSys3D("N")
             field = _build_vector_field(expr.sympy_expr, coords, N)
             result = divergence(field, N)
+            # sympy.vector leaves the scalar result unsimplified (run-017:
+            # div of the radial field rendered as three r^5/2 terms + 3/r^3
+            # instead of 0). The divergence is a scalar, so simplify applies.
+            result = sp.simplify(result)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
         except Exception as e:
