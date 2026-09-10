@@ -38,6 +38,24 @@ def _to_latex(expr_str: str) -> str:
         return expr_str.replace("**", "^")
 
 
+def _symbol_to_latex(sym: str) -> str:
+    """Render a bare symbol key (Given/Results sections) as LaTeX.
+
+    ``rho`` must become ``$\\rho$`` and ``C_d`` ``$C_{d}$``; keys that are
+    not plain identifiers (units, prose) pass through unchanged.
+    """
+    import re as _re
+
+    if not _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", sym):
+        return sym
+    try:
+        import sympy as sp
+
+        return str(sp.latex(sp.Symbol(sym)))
+    except Exception:
+        return sym
+
+
 def register_codegen_tools(mcp: Any) -> None:
     """Register code generation tools with MCP server.
 
@@ -228,7 +246,7 @@ def register_codegen_tools(mcp: Any) -> None:
         ]
 
         for sym, val in given.items():
-            lines.append(f"- ${sym}$ = {val}")
+            lines.append(f"- ${_symbol_to_latex(sym)}$ = {val}")
 
         lines.extend(
             [
@@ -271,11 +289,18 @@ def register_codegen_tools(mcp: Any) -> None:
             if (isinstance(total, int) and not isinstance(total, bool)
                     and isinstance(verified, int) and not isinstance(verified, bool)):
                 lines.append(f"- {verified}/{total} steps verified")
-            for key in ("failed", "inconclusive"):
-                count_val = verification.get(key)
-                if (isinstance(count_val, int)
-                        and not isinstance(count_val, bool) and count_val):
-                    lines.append(f"- {key}: {count_val}")
+                # Render the full count triple (including zeros) so readers
+                # never have to infer a missing count as "zero".
+                for key in ("failed", "inconclusive"):
+                    count_val = verification.get(key)
+                    if isinstance(count_val, int) and not isinstance(count_val, bool):
+                        lines.append(f"- {key}: {count_val}")
+            else:
+                for key in ("failed", "inconclusive"):
+                    count_val = verification.get(key)
+                    if (isinstance(count_val, int)
+                            and not isinstance(count_val, bool) and count_val):
+                        lines.append(f"- {key}: {count_val}")
             for key, flag_val in verification.items():
                 if isinstance(flag_val, bool):
                     lines.append(f"- {key}: {'✅' if flag_val else '❌'}")

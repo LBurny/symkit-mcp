@@ -56,3 +56,36 @@ class TestGenerateDerivationReport:
                       results={}, verification={"verified": True})
         assert result["success"] is True
         assert "verified: ✅" in result["report"]
+
+
+class TestReportVerificationRendering:
+    def test_renders_failed_and_inconclusive_counts_even_when_zero(self, fresh_manager):
+        _ = fresh_manager
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        tool = mcp.tools["generate_derivation_report"]
+        result = tool(
+            problem="p",
+            given={},
+            steps=[],
+            results={"x": "1"},
+            verification={"total": 4, "verified": 4, "failed": 0, "inconclusive": 0},
+        )
+        assert result["success"]
+        assert "- failed: 0" in result["report"]
+        assert "- inconclusive: 0" in result["report"]
+
+    def test_given_section_latexifies_symbol_keys(self, fresh_manager):
+        _ = fresh_manager
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        tool = mcp.tools["generate_derivation_report"]
+        result = tool(
+            problem="p",
+            given={"rho": "1.225 kg/m^3", "C_d": "0.47"},
+            steps=[],
+            results={},
+        )
+        assert result["success"]
+        assert r"$\rho$" in result["report"]
+        assert "$C_{d}$" in result["report"]

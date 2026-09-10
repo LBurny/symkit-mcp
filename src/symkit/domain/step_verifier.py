@@ -151,6 +151,12 @@ class StepVerifier:
             result = self._verify_substitution(step, input_expr, output_expr, assumptions)
         elif op == OperationType.SOLVE:
             result = self._verify_solution(step, input_expr, output_expr, assumptions)
+        elif op == OperationType.DSOLVE:
+            result = self._verify_dsolve(input_expr, output_expr)
+        elif op == OperationType.LIMIT:
+            result = self._verify_limit(step, input_expr, output_expr, assumptions)
+        elif op == OperationType.EVALF:
+            result = self._verify_evalf(input_expr, output_expr)
         else:
             result = VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
@@ -463,6 +469,110 @@ class StepVerifier:
             "Solution does not satisfy the original equation",
             residual=str(diff),
         )
+
+    def _verify_dsolve(
+        self, input_expr: sp.Basic, output_expr: sp.Basic
+    ) -> VerificationResult:
+        """Verify an ODE solution by substituting it back into the equation."""
+        if not isinstance(input_expr, sp.Equality) or not isinstance(
+            output_expr, sp.Equality
+        ):
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message="dsolve input/output are not both equations",
+            )
+        try:
+            ok, residual = sp.checkodesol(input_expr, output_expr)
+        except Exception as e:
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message=f"checkodesol could not run: {type(e).__name__}",
+            )
+        if ok:
+            return VerificationResult.success(
+                "ODE solution verified by substitution (checkodesol)",
+            )
+        return VerificationResult.failure(
+            "ODE solution does not satisfy the equation",
+            residual=str(residual),
+        )
+
+    def _verify_evalf(
+        self, input_expr: sp.Basic, output_expr: sp.Basic
+    ) -> VerificationResult:
+        """Verify numeric evaluation by independent re-evaluation."""
+        try:
+            expected = complex(sp.N(input_expr, 20))
+            actual = complex(sp.N(output_expr, 20))
+        except (TypeError, ValueError):
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message="evalf input/output is not purely numeric",
+            )
+        tol = 1e-12 * max(1.0, abs(expected))
+        if abs(expected - actual) < tol:
+            return VerificationResult.success("Numeric evaluation verified")
+        return VerificationResult.failure(
+            "Numeric evaluation mismatch",
+            expected=str(expected),
+            actual=str(actual),
+        )
+
+    def _verify_limit(
+        self,
+        step: DerivationStep,
+        input_expr: sp.Basic,
+        output_expr: sp.Basic,
+        assumptions: dict[str, dict[str, bool]],
+    ) -> VerificationResult:
+        """Verify a limit by numeric spot-checks near the point.
+
+        A disagreeing probe yields INCONCLUSIVE rather than FAILED: numeric
+        probing can legitimately disagree for slowly-converging limits, and
+        FAILED is reserved for symbolic proof of error.
+        """
+        match = re.search(r"limit\(expr,\s*(\w+),\s*([^)]+)\)", step.sympy_command)
+        if not match:
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message="Could not determine limit variable/point",
+            )
+        var = self._assumed_symbol(match.group(1), assumptions)
+        point_expr = self._parse(match.group(2).strip(), assumptions)
+        if point_expr is None:
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message="Could not parse limit point",
+            )
+        others = [s for s in input_expr.free_symbols if s != var]
+        # Deterministic small-prime valuation for unrelated symbols.
+        primes = [2, 3, 5, 7, 11, 13]
+        valuation = {s: sp.Integer(primes[i % len(primes)]) for i, s in enumerate(others)}
+        try:
+            if point_expr == sp.oo:
+                probes = [sp.Integer(10**4), sp.Integer(10**5)]
+            elif point_expr == -sp.oo:
+                probes = [sp.Integer(-10**4), sp.Integer(-10**5)]
+            else:
+                eps = sp.Rational(1, 10**4)
+                probes = [point_expr + eps, point_expr - eps]
+            expected = complex(sp.N(output_expr.subs(valuation)))
+            for p in probes:
+                value = complex(sp.N(input_expr.subs(valuation).subs(var, p)))
+                if not (abs(value - expected) < 1e-3 * max(1.0, abs(expected))):
+                    return VerificationResult(
+                        status=VerificationStatus.INCONCLUSIVE,
+                        message="Numeric spot-check disagrees with limit "
+                        "(or converges too slowly to probe)",
+                    )
+            return VerificationResult.success(
+                "Limit verified by numeric spot-check near the point"
+            )
+        except (TypeError, ValueError):
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message="Numeric spot-check not possible",
+            )
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Helpers

@@ -62,6 +62,7 @@ class OperationType(Enum):
     LIMIT = "limit"
     SERIES = "series"
     DSOLVE = "dsolve"
+    EVALF = "evalf"
     MATRIX_OP = "matrix_op"
     VECTOR_OP = "vector_op"
     TRANSFORM = "transform"
@@ -891,6 +892,7 @@ class DerivationSession:
             "assumption_conflicts": self.assumption_engine.detect_conflicts(),
         }
 
+        verified_substantive = 0
         for step in self.steps:
             if step.verification_result:
                 record = verification_result_from_json(step.verification_result)
@@ -901,6 +903,11 @@ class DerivationSession:
                 )
             if record.status == VerificationStatus.VERIFIED:
                 summary["verified"] += 1
+                # LOAD_FORMULA "verification" is trivially successful; only
+                # steps that performed a real mathematical check may promote
+                # the chain to overall "verified".
+                if step.operation != OperationType.LOAD_FORMULA:
+                    verified_substantive += 1
             elif record.status == VerificationStatus.FAILED:
                 summary["failed"] += 1
                 summary["failed_steps"].append(step.step_number)
@@ -908,10 +915,14 @@ class DerivationSession:
                 summary["inconclusive"] += 1
                 summary["inconclusive_steps"].append(step.step_number)
 
-        if summary["failed"] == 0 and summary["inconclusive"] == 0 and summary["total"] > 0:
-            summary["overall"] = "verified"
-        elif summary["failed"] > 0:
+        # Graded semantics: a chain is "verified" when nothing failed and at
+        # least one substantive step was positively verified. Inconclusive
+        # steps (e.g. notes, or operations without an automatic checker)
+        # lower confidence but do not poison an otherwise verified chain.
+        if summary["failed"] > 0:
             summary["overall"] = "failed"
+        elif verified_substantive > 0:
+            summary["overall"] = "verified"
         else:
             summary["overall"] = "inconclusive"
 

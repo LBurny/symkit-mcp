@@ -95,13 +95,14 @@ class SymPyEngine(SymbolicEngine):
                 expr_type=expr_type,
             )
 
-        except Exception:
-            # Return invalid expression on parse error
+        except Exception as e:
+            # Return invalid expression on parse error, keeping the cause.
             return Expression(
                 raw=expr_str,
                 latex="",
                 sympy_expr=None,
                 expr_type=ExpressionType.UNKNOWN,
+                error=str(e),
             )
 
     def simplify(self, expr: Expression, context: MathContext | None = None) -> Expression:
@@ -279,9 +280,12 @@ class SymPyEngine(SymbolicEngine):
             result = gradient(scalar, N)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def divergence(self, expr: Expression, coords: list[str],
                    context: MathContext | None = None) -> Expression:
@@ -299,9 +303,12 @@ class SymPyEngine(SymbolicEngine):
             result = divergence(field, N)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def curl(self, expr: Expression, coords: list[str],
              context: MathContext | None = None) -> Expression:
@@ -319,9 +326,12 @@ class SymPyEngine(SymbolicEngine):
             result = curl(field, N)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def laplacian(self, expr: Expression, coords: list[str],
                   context: MathContext | None = None) -> Expression:
@@ -348,9 +358,12 @@ class SymPyEngine(SymbolicEngine):
             result = divergence(grad_field, N)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     # ═══════════════════════════════════════════════════════════════
     # Matrix Operations
@@ -368,9 +381,12 @@ class SymPyEngine(SymbolicEngine):
                 result = sp.Matrix(expr.sympy_expr).det()
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.ALGEBRAIC)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def matrix_inv(self, expr: Expression,
                    context: MathContext | None = None) -> Expression:
@@ -384,9 +400,12 @@ class SymPyEngine(SymbolicEngine):
                 result = sp.Matrix(expr.sympy_expr).inv()
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.MATRIX)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def matrix_eigenvals(self, expr: Expression,
                          context: MathContext | None = None) -> list[Expression]:
@@ -445,9 +464,12 @@ class SymPyEngine(SymbolicEngine):
                 result = sp.dsolve(sp.Eq(ode.sympy_expr, 0), f(v))
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.EQUATION)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def limit(self, expr: Expression, var: str, point: str,
               direction: str = "+-",
@@ -468,9 +490,12 @@ class SymPyEngine(SymbolicEngine):
                 result = sp.limit(expr.sympy_expr, v, p)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def series(self, expr: Expression, var: str, point: str,
                order: int = 6,
@@ -486,9 +511,12 @@ class SymPyEngine(SymbolicEngine):
             result = sp.series(expr.sympy_expr, v, p, order).removeO()
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.ALGEBRAIC)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     # ═══════════════════════════════════════════════════════════════
     # Integral Transforms
@@ -505,9 +533,12 @@ class SymPyEngine(SymbolicEngine):
             result = sp.laplace_transform(expr.sympy_expr, t, s, noconds=True)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def inverse_laplace_transform(self, expr: Expression, freq_var: str, time_var: str,
                                   context: MathContext | None = None) -> Expression:
@@ -520,9 +551,12 @@ class SymPyEngine(SymbolicEngine):
             result = sp.inverse_laplace_transform(expr.sympy_expr, s, t)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def fourier_transform(self, expr: Expression, space_var: str, freq_var: str,
                           context: MathContext | None = None) -> Expression:
@@ -535,9 +569,12 @@ class SymPyEngine(SymbolicEngine):
             result = sp.fourier_transform(expr.sympy_expr, x, k)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def inverse_fourier_transform(self, expr: Expression, freq_var: str, space_var: str,
                                   context: MathContext | None = None) -> Expression:
@@ -550,9 +587,12 @@ class SymPyEngine(SymbolicEngine):
             result = sp.inverse_fourier_transform(expr.sympy_expr, k, x)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
-        except Exception:
-            return Expression(raw="", latex="", sympy_expr=None,
-                            expr_type=ExpressionType.UNKNOWN)
+        except Exception as e:
+            return Expression(
+                raw="", latex="", sympy_expr=None,
+                expr_type=ExpressionType.UNKNOWN,
+                error=f"{type(e).__name__}: {e}",
+            )
 
     def _get_local_dict(self, context: MathContext | None) -> dict[str, Any]:
         """Get local dictionary for parsing with symbol assumptions."""

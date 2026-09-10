@@ -34,6 +34,7 @@ class Expression:
     latex: str = ""  # LaTeX representation
     sympy_expr: Any = None  # SymPy expression object
     expr_type: ExpressionType = ExpressionType.UNKNOWN
+    error: str = ""  # Root cause when invalid ("{ExceptionType}: {message}")
 
     @property
     def is_valid(self) -> bool:

@@ -27,6 +27,7 @@ from sympy.parsing.sympy_parser import (
 
 from symkit.domain.derivation_session import OperationType
 from symkit.domain.expression_parser import (
+    _build_undefined_function_local_dict,
     _convert_equals_to_eq,
     _rationalize_unevaluated_divisions,
     _split_eq_args,
@@ -149,11 +150,16 @@ def _parse_ode(expr_str: str, func: str, var: str) -> sp.Basic | sp.Equality | N
     # Replace any remaining bare dependent variable with the function call form.
     result_str = re.sub(rf"\b{func}\b(?!\s*\()", f"{func}({var})", result_str)
 
-    # Use a local dict that forces ``func`` to be a SymPy Function and protects
-    # reserved names (e.g. beta) from being interpreted as SymPy functions.
+    # Use a local dict that forces ``func`` to be a SymPy Function, protects
+    # reserved names (e.g. beta) from being interpreted as SymPy functions,
+    # and keeps other function call sites (e.g. a forcing term ``f(t)``) as
+    # undefined functions instead of implicit multiplication.
     processed = _convert_equals_to_eq(preprocess_unicode(result_str))
     local_dict: dict[str, Any] = {func: sp.Function(func)}
     local_dict.update(build_reserved_local_dict(processed))
+    local_dict.update(
+        _build_undefined_function_local_dict(processed, exclude=set(local_dict))
+    )
 
     eq_args = _split_eq_args(processed)
     try:
@@ -617,7 +623,8 @@ def _execute_operation_inner(
             return {"success": False, "error": f"Unknown operation: {operation}"}
 
         if not out.is_valid:
-            return {"success": False, "error": f"Operation '{operation}' failed"}
+            detail = f": {out.error}" if getattr(out, "error", "") else ""
+            return {"success": False, "error": f"Operation '{operation}' failed{detail}"}
         result = out.sympy_expr
 
     else:
@@ -669,5 +676,5 @@ _OP_TYPE_MAP = {
     "powsimp": OperationType.SIMPLIFY,
     "radsimp": OperationType.SIMPLIFY,
     "combsimp": OperationType.SIMPLIFY,
-    "evalf": OperationType.CUSTOM,
+    "evalf": OperationType.EVALF,
 }
