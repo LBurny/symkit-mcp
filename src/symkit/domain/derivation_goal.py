@@ -234,6 +234,10 @@ class DerivationGoal:
         # multi-letter stems with at least one subscript (e.g., nu_tilde,
         # kappa_max). Plain multi-letter words ("derive", "model") never match:
         # they lack an underscore group.
+        # English possessives ("Hooke's law", "Newton's second law") are
+        # stripped first — otherwise the trailing "'s" surfaces as a ghost
+        # single-letter variable ``s`` (run-021).
+        text = re.sub(r"\b([A-Za-z]+)'[sS]\b", r"\1", text)
         ascii_candidates = re.findall(
             r"\b([a-zA-Z](?:_[a-zA-Z0-9]+)?|[a-zA-Z][a-zA-Z0-9]+(?:_[a-zA-Z0-9]+)+)\b",
             text,

@@ -648,6 +648,7 @@ def register_session_tools(mcp: Any) -> None:
         verified_at = datetime.now().isoformat() if is_verified else None
 
         saved_path = None
+        saved_id: str | None = None
         saved_expression_str: str | None = None
         if auto_save:
             try:
@@ -662,8 +663,23 @@ def register_session_tools(mcp: Any) -> None:
                 if saved_expr is None:
                     raise ValueError("No expression available to save")
                 saved_expression_str = str(saved_expr)
+                # A resumed session that completes again must not silently
+                # overwrite the earlier record (run-021): mint a new id when
+                # the stored expression differs; identical content is an
+                # idempotent re-save and keeps the original id.
+                result_id = session.session_id
+                existing = repo.get(result_id)
+                if existing is not None and existing.expression != saved_expression_str:
+                    n = 2
+                    while repo.get(f"{result_id}-v{n}") is not None:
+                        n += 1
+                    result_id = f"{result_id}-v{n}"
+                    warnings.append(
+                        f"Session was already saved with a different expression; "
+                        f"saved as new id '{result_id}'."
+                    )
                 derivation_result = DerivationResult(
-                    id=session.session_id,
+                    id=result_id,
                     name=session.name,
                     expression=str(saved_expr),
                     latex=sp.latex(saved_expr),
@@ -687,13 +703,15 @@ def register_session_tools(mcp: Any) -> None:
                     category=session.domain or "derived",
                 )
                 repo.register(derivation_result)
-                saved_path = repo.save(session.session_id)
+                saved_path = repo.save(result_id)
+                saved_id = result_id
             except Exception as e:
                 warnings.append(f"Completed but save failed: {e}")
 
         set_session(None)
         if saved_path:
             result["saved_to"] = str(saved_path)
+            result["saved_id"] = saved_id
             result["saved_expression"] = saved_expression_str
             result["message"] = f"Derivation completed and saved to {saved_path}"
         if warnings:

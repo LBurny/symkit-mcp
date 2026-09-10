@@ -474,73 +474,64 @@ def register_orchestration_tools(mcp: Any) -> None:
         """
         🧰 List SymKit tools organized by category.
 
+        The index is built live from the server's tool registry (each tool
+        declares its category in its metadata), so it can never drift out of
+        sync with the actually exposed tools.  The previous static map had
+        silently rotted: twelve registered tools were missing and three
+        listed tools no longer existed (run-021).
+
         Returns:
             Categorized tool index with descriptions and examples.
         """
-        return {
-            "categories": [
-                {
-                    "name": "High-Level Orchestration",
-                    "description": "Goal-driven derivation and intent routing",
-                    "tools": [
-                        "derive",
-                        "intent_execute",
-                        "list_patterns",
-                        "tool_categories",
-                        "tool_recommend",
-                    ],
-                },
-                {
-                    "name": "Unified Math",
-                    "description": "Mathematica-style single-entry math operations",
-                    "tools": ["math", "assume", "show_assumptions"],
-                },
-                {
-                    "name": "Session Management",
-                    "description": "Create, resume, and control derivation sessions",
-                    "tools": [
-                        "session_start",
-                        "session_resume",
-                        "session_status",
-                        "session_show",
-                        "session_explain",
-                        "session_complete",
-                        "session_rollback",
-                        "session_add_note",
-                        "session_list",
-                        "session_load_formula",
-                        "session_set_goal",
-                        "session_suggest_formulas",
-                        "session_record_step",
-                        "session_get_steps",
-                        "session_verify_step",
-                        "session_verify_session",
-                    ],
-                },
-                {
-                    "name": "Formula Search",
-                    "description": "Find base formulas from external sources",
-                    "tools": [
-                        "formula_search",
-                        "formula_get",
-                        "formula_constants",
-                        "formula_pk_models",
-                        "formula_kinetic_laws",
-                        "formula_categories",
-                    ],
-                },
-                {
-                    "name": "Code Generation",
-                    "description": "Generate executable code and reports",
-                    "tools": [
-                        "generate_python_function",
-                        "generate_latex_derivation",
-                        "generate_derivation_report",
-                        "generate_sympy_script",
-                    ],
-                },
-            ]
+        descriptions = {
+            "High-Level Orchestration": "Goal-driven derivation and intent routing",
+            "Unified Math": "Mathematica-style single-entry math operations",
+            "Assumptions": "Multi-level assumption engine management",
+            "Symbol Semantics": "Register and query symbol meanings",
+            "Session Management": "Create, resume, and control derivation sessions",
+            "Formula Search": "Local formula library lookup and editing",
+            "Code Generation": "Generate executable code and reports",
         }
+        try:
+            tools_map = mcp._tool_manager._tools  # noqa: SLF001
+            grouped: dict[str, list[str]] = {}
+            for tool_name, tool in tools_map.items():
+                meta = getattr(tool, "meta", None) or {}
+                grouped.setdefault(meta.get("category", "Other"), []).append(tool_name)
+            return {
+                "categories": [
+                    {
+                        "name": category,
+                        "description": descriptions.get(category, ""),
+                        "tools": sorted(names),
+                    }
+                    for category, names in sorted(grouped.items())
+                ],
+                "total_tools": len(tools_map),
+            }
+        except Exception:
+            # Fallback for non-FastMCP hosts (e.g. test mocks): static core map.
+            return {
+                "categories": [
+                    {
+                        "name": "High-Level Orchestration",
+                        "description": descriptions["High-Level Orchestration"],
+                        "tools": [
+                            "derive",
+                            "intent_execute",
+                            "list_patterns",
+                            "tool_categories",
+                            "tool_recommend",
+                        ],
+                    },
+                    {
+                        "name": "Unified Math",
+                        "description": descriptions["Unified Math"],
+                        "tools": ["math", "assume", "show_assumptions"],
+                    },
+                ],
+                "total_tools": None,
+            }
 
     @mcp.tool(
         meta={

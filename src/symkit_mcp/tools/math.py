@@ -343,6 +343,12 @@ def register_math_tools(mcp: Any) -> None:
                 var: {k: v for k, v in props.items() if v}
                 for var, props in ctx.assumptions.items()
             },
+            # Echo what this call actually set — math()'s per-call mode has
+            # this echo; assume() used to omit it (run-021).
+            "assumptions_applied": {
+                var: props_str.strip().split()
+                for var, props_str in variables.items()
+            },
             "message": f"Assumptions set for {len(variables)} variable(s)",
         }
 

@@ -26,18 +26,21 @@ def register_assumption_tools(mcp: Any) -> None:
     @mcp.tool(
         meta={
             "category": "Assumptions",
-            "example": 'assume_for_step("x", "positive", "y", "real")',
+            "example": 'assume_for_step("x positive y real")',
         }
     )
     def assume_for_step(
-        *args: str,
+        args: list[str] | str,
     ) -> dict[str, Any]:
         """
         📋 Set assumptions for the current derivation step only.
 
         Args:
-            *args: Alternating symbol and property strings
-                   (e.g., "x", "positive", "y", "real")
+            args: Alternating symbol/property pairs, either as a single
+                  whitespace-separated string (``"x positive y real"``) or a
+                  list (``["x", "positive", "y", "real"]``).  Properties with
+                  several words are fine when using the list form
+                  (``["x", "positive real"]``).
 
         Returns:
             Updated step-level assumptions and any conflicts
@@ -49,15 +52,21 @@ def register_assumption_tools(mcp: Any) -> None:
                 "error": "No active session. Use session_start() or derive() first.",
             }
 
-        if len(args) % 2 != 0:
+        # A variadic *args signature cannot be expressed in the MCP tool
+        # schema — the generated schema demanded a single ``args`` string and
+        # every call failed with "unexpected keyword argument" (run-021).
+        tokens = args.split() if isinstance(args, str) else list(args)
+
+        if len(tokens) % 2 != 0:
             return {
                 "success": False,
-                "error": "Arguments must be alternating symbol and property strings.",
+                "error": "Arguments must be alternating symbol and property "
+                "strings, e.g. \"x positive y real\".",
             }
 
-        for i in range(0, len(args), 2):
-            symbol = args[i]
-            props = args[i + 1].split()
+        for i in range(0, len(tokens), 2):
+            symbol = tokens[i]
+            props = tokens[i + 1].split()
             session.assumption_engine.assume(symbol, *props, level=AssumptionLevel.STEP)
 
         conflicts = session.assumption_engine.detect_conflicts()

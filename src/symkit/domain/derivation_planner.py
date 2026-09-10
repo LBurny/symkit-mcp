@@ -53,7 +53,7 @@ class DerivationPlanner:
             suggestions.append({
                 "tool": "assume_for_step",
                 "reason": "Add missing assumptions that might make the step valid.",
-                "example": 'assume_for_step("x", "positive")',
+                "example": 'assume_for_step("x positive")',
             })
 
         # 2. Goal is solve_for_x
@@ -114,7 +114,7 @@ class DerivationPlanner:
             suggestions.append({
                 "tool": "assume_for_step",
                 "reason": f"Symbols without assumptions: {', '.join(unconstrained)}. Add assumptions to improve simplification and verification.",
-                "example": f'assume_for_step("{unconstrained[0]}", "positive")',
+                "example": f"assume_for_step('{unconstrained[0]} positive')",
             })
 
         # 6. Expression is increasingly complex: suggest simplification

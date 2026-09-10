@@ -126,24 +126,44 @@ class FormulaRecommender:
         self,
         goal: DerivationGoal,
         top_k: int = 5,
+        extra_candidates: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        """Return a sorted list of formula recommendations."""
+        """Return a sorted list of formula recommendations.
+
+        ``extra_candidates`` are normalized candidate dicts (same shape as the
+        repository-derived ones) — e.g. live entries from the formula library
+        so that ``formula_add`` is visible to ``derive()`` immediately
+        (run-021: the recommender used to see only the repository snapshot).
+        """
         candidates: list[dict[str, Any]] = []
 
         if self.repository is not None:
             for result in self.repository._results.values():  # noqa: SLF001
-                score, reason = self._score_local(result, goal)
+                candidate = {
+                    "formula_id": result.id,
+                    "name": result.name,
+                    "expression": result.expression,
+                    "domain": result.domain,
+                    "verified": result.verified,
+                    "description": result.description,
+                    "application_context": result.application_context,
+                    "tags": list(result.tags),
+                    "derivation_steps": list(result.derivation_steps),
+                    "variables": dict(result.variables),
+                    "source": "local",
+                }
+                score, reason = self._score_dict(candidate, goal, veto_disjoint=True)
                 if score > 0:
-                    candidates.append({
-                        "formula_id": result.id,
-                        "name": result.name,
-                        "expression": result.expression,
-                        "domain": result.domain,
-                        "verified": result.verified,
-                        "score": score,
-                        "reason": reason,
-                        "source": "local",
-                    })
+                    candidate["score"] = score
+                    candidate["reason"] = reason
+                    candidates.append(candidate)
+
+        for candidate in extra_candidates or []:
+            score, reason = self._score_dict(candidate, goal, veto_disjoint=False)
+            if score > 0:
+                candidate["score"] = score
+                candidate["reason"] = reason
+                candidates.append(candidate)
 
         # External adapters (optional)
         for adapter in self.external_adapters:
@@ -172,18 +192,66 @@ class FormulaRecommender:
         goal: DerivationGoal,
     ) -> tuple[float, str]:
         """Score a local formula and return the reason."""
+        return self._score_dict(
+            {
+                "name": result.name,
+                "description": result.description,
+                "application_context": result.application_context,
+                "tags": list(result.tags),
+                "derivation_steps": list(result.derivation_steps),
+                "domain": result.domain,
+                "variables": dict(result.variables),
+                "expression": result.expression,
+                "verified": result.verified,
+            },
+            goal,
+        )
+
+    def _score_dict(
+        self,
+        result: dict[str, Any],
+        goal: DerivationGoal,
+        *,
+        veto_disjoint: bool = False,
+    ) -> tuple[float, str]:
+        """Score a normalized candidate dict against the goal.
+
+        With ``veto_disjoint`` (used for session-derived results, whose names
+        can lie — e.g. a junk ``exp(x)`` auto-saved under the name
+        ``maxwell-boltzmann-v_rms``, run-021), a candidate whose variables are
+        entirely disjoint from the goal's target variables is rejected: the
+        name keyword overlap alone cannot resurrect it.
+        """
         score = 0.0
         reasons: list[str] = []
         goal_text = goal.text.lower()
         goal_tokens = set(self._tokenize(goal_text))
 
+        name = str(result.get("name") or "")
+        description = str(result.get("description") or "")
+        application_context = str(result.get("application_context") or "")
+        tags = [str(t) for t in (result.get("tags") or [])]
+        derivation_steps = [str(s) for s in (result.get("derivation_steps") or [])]
+        domain = str(result.get("domain") or "")
+        variables: dict[str, Any] = dict(result.get("variables") or {})
+        expression = str(result.get("expression") or "")
+
+        # Target-variable disjointness veto (derived store only).
+        if (
+            veto_disjoint
+            and goal.target_variables
+            and variables
+            and not (set(goal.target_variables) & set(variables.keys()))
+        ):
+            return 0.0, "variables disjoint from goal targets"
+
         # Keyword overlap: name, description, tags, application context
         fields = [
-            result.name,
-            result.description,
-            result.application_context,
-            " ".join(result.tags),
-            " ".join(result.derivation_steps),
+            name,
+            description,
+            application_context,
+            " ".join(tags),
+            " ".join(derivation_steps),
         ]
         text = " ".join(f for f in fields if f).lower()
         field_tokens = set(self._tokenize(text))
@@ -194,11 +262,11 @@ class FormulaRecommender:
 
         # Domain match
         domain_match = False
-        if result.domain and goal.domain and result.domain == goal.domain:
+        if domain and goal.domain and domain == goal.domain:
             score += 1.0
             reasons.append("domain match")
             domain_match = True
-        elif result.domain and goal.domain and result.domain in goal.domain:
+        elif domain and goal.domain and domain in goal.domain:
             score += 0.5
             reasons.append("domain sub-match")
             domain_match = True
@@ -207,8 +275,8 @@ class FormulaRecommender:
         # Single-letter overlaps are heavily discounted because they are generic
         # (e.g. "a") and frequently produce false positives across unrelated domains.
         variable_score = 0.0
-        if goal.target_variables and result.variables:
-            common = set(goal.target_variables) & set(result.variables.keys())
+        if goal.target_variables and variables:
+            common = set(goal.target_variables) & set(variables.keys())
             for var in common:
                 weight = 0.2 if len(var) == 1 else 0.5
                 variable_score += weight
@@ -217,9 +285,9 @@ class FormulaRecommender:
 
         # Target expression similarity with formula expression (simple string containment)
         expression_similarity = False
-        if goal.target_expression and result.expression:
+        if goal.target_expression and expression:
             norm_target = goal.target_expression.lower().replace(" ", "")
-            norm_expr = result.expression.lower().replace(" ", "")
+            norm_expr = expression.lower().replace(" ", "")
             if norm_target in norm_expr or norm_expr in norm_target:
                 score += 0.8
                 reasons.append("expression similarity")
@@ -231,7 +299,7 @@ class FormulaRecommender:
 
         # Verification status bonus
         verified = False
-        if result.verified:
+        if result.get("verified"):
             score += 0.5
             reasons.append("verified")
             verified = True

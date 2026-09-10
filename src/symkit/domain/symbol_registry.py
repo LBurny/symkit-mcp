@@ -24,13 +24,33 @@ class SymbolScope(str, Enum):
     USER = "user"                # Explicitly registered by the user
 
 
+def _domain_value(domain: MathDomain | str) -> str:
+    """Return the string form of a domain (enum member or custom string)."""
+    return domain.value if isinstance(domain, MathDomain) else str(domain)
+
+
+def _normalize_domain(domain: MathDomain | str) -> MathDomain | str:
+    """Map known domain strings to ``MathDomain``; keep unknown ones verbatim.
+
+    ``MathDomain.from_string`` silently degrades unknown domains to GENERAL —
+    a registration for ``relativity`` was recorded as ``general`` with no
+    warning (run-021).  Custom domain strings are user data and must round-trip.
+    """
+    if isinstance(domain, MathDomain):
+        return domain
+    try:
+        return MathDomain(domain.lower().replace(" ", "_"))
+    except ValueError:
+        return domain
+
+
 @dataclass
 class SymbolSemantics:
     """Semantic record for a single symbol."""
 
     name: str
     meaning: str
-    domain: MathDomain = MathDomain.GENERAL
+    domain: MathDomain | str = MathDomain.GENERAL
     scope: SymbolScope = SymbolScope.USER
     default_unit: str | None = None
     common_assumptions: list[str] = field(default_factory=list)
@@ -42,7 +62,7 @@ class SymbolSemantics:
         return {
             "name": self.name,
             "meaning": self.meaning,
-            "domain": self.domain.value,
+            "domain": _domain_value(self.domain),
             "scope": self.scope.value,
             "default_unit": self.default_unit,
             "common_assumptions": self.common_assumptions,
@@ -217,8 +237,7 @@ class SymbolRegistry:
         source_type: str = "manual",
     ) -> SymbolSemantics:
         """Register a symbol's semantics."""
-        if isinstance(domain, str):
-            domain = MathDomain.from_string(domain)
+        domain = _normalize_domain(domain)
         sem = SymbolSemantics(
             name=name,
             meaning=meaning,
@@ -240,8 +259,7 @@ class SymbolRegistry:
         domain: MathDomain | str = MathDomain.GENERAL,
     ) -> list[SymbolSemantics]:
         """Batch-register symbols from a formula (use domain default semantics if available; otherwise mark as unknown)."""
-        if isinstance(domain, str):
-            domain = MathDomain.from_string(domain)
+        domain = _normalize_domain(domain)
         registered: list[SymbolSemantics] = []
         for sym in symbol_names:
             existing = self.lookup(sym, domain)
@@ -279,8 +297,8 @@ class SymbolRegistry:
         scope: SymbolScope | None = None,
     ) -> SymbolSemantics | None:
         """Look up symbol semantics, preferring an exact domain and scope match."""
-        if domain is not None and isinstance(domain, str):
-            domain = MathDomain.from_string(domain)
+        if domain is not None:
+            domain = _normalize_domain(domain)
         entries = self._symbols.get(name, [])
         if not entries:
             return None
@@ -320,7 +338,7 @@ class SymbolRegistry:
             entries = self._symbols.get(name, [])
             if len(entries) > 1:
                 meanings = sorted({e.meaning for e in entries})
-                domains = {e.domain.value for e in entries}
+                domains = {_domain_value(e.domain) for e in entries}
                 if len(meanings) > 1 or len(domains) > 1:
                     conflicts.append({
                         "symbol": name,
@@ -345,14 +363,22 @@ class SymbolRegistry:
                 suggestions[name] = sem.common_assumptions
         return suggestions
 
+    def user_registered_names(self) -> list[str]:
+        """Names explicitly registered by users or sessions (not domain defaults)."""
+        return sorted(
+            name
+            for name, entries in self._symbols.items()
+            if any(e.scope in (SymbolScope.USER, SymbolScope.SESSION) for e in entries)
+        )
+
     def list_symbols(
         self,
         domain: MathDomain | str | None = None,
         scope: SymbolScope | None = None,
     ) -> list[SymbolSemantics]:
         """List symbols."""
-        if domain is not None and isinstance(domain, str):
-            domain = MathDomain.from_string(domain)
+        if domain is not None:
+            domain = _normalize_domain(domain)
         results = []
         for entries in self._symbols.values():
             for e in entries:

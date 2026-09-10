@@ -19,6 +19,7 @@ from symkit.domain.formula_search_query import (
     normalize_formula_search_inputs,
 )
 from symkit.infrastructure.adapters.local_formula import LocalFormulaAdapter
+from symkit.infrastructure.derivation_repository import get_repository
 from symkit_mcp.tools._state import get_session
 
 if TYPE_CHECKING:
@@ -453,6 +454,64 @@ def register_formula_tools(mcp: Any) -> None:
             "formula_id": id,
             "file_path": str(entry.source_path) if entry.source_path else None,
             "message": "Formula added to local library.",
+        }
+
+    @mcp.tool(
+        meta={
+            "category": "Formula Search",
+            "example": 'formula_remove("my_formula_id")',
+        }
+    )
+    def formula_remove(formula_id: str) -> dict[str, Any]:
+        """Remove a formula from the local library and/or derived store.
+
+        Deletes the user-overlay YAML (written by ``formula_add``) and/or the
+        session-derived record (written by ``session_complete`` auto_save).
+        Bundled seed entries are read-only and cannot be removed.  Use this to
+        clean up polluted entries — e.g. junk auto-saved by earlier buggy
+        sessions — which otherwise keep surfacing in search and ``derive()``
+        recommendations (run-021).
+
+        Args:
+            formula_id: Id of the formula to remove.
+
+        Returns:
+            Which stores the entry was removed from.
+        """
+        if not formula_id:
+            return {"success": False, "error": "formula_id is required."}
+
+        removed_from: list[str] = []
+
+        try:
+            library = FormulaLibrary()
+            if library.delete(formula_id):
+                removed_from.append("library")
+        except Exception as e:
+            return {"success": False, "error": f"Failed to open local library: {e}"}
+
+        try:
+            repo = get_repository()
+            if repo.get(formula_id) is not None:
+                repo.delete(formula_id, delete_file=True)
+                removed_from.append("derived")
+        except Exception as e:
+            return {"success": False, "error": f"Failed to remove derived entry: {e}"}
+
+        if not removed_from:
+            return {
+                "success": False,
+                "error": f"Formula '{formula_id}' not found (or is a read-only seed).",
+            }
+
+        # Reset the shared adapter so the removal is visible immediately.
+        _reset_local_adapter()
+
+        return {
+            "success": True,
+            "formula_id": formula_id,
+            "removed_from": removed_from,
+            "message": f"Formula removed from: {', '.join(removed_from)}.",
         }
 
     @mcp.tool()

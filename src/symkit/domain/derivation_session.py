@@ -48,6 +48,40 @@ from symkit.domain.value_objects import VerificationResult, VerificationStatus
 from symkit.infrastructure.derivation_repository import get_repository
 
 
+def _library_candidates() -> list[dict[str, Any]]:
+    """Snapshot the live formula library as recommender candidate dicts.
+
+    Constructing ``FormulaLibrary`` re-reads the YAML store, so entries added
+    in this process are visible immediately.  Any failure (missing dirs,
+    malformed files) degrades to no candidates rather than blocking derive().
+    """
+    try:
+        from symkit.domain.formula_library import FormulaLibrary
+
+        library = FormulaLibrary()
+        candidates: list[dict[str, Any]] = []
+        for formula_id in library.list_formula_ids():
+            entry = library.get(formula_id)
+            if entry is None:
+                continue
+            candidates.append({
+                "formula_id": entry.id,
+                "name": entry.name,
+                "expression": entry.sympy_str or entry.latex,
+                "domain": entry.domain,
+                "verified": False,
+                "description": entry.description,
+                "application_context": "",
+                "tags": list(entry.tags),
+                "derivation_steps": [],
+                "variables": dict(entry.variables),
+                "source": "library",
+            })
+        return candidates
+    except Exception:
+        return []
+
+
 class OperationType(Enum):
     """Derivation operation types."""
 
@@ -1023,10 +1057,19 @@ class DerivationSession:
         self._update_timestamp()
 
     def recommend_formulas(self, top_k: int = 5) -> list[dict[str, Any]]:
-        """Recommend available formulas based on the goal."""
+        """Recommend available formulas based on the goal.
+
+        Besides the derivation repository, the live formula library is read
+        on every call so that a formula added with ``formula_add`` moments
+        earlier is immediately visible to ``derive()`` (run-021: the
+        recommender used to read only the repository snapshot, so fresh
+        library entries were invisible until a server restart).
+        """
         if self.goal is None:
             return []
-        return self.recommender.recommend(self.goal, top_k=top_k)
+        return self.recommender.recommend(
+            self.goal, top_k=top_k, extra_candidates=_library_candidates()
+        )
 
     def plan_next_steps(self, max_steps: int = 5) -> list[dict[str, Any]]:
         """Return goal-aware next-step suggestions."""

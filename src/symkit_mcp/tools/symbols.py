@@ -57,12 +57,23 @@ def register_symbol_tools(mcp: Any) -> None:
         sem = session.symbol_registry.register(
             name=name,
             meaning=meaning,
-            domain=MathDomain.from_string(domain),
+            domain=domain,
             scope=SymbolScope.USER,
             default_unit=unit,
             common_assumptions=assumptions or [],
             aliases=aliases or [],
         )
+
+        # Unknown domains are stored verbatim (no silent degradation to
+        # "general", run-021) — but say so explicitly.
+        warning = None
+        try:
+            MathDomain(domain.lower().replace(" ", "_"))
+        except ValueError:
+            warning = (
+                f"'{domain}' is not a built-in domain; stored verbatim as a "
+                "custom domain."
+            )
 
         return {
             "success": True,
@@ -70,6 +81,7 @@ def register_symbol_tools(mcp: Any) -> None:
             "meaning": meaning,
             "domain": domain,
             "registered": sem.to_dict(),
+            "warning": warning,
         }
 
     @mcp.tool(
@@ -135,9 +147,7 @@ def register_symbol_tools(mcp: Any) -> None:
                 "error": "No active session. Use session_start() or derive() first.",
             }
 
-        symbols = session.symbol_registry.list_symbols(
-            domain=MathDomain.from_string(domain),
-        )
+        symbols = session.symbol_registry.list_symbols(domain=domain)
 
         return {
             "success": True,
@@ -175,6 +185,13 @@ def register_symbol_tools(mcp: Any) -> None:
             names.update(str(s) for s in formula.expression.free_symbols)
         if session.current_expression is not None:
             names.update(str(s) for s in session.current_expression.free_symbols)
+
+        # Also check symbols the user explicitly registered: conflicts between
+        # registrations (e.g. "c" = speed of light vs specific heat) must be
+        # visible before any of them appears in an expression (run-021).
+        # Domain defaults are excluded — well-known dual meanings like the
+        # gas constant vs electrical resistance would otherwise always fire.
+        names.update(session.symbol_registry.user_registered_names())
 
         conflicts = session.symbol_registry.detect_conflicts(list(names))
 

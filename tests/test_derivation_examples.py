@@ -81,8 +81,8 @@ class TestFirstOrderElimination:
         )
 
         # Add assumptions for cleaner verification
-        mcp.tools["assume_for_step"]("k", "positive")
-        mcp.tools["assume_for_step"]("t", "positive")
+        mcp.tools["assume_for_step"]("k positive")
+        mcp.tools["assume_for_step"]("t positive")
 
         # Solve ODE: diff(C(t), t) + k*C(t) = 0, dependent variable C, independent t
         result = mcp.tools["math"](
@@ -305,11 +305,11 @@ class TestAssumptions:
         _register_all_tools(mcp)
 
         mcp.tools["session_start"]("assumptions")
-        result = mcp.tools["assume_for_step"]("x", "positive")
+        result = mcp.tools["assume_for_step"]("x positive")
         assert result["success"], result.get("error")
         assert result["step_assumptions"]["x"]["positive"] is True
 
-        result = mcp.tools["assume_for_step"]("y", "real")
+        result = mcp.tools["assume_for_step"]("y real")
         assert result["success"], result.get("error")
         merged = result["merged_assumptions"]
         assert merged["x"]["positive"] is True

@@ -232,8 +232,8 @@ class TestAssumptionConflicts:
         _register_all_tools(mcp)
 
         mcp.tools["session_start"]("conflict")
-        mcp.tools["assume_for_step"]("x", "positive")
-        mcp.tools["assume_for_step"]("x", "negative")
+        mcp.tools["assume_for_step"]("x positive")
+        mcp.tools["assume_for_step"]("x negative")
         summary = mcp.tools["check_assumption_conflicts"]()
         assert summary["success"]
         assert summary["has_conflicts"]

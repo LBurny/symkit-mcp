@@ -370,9 +370,12 @@ def register_codegen_tools(mcp: Any) -> None:
         # routinely introduce symbols absent from the expressions (e.g. a
         # solve input); declaring only the expression symbols made the
         # generated script die with NameError on its first run (run-018).
+        # E and I are NOT reserved: the parser treats them as symbols
+        # (Young's modulus, moment of inertia, ...), so generated scripts
+        # must declare them too (run-020).
         _reserved = (
             "sin", "cos", "tan", "sqrt", "exp", "log", "pi",
-            "Derivative", "Integral", "oo", "E", "I",
+            "Derivative", "Integral", "oo",
         )
         all_symbols: set[str] = set()
         for expr in expressions:

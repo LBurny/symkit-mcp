@@ -93,7 +93,7 @@ class TestDeriveExternalSources:
         )
         assert result["success"] is True
         recommended = result["recommended_formulas"]
-        assert all(r["source"] == "local" for r in recommended)
+        assert all(r["source"] in ("local", "library") for r in recommended)
 
     def test_derive_graceful_when_external_fails(self, fresh_session_manager: Any, monkeypatch: Any) -> None:
         class FailingAdapter(BaseAdapter):
@@ -122,7 +122,7 @@ class TestDeriveExternalSources:
         )
         assert result["success"] is True
         recommended = result["recommended_formulas"]
-        assert all(r["source"] == "local" for r in recommended)
+        assert all(r["source"] in ("local", "library") for r in recommended)
 
 
 class TestDeriveExternalSourcesDefault:
