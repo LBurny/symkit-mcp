@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-10
+
+Assumption-scope reform motivated by run-013 (per-call assumptions leaked permanently into the shared context even for `session=false` probe calls) and the design discussion that followed.
+
+### Added
+
+- 🧹 **`unassume(variables)`** — remove assumptions for named symbols from the shared context and the session engine (domain defaults preserved). `assume()` was previously irreversible short of a server restart.
+- 🧹 **`clear_assumptions()`** — reset the whole scope (context + session engine layers), domain defaults preserved.
+- 📣 **`assumptions_applied` echo** — `math()` responses list which assumptions took effect for the call.
+
+### Changed
+
+- ⚖️ **Per-call assumptions respect the `session` flag** — with `session=true` they persist into the shared context AND the session's assumption engine (visible to the step verifier, so identities recorded under session assumptions verify instead of staying inconclusive); with `session=false` they apply to that call only via a call-local context and the shared context is untouched — stateless calls are now truly side-effect free. Cross-session globals remain the explicit `assume()` tool's job. **Migration note:** code that seeded the context with `math(..., assumptions=[...], session=false)` must call `assume()` (or pass `session=true`) instead.
+
+### Fixed
+
+- ✅ **Parse-collapsed boolean steps verify** — when session assumptions make the parser resolve `Eq(...)` to a boolean before recording, a same-value boolean step verifies instead of landing in an unverifiable inconclusive limbo.
+
 ## [1.2.2] - 2026-09-10
 
 Nine defects found by black-box rounds run-011/run-012 (Maxwell-Boltzmann and RC/RLC circuit tasks driven by subagents) and accepted by run-013/014/015 re-runs.
@@ -25,6 +43,8 @@ Nine defects found by black-box rounds run-011/run-012 (Maxwell-Boltzmann and RC
 - ➕ **solve promotes the positive root** — the `solution` field prefers a provably positive root under active assumptions instead of blindly taking `solutions[0]`; `all_solutions` keeps the full set.
 - 📈 **series keeps the `O(x**n)` term** instead of silently reporting a bare polynomial as if exact.
 - 🧾 **Scalar strings coerce to lists** — `limitations="..."`, `tags="..."`, `assumptions="..."`, `target_variables="..."`, `related_variables="..."` no longer fail schema validation or splat into characters.
+
+## [1.2.1] - 2026-09-10
 
 Four defects found by black-box round run-008 (damped-oscillator task) and accepted by run-010 probe: all four fixes verified from the black box.
 
