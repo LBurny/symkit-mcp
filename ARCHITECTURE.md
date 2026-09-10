@@ -1,6 +1,6 @@
 # Architecture
 
-SymKit MCP Architecture Document (v1.0.1)
+SymKit MCP Architecture Document (v1.1.0)
 
 ---
 
@@ -84,9 +84,9 @@ MCP protocol interface, independent of the core library.
 | Category | Count | Description |
 |----------|-------|-------------|
 | **Session** | 17 | Derivation session management and step operations |
-| **Math** | 1 | Unified math entry point (calculus, matrices, ODE, transforms, etc.) |
+| **Math** | 1 | Unified math entry point (~26 operations: calculus, matrices, ODE, transforms, numeric `evalf`, etc.) |
 | **Assumption** | 6 | Symbolic assumption management |
-| **Formula** | 4 | External formula search and classification |
+| **Formula** | 4 | Formula search and management; searchable corpus = bundled seeds + session-derived formulas (read-only) + writable user overlay |
 | **Symbol** | 4 | Symbol registration, lookup, and conflict detection |
 | **Codegen** | 4 | Python / LaTeX / Markdown / SymPy generation |
 | **Derivation / Orchestration** | 3 | High-level derivation orchestration |

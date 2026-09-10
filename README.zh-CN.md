@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-266%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-286%20passed-brightgreen.svg)]()
 [![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
 🌐 [English](README.md) | **简体中文**
@@ -113,7 +113,7 @@ SymKit 提供 **41 个 MCP 工具**，分为 8 个类别。日常通过少数高
 | **推导与编排** | `derive`、`intent_execute`、`list_patterns` | 3 |
 | **工具发现** | `tool_categories`、`tool_recommend` | 2 |
 
-仅 `math()` 一个工具就覆盖约 25 种符号运算——微积分、ODE、矩阵、矢量分析、积分变换——并且可以直接把结果写入推导会话。
+仅 `math()` 一个工具就覆盖约 26 种符号运算——微积分、ODE、矩阵、矢量分析、积分变换——并且可以直接把结果写入推导会话。
 
 ## 🔍 公式搜索工作流
 
@@ -329,7 +329,7 @@ symkit-mcp/
 │       ├── server.py
 │       └── tools/           # 41 个 MCP 工具
 ├── formulas/                # 推导成果仓库
-├── tests/                   # 281 个测试
+├── tests/                   # 286 个测试
 └── pyproject.toml
 ```
 

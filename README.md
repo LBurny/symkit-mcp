@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-266%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-286%20passed-brightgreen.svg)]()
 [![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
 🌐 **English** | [简体中文](README.zh-CN.md)
@@ -333,7 +333,7 @@ symkit-mcp/
 │       ├── server.py
 │       └── tools/           # 41 MCP tools
 ├── formulas/                # Seed formula library (source tree)
-├── tests/                   # 295 tests
+├── tests/                   # 286 tests
 └── pyproject.toml
 ```
 
