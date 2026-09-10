@@ -54,8 +54,12 @@ def _apply_context_assumptions(
 
     This lets ``assume({"x": "positive"})`` followed by ``math("simplify", ...)``
     produce assumption-aware results such as ``sqrt(x**2) -> x``.
+    Non-Basic inputs (python tuples/lists from comma parses) pass through
+    unchanged — running ``.has`` on them would crash (run-018).
     """
     if context is None or not context.assumptions:
+        return expr
+    if not isinstance(expr, sp.Basic):
         return expr
     subs: dict[sp.Basic, sp.Symbol] = {}
     for name, props in context.assumptions.items():
@@ -148,29 +152,36 @@ def _rekey_subs_to_expression(
 
 
 def _build_ics_dict(
-    ics: dict[str, Any], func: str
+    ics: dict[str, Any], func: str, var: str
 ) -> tuple[dict[Any, Any] | None, dict[str, Any] | None]:
     """Parse an initial-condition mapping into SymPy form for ``dsolve``.
 
-    Accepts ``{"V(0)": "V_0"}`` style keys — the dependent function applied to
-    a point — and parses both sides as expressions. Returns ``(ics, None)`` on
-    success and ``(None, error_dict)`` on failure.
+    Accepts ``{"V(0)": "V_0"}`` for the value at a point and ``{"x'(0)":
+    "v_0"}`` (one prime per derivative order) for derivative initial values —
+    second-order ODEs need both (run-018). Keys parse into ``f(point)`` and
+    ``Derivative(f(t), t).subs(t, point)`` (Subs form), exactly what
+    ``sympy.dsolve`` expects. Returns ``(ics, None)`` on success and
+    ``(None, error_dict)`` on failure.
     """
     f = sp.Function(func)
+    v = sp.Symbol(var)
     parsed_ics: dict[Any, Any] = {}
     for key_str, value_str in ics.items():
         match = re.fullmatch(
-            rf"{re.escape(func)}\s*\(\s*(.+?)\s*\)", str(key_str).strip()
+            rf"{re.escape(func)}\s*('*)\s*\(\s*(.+?)\s*\)",
+            str(key_str).strip(),
         )
         if match is None:
             return None, {
                 "success": False,
                 "error": (
-                    f"Cannot parse initial condition '{key_str}'. "
-                    f"Use the form '{func}(0)': '<value>'."
+                    f"Cannot parse initial condition '{key_str}'. Use "
+                    f"'{func}(0)': '<value>' for the value and "
+                    f"'{func}'(0)': '<value>' for a derivative initial value."
                 ),
             }
-        point, point_error = _parse_math_expression(match.group(1))
+        order = match.group(1).count("'")
+        point, point_error = _parse_math_expression(match.group(2))
         if point is None:
             return None, {
                 "success": False,
@@ -182,7 +193,12 @@ def _build_ics_dict(
                 "success": False,
                 "error": f"Cannot parse ics value '{value_str}': {value_error}",
             }
-        parsed_ics[f(point)] = value
+        key_obj = (
+            f(point)
+            if order == 0
+            else sp.Derivative(f(v), (v, order)).subs(v, point)
+        )
+        parsed_ics[key_obj] = value
     return parsed_ics, None
 
 
@@ -606,6 +622,40 @@ def _execute_operation_inner(
             if isinstance(parsed, dict):
                 return parsed
             input_obj = parsed
+            # A comma-separated expression parses to a python tuple — treat it
+            # as a system of equations (run-018).
+            if isinstance(parsed, (list, tuple)):
+                eqs = list(parsed)
+                eq_syms: set[sp.Basic] = set()
+                for eq in eqs:
+                    eq_syms |= set(eq.free_symbols)
+                var_names = [n.strip() for n in variable.split(",") if n.strip()]
+                vars_ = []
+                for name in var_names:
+                    sym = next((s for s in eq_syms if str(s) == name), None)
+                    vars_.append(sym if sym is not None else sp.Symbol(name))
+                solutions = sp.solve(eqs, vars_)
+                # sp.solve returns a dict for a single solution, a list of
+                # dicts/tuples otherwise — normalize to a list (run-018;
+                # solutions[0] on the dict raised a bare KeyError: 0).
+                if isinstance(solutions, dict):
+                    solutions = [solutions]
+                if not solutions:
+                    return {"success": False,
+                            "error": f"No solution found for {variable}"}
+                first = solutions[0]
+                result = sp.sympify(str(first))
+                return {
+                    "success": True,
+                    "expression": str(result),
+                    "latex": sp.latex(result),
+                    "solution": str(first),
+                    "solution_latex": sp.latex(result),
+                    "all_solutions": [str(s) for s in solutions],
+                    "operation": operation,
+                    "_input_obj": input_obj,
+                    "_result_obj": result,
+                }
             v = _resolve_variable_symbol(parsed, variable, context)
             eq = parsed if isinstance(parsed, sp.Equality) else parsed
             solutions = sp.solve(eq, v)
@@ -694,9 +744,13 @@ def _execute_operation_inner(
             if ode_expr is None:
                 return {"success": False,
                         "error": ode_error or "Cannot parse ODE"}
+            # Context assumptions (k, m positive) shape the solution form:
+            # without them sympy returns complex-root exponentials instead of
+            # the expected trig form (run-018).
+            ode_expr = _apply_context_assumptions(ode_expr, context)
             ics_objs: dict[Any, Any] | None = None
             if ics:
-                ics_objs, ics_error = _build_ics_dict(ics, v)
+                ics_objs, ics_error = _build_ics_dict(ics, v, func_var)
                 if ics_error is not None:
                     return ics_error
             # Wrap the parsed ODE directly as an Expression
@@ -727,13 +781,18 @@ def _execute_operation_inner(
                 out = _engine.matrix_inv(expr_obj, context)
             elif operation == "eigenvals":
                 vals = _engine.matrix_eigenvals(expr_obj, context)
+                # A sympy Tuple keeps the result a valid Basic so the step
+                # records into the chain and the display renders (run-017).
+                result_obj = sp.Tuple(*[v.sympy_expr for v in vals])
                 return {
                     "success": True,
                     "eigenvalues": [e.raw for e in vals],
                     "eigenvalues_latex": [e.latex for e in vals],
+                    "expression": str(result_obj),
+                    "latex": sp.latex(result_obj),
                     "operation": operation,
                     "_input_obj": input_obj,
-                    "_result_obj": None,
+                    "_result_obj": result_obj,
                 }
             else:  # eigenvects
                 vects = _engine.matrix_eigenvects(expr_obj, context)

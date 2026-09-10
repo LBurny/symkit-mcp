@@ -801,16 +801,22 @@ class DerivationSession:
         Tries the round-trippable ``srepr`` representation first, then falls
         back to ``sp.sympify`` and the unified user-expression parser. This
         is necessary because ``str(expr)`` of LaTeX-derived symbols such as
-        ``Symbol('mu_{t}')`` is not valid Python input.
+        ``Symbol('mu_{t}')`` is not valid Python input. Non-Basic results
+        (e.g. ``sympify("(1, 2)")`` → python tuple from legacy comma parses)
+        are rejected so callers never see an atom-less container.
         """
+
+        def _basic_or_none(candidate: Any) -> sp.Basic | None:
+            return candidate if isinstance(candidate, sp.Basic) else None
+
         if srepr_str:
             try:
-                return sp.sympify(srepr_str)
+                return _basic_or_none(sp.sympify(srepr_str))
             except Exception:
                 pass
 
         try:
-            return sp.sympify(expr_str)
+            return _basic_or_none(sp.sympify(expr_str))
         except Exception:
             pass
 
@@ -818,7 +824,7 @@ class DerivationSession:
             from symkit.domain.expression_parser import parse_user_expression
 
             expr, _ = parse_user_expression(expr_str)
-            if expr is not None:
+            if expr is not None and isinstance(expr, sp.Basic):
                 return expr
         except Exception:
             pass

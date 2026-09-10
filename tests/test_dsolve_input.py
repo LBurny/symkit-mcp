@@ -118,3 +118,43 @@ def test_dsolve_ics_rejects_malformed_key(fresh_session_manager):
     )
     assert not res["success"]
     assert "V(0)" in res["error"]
+
+
+def test_dsolve_ics_derivative_initial_condition(fresh_session_manager):
+    """Regression (run-018): second-order ODEs need a velocity initial value,
+    but every notation the agent tried was rejected with
+    "Cannot parse initial condition 'x'(0)'". Prime notation is now accepted."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="dsolve",
+        expression="d^2x/dt^2 + 4*x",
+        variable="x",
+        with_respect_to="t",
+        ics={"x(0)": "x_0", "x'(0)": "v_0"},
+        session=False,
+    )
+    assert res["success"], res
+    assert "C1" not in res["expression"] and "C2" not in res["expression"]
+    assert "x_0" in res["expression"]
+    assert "v_0" in res["expression"]
+
+
+def test_dsolve_applies_session_assumptions_to_ode(fresh_session_manager):
+    """Regression (run-018): _parse_ode ignored context assumptions, so dsolve
+    of m*x'' + k*x with k,m positive returned the complex-root form
+    exp(-t*sqrt(-k/m)) instead of the trig form."""
+    _ = fresh_session_manager
+    tools = _tools()
+    tools["session_start"]("ode_assump")
+    res = tools["math"](
+        operation="dsolve",
+        expression="m*d^2x/dt^2 + k*x",
+        variable="x",
+        with_respect_to="t",
+        assumptions=["m positive", "k positive"],
+        session=True,
+    )
+    assert res["success"], res
+    assert "sin" in res["expression"] or "cos" in res["expression"], res["expression"]
+    assert "sqrt(-k" not in res["expression"]

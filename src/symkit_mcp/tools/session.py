@@ -51,6 +51,12 @@ def _detect_risks(session: DerivationSession) -> list[dict[str, str]]:
         return risks
 
     expr = session.current_expression
+    if not isinstance(expr, sp.Basic):
+        # Non-symbolic current expressions (tuples from legacy comma parses)
+        # have no free_symbols; degrade instead of crashing session_show
+        # ('tuple' object has no attribute 'free_symbols', run-017).
+        return risks
+
     free_symbols = {str(s) for s in expr.free_symbols}
 
     # Risk: no free symbols (constant result)
@@ -153,7 +159,11 @@ def _suggest_next_steps(session: DerivationSession) -> list[dict[str, Any]]:
 
     expr_str = str(session.current_expression)
     has_equation = "=" in expr_str or isinstance(session.current_expression, sp.Equality)
-    has_multiple_symbols = len(session.current_expression.free_symbols) > 1
+    # Non-Basic current expressions (legacy tuple parses) have no free_symbols
+    # and would crash the suggestion builder (run-017).
+    has_multiple_symbols = isinstance(session.current_expression, sp.Basic) and (
+        len(session.current_expression.free_symbols) > 1
+    )
 
     # Domain-specific suggestions
     domain = session.domain or "general"
@@ -937,6 +947,18 @@ def register_session_tools(mcp: Any) -> None:
             return {
                 "success": False,
                 "error": f"Cannot parse expression '{expression}': {error}",
+            }
+        if not isinstance(new_expr, sp.Basic):
+            # A comma-separated string parses to a python tuple; storing it as
+            # the current expression bricked session_show and progress
+            # computations ('tuple' object has no attribute 'free_symbols',
+            # run-017). Fail loud at the boundary instead.
+            return {
+                "success": False,
+                "error": (
+                    "Cannot record a comma-separated list. Record a single "
+                    "expression per step, or use session_add_note for notes."
+                ),
             }
 
         from symkit.domain.derivation_session import OperationType

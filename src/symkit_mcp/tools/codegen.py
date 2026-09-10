@@ -21,6 +21,7 @@ It does NOT perform new calculations.
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
+import re
 from typing import Any
 
 
@@ -365,16 +366,24 @@ def register_codegen_tools(mcp: Any) -> None:
             "# Define symbols",
         ]
 
-        # Collect all symbols
+        # Collect all symbols — from expressions AND operations. Operations
+        # routinely introduce symbols absent from the expressions (e.g. a
+        # solve input); declaring only the expression symbols made the
+        # generated script die with NameError on its first run (run-018).
+        _reserved = (
+            "sin", "cos", "tan", "sqrt", "exp", "log", "pi",
+            "Derivative", "Integral", "oo", "E", "I",
+        )
         all_symbols: set[str] = set()
         for expr in expressions:
-            # Simple extraction - in production use proper parsing
-            import re
-
-            syms = re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b", expr["expr"])
-            all_symbols.update(
-                s for s in syms if s not in ("sin", "cos", "tan", "sqrt", "exp", "log", "pi")
-            )
+            syms = re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b", str(expr.get("expr", "")))
+            all_symbols.update(s for s in syms if s not in _reserved)
+        for op in operations:
+            for field in ("input", "for", "var"):
+                value = op.get(field)
+                if isinstance(value, str):
+                    syms = re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b", value)
+                    all_symbols.update(s for s in syms if s not in _reserved)
 
         if all_symbols:
             lines.append(
@@ -393,9 +402,13 @@ def register_codegen_tools(mcp: Any) -> None:
         for i, op in enumerate(operations, 1):
             lines.append(f"# Operation {i}: {op['op']}")
             if op["op"] == "solve":
-                lines.append(
-                    f"result_{i} = solve(Eq({op['input'].replace('=', ',')}), {op['for']})"
-                )
+                # Wrap in Eq only when the input actually contains '='; a
+                # single-argument Eq() is deprecated (run-018).
+                if "=" in str(op["input"]):
+                    lhs, _, rhs = str(op["input"]).partition("=")
+                    lines.append(f"result_{i} = solve(Eq({lhs.strip()}, {rhs.strip()}), {op['for']})")
+                else:
+                    lines.append(f"result_{i} = solve({op['input']}, {op['for']})")
             elif op["op"] == "simplify":
                 lines.append(f"result_{i} = simplify({op['input']})")
             elif op["op"] == "diff":

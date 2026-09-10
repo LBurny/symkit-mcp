@@ -8,6 +8,7 @@ Regression for black-box run-001/run-002 findings:
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -89,3 +90,62 @@ class TestReportVerificationRendering:
         assert result["success"]
         assert r"$\rho$" in result["report"]
         assert "$C_{d}$" in result["report"]
+
+
+class TestGenerateSympyScript:
+    """Regression (run-018): the generated script declared only the symbols of
+    `expressions`; symbols appearing solely in `operations` (e.g. solve inputs)
+    were never declared, so the script died with NameError on first run."""
+
+    def test_declares_symbols_from_operations(self, fresh_manager):
+        _ = fresh_manager
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        tool = mcp.tools["generate_sympy_script"]
+        result = tool(
+            expressions=[
+                {"name": "omega", "expr": "sqrt(k/m)", "description": "angular frequency"},
+                {"name": "T", "expr": "2*pi*sqrt(m/k)", "description": "period"},
+            ],
+            operations=[{"op": "solve", "input": "m*x**2 - k", "for": "x"}],
+        )
+        assert result["success"], result
+        script = result["script"]
+        # x (and m, k) must be declared as sympy symbols.
+        assert "x" in _declared_symbols(script), script
+
+    def test_generated_script_runs_without_name_error(self, fresh_manager):
+        _ = fresh_manager
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        tool = mcp.tools["generate_sympy_script"]
+        result = tool(
+            expressions=[
+                {"name": "omega", "expr": "sqrt(k/m)", "description": "angular frequency"},
+            ],
+            operations=[{"op": "solve", "input": "m*x**2 - k", "for": "x"}],
+        )
+        assert result["success"], result
+        namespace: dict = {}
+        exec(result["script"], namespace)  # must not raise NameError
+        assert len(namespace["result_1"]) == 2  # [-sqrt(k/m), sqrt(k/m)]
+
+    def test_solve_operation_without_equals_avoids_eq_warning(self, fresh_manager):
+        _ = fresh_manager
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        tool = mcp.tools["generate_sympy_script"]
+        result = tool(
+            expressions=[],
+            operations=[{"op": "solve", "input": "m*x**2 - k", "for": "x"}],
+        )
+        assert result["success"], result
+        assert "Eq(" not in result["script"], result["script"]
+
+
+def _declared_symbols(script: str) -> set[str]:
+    """Names on the script's ``symbols('...')`` declaration line."""
+    match = re.search(r"=\s*symbols\('([^']+)'\)", script)
+    if match is None:
+        return set()
+    return set(match.group(1).split())
