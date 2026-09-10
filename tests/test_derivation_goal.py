@@ -101,3 +101,9 @@ class TestDerivationPatternFromGoal:
     def test_default_direct_manipulation(self):
         goal = DerivationGoal.from_text("simplify the expression")
         assert DerivationPattern.from_goal(goal) == DerivationPattern.DIRECT_MANIPULATION
+
+
+def test_extract_variables_multi_letter_underscored():
+    """多字母词干带下标的符号（nu_tilde、c_w1 类）也应被提取为目标变量。"""
+    goal = DerivationGoal.from_text("derive nu_tilde and c_w1 for the SA model")
+    assert {"nu_tilde", "c_w1"} <= set(goal.target_variables)

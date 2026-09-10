@@ -1076,14 +1076,25 @@ class DerivationSession:
             else:
                 gaps.append("No initial expression to compare")
 
-        # Variable coverage
+        # Variable coverage: a target variable counts as covered when it appears
+        # in ANY step output or the current expression, not just the final one
+        # (intermediate-step symbols were falsely reported missing — run-002).
         if self.goal.target_variables:
-            current_vars = {str(s) for s in current.free_symbols}
-            missing = set(self.goal.target_variables) - current_vars
+            step_vars: set[str] = {str(s) for s in current.free_symbols}
+            for step in self.steps:
+                out = self._safe_load_expression(step.output_expression, step.output_srepr)
+                if out is not None:
+                    step_vars |= {str(s) for s in out.free_symbols}
+            missing = set(self.goal.target_variables) - step_vars
             if missing:
                 gaps.append(f"Missing target variables: {', '.join(sorted(missing))}")
             elif not matches:
                 score = max(score, 0.7)
+            if not self.goal.target_expression and not (
+                self.goal.target_form or ""
+            ).startswith("solve_for_"):
+                covered = 1.0 - len(missing) / max(len(self.goal.target_variables), 1)
+                score = max(score, 0.7 * covered)
 
         return {
             "has_goal": True,

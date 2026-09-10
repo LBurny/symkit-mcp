@@ -227,8 +227,14 @@ class DerivationGoal:
         English articles like "a" and "I" are only kept when the surrounding text
         contains math tokens, indicating an actual equation context.
         """
-        # ASCII single letters or subscript forms (e.g., x_1, rho_0)
-        ascii_candidates = re.findall(r"\b([a-zA-Z](?:_[a-zA-Z0-9]+)?)\b", text)
+        # ASCII single letters or subscript forms (e.g., x_1, rho_0), plus
+        # multi-letter stems with at least one subscript (e.g., nu_tilde,
+        # kappa_max). Plain multi-letter words ("derive", "model") never match:
+        # they lack an underscore group.
+        ascii_candidates = re.findall(
+            r"\b([a-zA-Z](?:_[a-zA-Z0-9]+)?|[a-zA-Z][a-zA-Z0-9]+(?:_[a-zA-Z0-9]+)+)\b",
+            text,
+        )
         # Greek letters (Unicode)
         greek_candidates = re.findall(r"[\u03B1-\u03C9\u0391-\u03A9]", text)
 
