@@ -26,6 +26,20 @@ from symkit_mcp.tools._math_dispatch import (
 from symkit_mcp.tools._state import get_context, get_session, set_context
 
 
+def _parse_assumption_clause(a: str) -> tuple[str, dict[str, bool]] | None:
+    """Parse an assumption clause into ``(variable, {prop: True, ...})``.
+
+    Accepts both ``"x is positive real"`` and ``"x positive real"`` forms.
+    Returns ``None`` when the clause cannot be understood (caller warns).
+    """
+    parts = a.strip().split()
+    if len(parts) >= 3 and parts[1] == "is":
+        return parts[0], dict.fromkeys(parts[2:], True)
+    if len(parts) >= 2:
+        return parts[0], dict.fromkeys(parts[1:], True)
+    return None
+
+
 def register_math_tools(mcp: Any) -> None:
     """Register the unified math() tool and supporting tools."""
 
@@ -139,18 +153,22 @@ def register_math_tools(mcp: Any) -> None:
         """
         preprocessed = _preprocess(expression)
 
-        # Apply symbolic assumptions if provided
+        # Apply symbolic assumptions if provided. Both "x is positive" and
+        # "x positive" forms are accepted; unparseable clauses warn instead
+        # of being silently dropped.
+        assumption_warnings: list[str] = []
         if assumptions:
             ctx = get_context()
             for a in assumptions:
-                parts = a.strip().split()
-                if len(parts) >= 3 and parts[1] == "is":
-                    var_name = parts[0]
-                    props = parts[2:]
-                    props_dict: dict[str, bool] = {}
-                    for p in props:
-                        props_dict[p] = True
-                    ctx = ctx.with_assumption(var_name, **props_dict)
+                clause = _parse_assumption_clause(a)
+                if clause is None:
+                    assumption_warnings.append(
+                        f"Could not parse assumption '{a}'. "
+                        "Use 'x is positive' or 'x positive'."
+                    )
+                    continue
+                var_name, props_dict = clause
+                ctx = ctx.with_assumption(var_name, **props_dict)
             set_context(ctx)
 
         # Execute the operation
@@ -171,6 +189,9 @@ def register_math_tools(mcp: Any) -> None:
         # never leaked to the MCP client.
         input_obj = result.pop("_input_obj", None)
         result_obj = result.pop("_result_obj", None)
+
+        if assumption_warnings:
+            result.setdefault("warnings", []).extend(assumption_warnings)
 
         # Build display text
         if result["success"]:

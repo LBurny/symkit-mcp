@@ -93,6 +93,32 @@ def _parse_math_expression(expr_str: str) -> tuple[sp.Expr | None, str | None]:
     return parse_user_expression(expr_str, convert_equation=True)
 
 
+def _build_subs_dict(
+    substitution: dict[str, Any],
+) -> tuple[dict[sp.Basic, Any] | None, dict[str, Any] | None]:
+    """Parse a substitution mapping into SymPy objects.
+
+    Shared by the ``substitute`` and ``evalf`` operations. Returns
+    ``(subs, None)`` on success and ``(None, error_dict)`` on failure.
+    """
+    subs: dict[sp.Basic, Any] = {}
+    for k, v in substitution.items():
+        key, key_error = _parse_math_expression(str(k))
+        if key is None:
+            return None, {
+                "success": False,
+                "error": f"Cannot parse substitution key '{k}': {key_error}",
+            }
+        val, val_error = _parse_math_expression(str(v))
+        if val is None:
+            return None, {
+                "success": False,
+                "error": f"Cannot parse substitution value '{v}': {val_error}",
+            }
+        subs[key] = val
+    return subs, None
+
+
 def _parse_ode(expr_str: str, func: str, var: str) -> sp.Basic | sp.Equality | None:
     """Parse an ODE expression such as ``diff(C, t) + k*C`` into SymPy form.
 
@@ -181,7 +207,127 @@ ALL_OPS = sorted(_SYNTACTIC_OPS | _ENGINE_OPS |
                  {"simplify", "solve", "substitute", "parse", "evalf"})
 
 
+# ── Parameter-consumption audit ─────────────────────────────────────────
+#
+# Fail-loud discipline: a caller-supplied parameter must either be consumed
+# by the requested operation or produce an explicit warning. Defaults that
+# the caller did not deviate from never warn.
+
+_KNOB_DEFAULTS: dict[str, Any] = {
+    "variable": None,
+    "with_respect_to": None,
+    "substitution": None,
+    "point": None,
+    "direction": "+-",
+    "order": 1,
+    "lower": None,
+    "upper": None,
+    "method": "auto",
+}
+
+_PARAM_USE: dict[str, frozenset[str]] = {
+    "parse": frozenset(),
+    "evalf": frozenset({"substitution"}),
+    "simplify": frozenset({"method"}),
+    "expand": frozenset(),
+    "factor": frozenset(),
+    "cancel": frozenset(),
+    "together": frozenset(),
+    "trigsimp": frozenset(),
+    "powsimp": frozenset(),
+    "radsimp": frozenset(),
+    "combsimp": frozenset(),
+    "collect": frozenset({"variable"}),
+    "apart": frozenset({"variable"}),
+    "solve": frozenset({"variable"}),
+    "substitute": frozenset({"substitution"}),
+    "diff": frozenset({"variable", "order"}),
+    "integrate": frozenset({"variable", "lower", "upper"}),
+    "limit": frozenset({"variable", "point", "direction"}),
+    "series": frozenset({"variable", "point", "order"}),
+    "dsolve": frozenset({"variable", "with_respect_to"}),
+    "gradient": frozenset({"variable"}),
+    "divergence": frozenset({"variable"}),
+    "curl": frozenset({"variable"}),
+    "laplacian": frozenset({"variable"}),
+    "det": frozenset(),
+    "inv": frozenset(),
+    "eigenvals": frozenset(),
+    "eigenvects": frozenset(),
+    "laplace": frozenset({"variable", "with_respect_to"}),
+    "ilaplace": frozenset({"variable", "with_respect_to"}),
+    "fourier": frozenset({"variable", "with_respect_to"}),
+    "ifourier": frozenset({"variable", "with_respect_to"}),
+}
+
+
+def _ignored_param_warnings(operation: str, provided: dict[str, Any]) -> list[str]:
+    """Warn about parameters the caller set that the operation does not consume."""
+    allowed = _PARAM_USE.get(operation, frozenset())
+    warnings: list[str] = []
+    for name, default in _KNOB_DEFAULTS.items():
+        if name in allowed:
+            continue
+        if provided.get(name, default) != default:
+            warnings.append(
+                f"Parameter '{name}' is not used by operation "
+                f"'{operation}' and was ignored."
+            )
+    return warnings
+
+
 def _execute_operation(
+    operation: str,
+    expr_str: str,
+    *,
+    variable: str | None = None,
+    with_respect_to: str | None = None,
+    substitution: dict[str, Any] | None = None,
+    point: str | None = None,
+    direction: str = "+-",
+    order: int = 1,
+    lower: str | None = None,
+    upper: str | None = None,
+    method: str = "auto",
+) -> dict[str, Any]:
+    """Execute a single math operation and return result dict.
+
+    Success dicts include the internal keys ``_input_obj``/``_result_obj``
+    with the live SymPy objects; callers must pop them before responding.
+    Parameters that do not apply to the requested operation produce explicit
+    entries in ``warnings`` (fail-loud; nothing is silently ignored).
+    """
+    provided = {
+        "variable": variable,
+        "with_respect_to": with_respect_to,
+        "substitution": substitution,
+        "point": point,
+        "direction": direction,
+        "order": order,
+        "lower": lower,
+        "upper": upper,
+        "method": method,
+    }
+    result = _execute_operation_inner(
+        operation,
+        expr_str,
+        variable=variable,
+        with_respect_to=with_respect_to,
+        substitution=substitution,
+        point=point,
+        direction=direction,
+        order=order,
+        lower=lower,
+        upper=upper,
+        method=method,
+    )
+    warnings = _ignored_param_warnings(operation, provided)
+    if warnings:
+        result.setdefault("warnings", []).extend(warnings)
+    return result
+
+
+def _execute_operation_inner(
     operation: str,
     expr_str: str,
     *,
@@ -304,6 +450,11 @@ def _execute_operation(
         if isinstance(parsed, dict):
             return parsed
         input_obj = parsed
+        if substitution:
+            subs, subs_error = _build_subs_dict(substitution)
+            if subs_error is not None:
+                return subs_error
+            parsed = parsed.subs(subs).doit()
         result = parsed.evalf()
 
     # ── SOLVE ──
@@ -372,15 +523,10 @@ def _execute_operation(
         expr, expr_error = _parse(preprocessed)
         if expr is None:
             return {"success": False, "error": f"Cannot parse expression: {expr_error}"}
-        subs: dict[sp.Basic, sp.Expr] = {}
-        for k, v in substitution.items():
-            key, key_error = _parse(str(k))
-            if key is None:
-                return {"success": False, "error": f"Cannot parse substitution key '{k}': {key_error}"}
-            val, val_error = _parse(str(v))
-            if val is None:
-                return {"success": False, "error": f"Cannot parse substitution value '{v}': {val_error}"}
-            subs[key] = val
+        subs, subs_error = _build_subs_dict(substitution)
+        if subs_error is not None:
+            return subs_error
+        assert subs is not None
         input_obj = expr
         result = expr.subs(subs).doit()
 
