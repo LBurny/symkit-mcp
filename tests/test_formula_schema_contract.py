@@ -232,6 +232,42 @@ def test_session_complete_autosave_skips_tangential_probes(
     assert "k_B" in entry.sympy_str
 
 
+def test_session_complete_autosave_includes_recorded_binding_step(
+    fresh_session_manager, tmp_path
+):
+    """Regression (run-015): the agent's final ``Eq(v_rms, ...)`` binding was
+    recorded via ``session_record_step`` (CUSTOM); skipping CUSTOM steps
+    entirely lost the binding and saved the bare scalar.  CUSTOM steps that
+    parse and involve a target variable are eligible for the target-match
+    pass (they remain excluded from the lineage pass)."""
+    _ = fresh_session_manager
+    mcp = MockMCP()
+    register_math_tools(mcp)
+    register_session_tools(mcp)
+    mcp.tools["session_start"](
+        "mb3", goal="derive v_rms", target_variables=["v_rms"]
+    )
+    root = mcp.tools["math"](operation="powsimp", expression="sqrt(3*k_B*T/m)")
+    assert root["success"], root
+    lim = mcp.tools["math"](
+        operation="limit", expression="(1 + x/n)**n", variable="n", point="oo"
+    )
+    assert lim["success"], lim
+    bound = mcp.tools["session_record_step"](
+        expression="Eq(v_rms, sqrt(3*T*k_B/m))",
+        description="final binding of v_rms",
+    )
+    assert bound["success"], bound
+
+    done = mcp.tools["session_complete"](auto_save=True)
+    assert done["success"], done
+    saved = Path(done["saved_to"])
+    lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
+    entry = lib.get(done["session_id"])
+    assert entry is not None
+    assert "v_rms" in entry.sympy_str
+
+
 def test_session_complete_accepts_scalar_string_for_list_params(
     fresh_session_manager,
 ):

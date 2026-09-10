@@ -849,40 +849,45 @@ class DerivationSession:
            variable* — a free symbol name, an applied-function name (``V(t)``
            satisfies target ``"V"``), or the lhs of an Equality (run-011/
            run-012: unrelated post-derivation probes were saved instead).
+           CUSTOM steps (manual ``session_record_step`` entries) are eligible
+           here: the final binding ``Eq(v_rms, ...)`` is often recorded by
+           hand (run-015), and target matching is a strong enough signal.
         2. The last symbolic step output in the derivation *lineage*: walking
            forward from the first symbolic step, a step joins the lineage when
            it shares at least one symbol with it.  Steps introducing only
            disjoint symbols are tangential probes (run-013: the agent derived
            ``sqrt(3*k_B*T/m)`` without ever naming it ``v_rms``, so target
            matching could not fire, and the ``exp(x)`` limit probe won).
+           CUSTOM steps are excluded here — notes must not extend the lineage.
         3. The last symbolic step output at all, then the current expression.
         """
         targets: list[str] = []
         if self.goal is not None and self.goal.target_variables:
             targets = list(self.goal.target_variables)
 
-        candidates: list[tuple[sp.Basic, set[str]]] = []
+        candidates: list[tuple[sp.Basic, set[str], bool]] = []
         for step in self.steps:
-            if step.operation == OperationType.CUSTOM:
-                continue
+            is_custom = step.operation == OperationType.CUSTOM
             out = self._safe_load_expression(
                 step.output_expression, step.output_srepr
             )
             if out is None or not out.free_symbols:
                 continue
-            candidates.append((out, self._symbol_names(out)))
+            candidates.append((out, self._symbol_names(out), is_custom))
 
         if not candidates:
             return self.current_expression
 
         if targets:
-            for out, _names in reversed(candidates):
+            for out, _names, _is_custom in reversed(candidates):
                 if set(targets) & self._candidate_names(out, _names):
                     return out
 
         lineage: set[str] = set()
         lineage_members: list[sp.Basic] = []
-        for out, names in candidates:
+        for out, names, is_custom in candidates:
+            if is_custom:
+                continue
             if not lineage or names & lineage:
                 lineage |= names
                 lineage_members.append(out)
