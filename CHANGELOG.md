@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.2.1] - 2026-09-10
+## [1.2.2] - 2026-09-10
+
+Nine defects found by black-box rounds run-011/run-012 (Maxwell-Boltzmann and RC/RLC circuit tasks driven by subagents) and accepted by run-013/014/015 re-runs.
+
+### Added
+
+- 🧮 **dsolve understands Leibniz notation** — `dV/dt` and `d^2x/dt^2` parse into real `Derivative` terms alongside `diff(V,t)`.
+- 🎯 **dsolve accepts `ics`** — initial conditions like `{"V(0)": "V_0"}` are forwarded to `sympy.dsolve`, eliminating the 3-call manual constant-solving workaround.
+- 🔀 **`list_assumptions` accepts `"merged"`** as an alias for the default merged view.
+
+### Fixed
+
+- 🚨 **dsolve rejects non-ODE input loudly** — `R*C*dV/dt + V` used to parse `dV`/`dt` as plain symbols and return an algebraic rearrangement disguised as an ODE solution; input without any derivative of the dependent variable now fails with a notation hint.
+- 💾 **Save selection is goal- and lineage-aware** — `session_complete(auto_save=true)` picks the last symbolic step involving a goal target variable (including hand-recorded binding steps like `Eq(v_rms, ...)`), else the last output in the derivation's symbol lineage; tangential probes (`exp(x)` limit probes, `omega` side-quests) no longer get saved under the derivation's name.
+- 🔍 **Definite integrals verify by numeric quadrature** — the reverse-differentiation check false-FAILED correct definite results (d/dx of a constant is 0); bounds are read from the recorded command, parameters are prime-valued, and quadrature disagreement yields INCONCLUSIVE rather than a false FAILED.
+- ➕ **solve promotes the positive root** — the `solution` field prefers a provably positive root under active assumptions instead of blindly taking `solutions[0]`; `all_solutions` keeps the full set.
+- 📈 **series keeps the `O(x**n)` term** instead of silently reporting a bare polynomial as if exact.
+- 🧾 **Scalar strings coerce to lists** — `limitations="..."`, `tags="..."`, `assumptions="..."`, `target_variables="..."`, `related_variables="..."` no longer fail schema validation or splat into characters.
 
 Four defects found by black-box round run-008 (damped-oscillator task) and accepted by run-010 probe: all four fixes verified from the black box.
 
