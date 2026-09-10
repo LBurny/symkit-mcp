@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-10
+
+### Fixed
+
+- 🧭 **Session verification no longer false-fails substitute steps** — the verifier now builds assumption-aware target symbols, so substitution actually matches the input symbols; purely numeric residuals are compared with a 1e-9 tolerance instead of exact equality (machine-epsilon differences no longer flip correct steps to FAILED).
+- ➗ **Numeric divisions are normalized during parsing** — `x**(1/6)` no longer keeps an unevaluated `Mul(1, 1/6)` exponent, so float bases like `65.0**(1/6)` evaluate numerically; unevaluated `Derivative` semantics are preserved.
+- 🧮 **`substitute` folds evaluable unevaluated derivatives** — substituting into a deferred derivative no longer leaves `Derivative(0, x)` behind.
+- 🔎 **Derived formulas are searchable** — `formula_search` now includes session-derived formulas (`formulas/derived/`) in its corpus; previously they were only visible to the recommender.
+- 📄 **`generate_derivation_report` renders what it is given** — step `latex` is rendered as display math; `verification` accepts int counts (total/verified/failed/inconclusive) plus a text `note` (legacy bools still render as ✅/❌); the Results section emits proper LaTeX instead of raw SymPy source text.
+- 🎯 **Goal progress counts variables from all steps** — target variables appearing only in intermediate steps are no longer reported missing; `progress_score` reflects coverage when no explicit target expression is set; multi-letter underscored symbols (e.g. `nu_tilde`) are extracted from goal text.
+- 💤 **Persisting no longer flips an ACTIVE session to PAUSED** — `session_start` no longer returns the confusing `status: "paused"` right after creation; `session_complete`'s `auto_save` is documented as gating only the formula-library write (the session JSON is always persisted).
+- 🧷 **Pinned `mcp>=1.0.0,<2.0`** — fresh installs no longer crash at startup (mcp 2.x removed `mcp.server.fastmcp`); `serverInfo.version` now reports the symkit package version instead of the MCP SDK version.
+
+### Added
+
+- 🔢 **New `evalf` math operation** — numeric floating-point evaluation, so agents no longer need decimal-exponent workarounds.
+- ⚠️ **solve() warns on float coefficients** — solutions from equations containing float coefficients (e.g. `0.5`) carry an explanatory warning pointing to exact fractions (`1/2`) for exact symbolic results.
+
 ## [1.0.1] - 2026-07-08
 
 ### Changed

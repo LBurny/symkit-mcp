@@ -6,7 +6,14 @@ SymKit project roadmap and feature planning.
 
 ## ✅ Completed
 
-### v1.0.1 (Current)
+### v1.1.0 (Current)
+
+- Session verification hardening: assumption-aware substitution checks and numeric-zero tolerance (no more false FAILED verdicts on substitute steps or machine-epsilon float residuals).
+- Parser normalization: unevaluated numeric divisions fold to `Rational`, fractional exponents evaluate numerically; new `evalf` operation and float-coefficient warning on `solve`.
+- Derived formulas included in the searchable corpus; report generation renders step formulas, verification counts, and real LaTeX.
+- Goal progress counts variables across all steps; sessions stay ACTIVE when persisted.
+
+### v1.0.1
 
 - Unified math entry `math()` covering calculus, linear algebra, ODE, Laplace/Fourier transforms, and ~25 other operations.
 - Step-by-step derivation sessions with start, continue, rollback, complete, record step, and verify step.

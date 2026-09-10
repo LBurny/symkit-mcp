@@ -113,7 +113,7 @@ SymKit exposes **41 MCP tools** across 8 categories. Everything routes through a
 | **Derivation & Orchestration** | `derive`, `intent_execute`, `list_patterns` | 3 |
 | **Tool Discovery** | `tool_categories`, `tool_recommend` | 2 |
 
-The `math()` tool alone covers ~25 symbolic operations — calculus, ODEs, matrices, vector analysis, integral transforms — and can write its result directly into a derivation session.
+The `math()` tool alone covers ~26 symbolic operations — calculus, ODEs, matrices, vector analysis, integral transforms — and can write its result directly into a derivation session.
 
 ## 🔍 Formula search workflow
 
@@ -245,9 +245,13 @@ After install, SymKit stores runtime data in a per-user directory (resolved via
 `platformdirs`): derived formulas and session JSONs persist under
 `~/.local/share/symkit/` (Linux), `%LOCALAPPDATA%\symkit` (Windows), or
 `~/Library/Application Support/symkit` (macOS). Set the `SYMKIT_DATA_DIR`
-environment variable to override this location. Seed formulas (Reynolds number,
-Navier-Stokes, …) ship read-only inside the package; user-added formulas via
-`formula_add` are written to the writable overlay and override seeds by id.
+environment variable to override this location — for example, point it at a
+per-project folder (via your MCP client's server `env` block) to keep each
+project's sessions and formula library isolated. Seed formulas (Reynolds
+number, Navier-Stokes, …) ship read-only inside the package; user-added
+formulas via `formula_add` are written to the writable overlay and override
+seeds by id. Formulas saved by completed sessions (`formulas/derived/`) are
+included in `formula_search`.
 
 ### Step 3 — Connect to your client
 

@@ -244,9 +244,11 @@ uv run symkit-mcp
 `platformdirs` 解析）：派生公式和会话 JSON 持久化在
 `~/.local/share/symkit/`（Linux）、`%LOCALAPPDATA%\symkit`（Windows）或
 `~/Library/Application Support/symkit`（macOS）。设置 `SYMKIT_DATA_DIR`
-环境变量可覆盖该位置。种子公式（雷诺数、Navier-Stokes ……）以只读形式
-打包在包内；通过 `formula_add` 添加的用户公式写入可写覆盖层，并按 id
-覆盖种子。
+环境变量可覆盖该位置——例如把它指向某个项目专属目录（通过 MCP 客户端的
+服务器 `env` 配置块注入），即可让各项目的会话与公式库互相隔离。种子公式
+（雷诺数、Navier-Stokes ……）以只读形式打包在包内；通过 `formula_add`
+添加的用户公式写入可写覆盖层，并按 id 覆盖种子。由完成的会话保存的派生
+公式（`formulas/derived/`）也会纳入 `formula_search` 的检索范围。
 
 ### 第 3 步 —— 接入客户端
 
