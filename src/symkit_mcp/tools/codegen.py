@@ -24,6 +24,20 @@ It does NOT perform new calculations.
 from typing import Any
 
 
+def _to_latex(expr_str: str) -> str:
+    """Render a result expression as LaTeX, falling back to the raw string.
+
+    Result values arrive as SymPy source text (``sqrt(2)*...``); rendering
+    them verbatim inside ``$...$`` is not valid LaTeX (black-box finding).
+    """
+    try:
+        import sympy as sp
+
+        return str(sp.latex(sp.sympify(expr_str)))
+    except Exception:
+        return expr_str.replace("**", "^")
+
+
 def register_codegen_tools(mcp: Any) -> None:
     """Register code generation tools with MCP server.
 
@@ -185,7 +199,7 @@ def register_codegen_tools(mcp: Any) -> None:
         given: dict[str, str],
         steps: list[dict[str, str]],
         results: dict[str, str],
-        verification: dict[str, bool] | None = None,
+        verification: dict[str, int | str | bool] | None = None,
     ) -> dict[str, Any]:
         """
         Generate a complete derivation report in Markdown.
@@ -193,9 +207,12 @@ def register_codegen_tools(mcp: Any) -> None:
         Args:
             problem: Problem description
             given: Given parameters {"symbol": "value with unit"}
-            steps: Derivation steps
+            steps: Derivation steps [{"description": str, "latex": str}];
+                a legacy "expression" key is rendered when "latex" is absent
             results: Final results {"symbol": "expression"}
-            verification: Optional verification status
+            verification: Optional verification summary — counts as ints
+                (total/verified/failed/inconclusive), an optional "note" str,
+                and legacy bool fields rendered as ✅/❌
 
         Returns:
             Markdown report
@@ -223,7 +240,9 @@ def register_codegen_tools(mcp: Any) -> None:
 
         for i, step in enumerate(steps, 1):
             lines.append(f"### Step {i}: {step.get('description', '')}")
-            if "expression" in step:
+            if "latex" in step:
+                lines.append(f"$${step['latex']}$$")
+            elif "expression" in step:
                 lines.append(f"$${step['expression']}$$")
             if "result" in step:
                 lines.append(f"**Result:** ${step.get('result_var', '')} = {step['result']}$")
@@ -237,7 +256,7 @@ def register_codegen_tools(mcp: Any) -> None:
         )
 
         for sym, expr in results.items():
-            lines.append(f"- ${sym} = {expr}$")
+            lines.append(f"- ${sym} = {_to_latex(expr)}$")
 
         if verification:
             lines.extend(
@@ -247,9 +266,22 @@ def register_codegen_tools(mcp: Any) -> None:
                     "",
                 ]
             )
-            for check, passed in verification.items():
-                status = "✅" if passed else "❌"
-                lines.append(f"- {check}: {status}")
+            total = verification.get("total")
+            verified = verification.get("verified")
+            if (isinstance(total, int) and not isinstance(total, bool)
+                    and isinstance(verified, int) and not isinstance(verified, bool)):
+                lines.append(f"- {verified}/{total} steps verified")
+            for key in ("failed", "inconclusive"):
+                count_val = verification.get(key)
+                if (isinstance(count_val, int)
+                        and not isinstance(count_val, bool) and count_val):
+                    lines.append(f"- {key}: {count_val}")
+            for key, flag_val in verification.items():
+                if isinstance(flag_val, bool):
+                    lines.append(f"- {key}: {'✅' if flag_val else '❌'}")
+            note_val = verification.get("note")
+            if isinstance(note_val, str) and note_val:
+                lines.append(f"- {note_val}")
 
         lines.extend(
             [
