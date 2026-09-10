@@ -116,3 +116,40 @@ def test_evalf_substitution_with_context_assumptions(fresh_session_manager):
         )
         assert res["success"], res
         assert abs(float(res["expression"]) - 3.15594676761190) < 1e-9
+
+
+def test_solve_prefers_positive_root_when_params_positive(fresh_session_manager):
+    """Regression (run-011/run-012): solve presented the negative root as the
+    main ``solution`` (positive root only in ``all_solutions``) even though the
+    parameters carried positive assumptions. The representative solution must
+    prefer the provably positive root; ``all_solutions`` stays complete."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="solve",
+        expression="omega*L - 1/(omega*C)",
+        variable="omega",
+        assumptions=["L positive", "C positive"],
+        session=False,
+    )
+    assert res["success"], res
+    assert not res["solution"].startswith("-"), res["solution"]
+    assert "sqrt" in res["solution"]
+    assert len(res["all_solutions"]) == 2
+
+
+def test_series_keeps_big_o_term(fresh_session_manager):
+    """Regression (run-011): the series result silently dropped the O(x**n)
+    term, reporting a bare polynomial as if it were exact."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="series",
+        expression="exp(-x)",
+        variable="x",
+        point="0",
+        order=4,
+        session=False,
+    )
+    assert res["success"], res
+    assert "O(x**4)" in res["expression"]

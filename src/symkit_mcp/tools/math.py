@@ -62,6 +62,7 @@ def register_math_tools(mcp: Any) -> None:
         upper: str | None = None,
         assumptions: list[str] | None = None,
         method: str = "auto",
+        ics: dict[str, str] | None = None,
         session: bool = True,
         description: str = "",
         notes: str = "",
@@ -97,7 +98,7 @@ def register_math_tools(mcp: Any) -> None:
         | | `integrate` | Integrate (variable, lower/upper optional) |
         | | `limit` | Limit (variable, point, direction) |
         | | `series` | Series expansion (variable, point, order) |
-        | ODE | `dsolve` | Solve ODE (variable=function name, with_respect_to=independent variable) |
+        | ODE | `dsolve` | Solve ODE (variable=function name, with_respect_to=independent variable; ics optional) |
         | Vector | `gradient` | Gradient (variable="x,y,z" comma-separated coordinates) |
         | | `divergence` | Divergence |
         | | `curl` | Curl |
@@ -124,6 +125,8 @@ def register_math_tools(mcp: Any) -> None:
             upper: Definite integral upper bound
             assumptions: Symbolic assumptions ["x is positive", "t is real"]
             method: Simplification method "auto", "trig", "radical", "expand_then_simplify"
+            ics: Initial conditions for dsolve {"V(0)": "V_0"} — keys are the
+                dependent function applied to a point, values are expressions
             session: True=record to derivation session, False=stateless computation
             description: Description of this step (used when recording to session)
             notes: Human insight (used when recording to session)
@@ -150,6 +153,8 @@ def register_math_tools(mcp: Any) -> None:
 
             # Solve ODE
             math("dsolve", "diff(y,t) - k*y", variable="y", with_respect_to="t")
+            math("dsolve", "dy/dt - k*y", variable="y", with_respect_to="t",
+                 ics={"y(0)": "y_0"})
         """
         preprocessed = _preprocess(expression)
 
@@ -183,6 +188,7 @@ def register_math_tools(mcp: Any) -> None:
             lower=lower,
             upper=upper,
             method=method,
+            ics=ics,
         )
 
         # Internal live SymPy objects: consumed for session recording below,

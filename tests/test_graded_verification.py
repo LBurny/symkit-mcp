@@ -120,7 +120,8 @@ def test_dsolve_failure_reports_root_cause(fresh_session_manager):
 def test_parse_ode_keeps_forcing_function_notation():
     from symkit_mcp.tools._math_dispatch import _parse_ode
 
-    expr = _parse_ode("diff(v, t) = -k*v + f(t)", "v", "t")
+    expr, error = _parse_ode("diff(v, t) = -k*v + f(t)", "v", "t")
+    assert error is None
     assert expr is not None
     assert isinstance(expr, sp.Equality)
     assert expr.rhs.has(sp.Function("f")(sp.Symbol("t")))

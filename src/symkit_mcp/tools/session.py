@@ -30,6 +30,20 @@ from symkit.infrastructure.derivation_repository import (
 from symkit_mcp.tools._state import get_context, get_manager, get_session, set_session
 
 
+def _as_str_list(value: list[str] | str | None) -> list[str]:
+    """Coerce a scalar string to a single-element list.
+
+    MCP clients often send ``"x real"`` where ``["x real"]`` is meant; the
+    schema union alone only avoids the validation error — the stored record
+    must still be list-typed (run-011).
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
 def _detect_risks(session: DerivationSession) -> list[dict[str, str]]:
     """Analyze current expression for common risks."""
     risks: list[dict[str, str]] = []
@@ -218,7 +232,7 @@ def register_session_tools(mcp: Any) -> None:
         pattern: str = "direct-manipulation",
         goal: str | None = None,
         author: str = "",
-        target_variables: list[str] | None = None,
+        target_variables: list[str] | str | None = None,
     ) -> dict[str, Any]:
         """
         Start a new derivation session
@@ -249,7 +263,7 @@ def register_session_tools(mcp: Any) -> None:
         if goal:
             parsed_goal = DerivationGoal.from_text(goal, domain=domain)
             if target_variables is not None:
-                parsed_goal.target_variables = list(target_variables)
+                parsed_goal.target_variables = _as_str_list(target_variables)
             session.set_goal(parsed_goal)
         set_session(session)
 
@@ -578,10 +592,10 @@ def register_session_tools(mcp: Any) -> None:
     def session_complete(
         description: str = "",
         application_context: str = "",
-        assumptions: list[str] | None = None,
-        limitations: list[str] | None = None,
-        references: list[str] | None = None,
-        tags: list[str] | None = None,
+        assumptions: list[str] | str | None = None,
+        limitations: list[str] | str | None = None,
+        references: list[str] | str | None = None,
+        tags: list[str] | str | None = None,
         auto_save: bool = True,
         require_target_match: bool = False,
     ) -> dict[str, Any]:
@@ -591,10 +605,10 @@ def register_session_tools(mcp: Any) -> None:
         Args:
             description: Formula description (physical/mathematical meaning)
             application_context: Usage context (when to use this formula)
-            assumptions: Derivation assumptions
-            limitations: Usage limitations
-            references: References
-            tags: Tags
+            assumptions: Derivation assumptions (a bare string is coerced to a list)
+            limitations: Usage limitations (a bare string is coerced to a list)
+            references: References (a bare string is coerced to a list)
+            tags: Tags (a bare string is coerced to a list)
             auto_save: Persist the derived formula into the formula library
                 (default True). The session record JSON is always persisted
                 regardless; this flag only controls the formula-library write.
@@ -649,16 +663,16 @@ def register_session_tools(mcp: Any) -> None:
                     },
                     derived_from=list(session.formulas.keys()),
                     derivation_steps=[step["description"] for step in result["steps"]],
-                    assumptions=assumptions or [],
+                    assumptions=_as_str_list(assumptions),
                     verified=is_verified,
                     verification_method=verification_method,
                     verified_at=verified_at,
                     description=description,
                     domain=session.domain,
                     application_context=application_context,
-                    limitations=limitations or [],
-                    references=references or [],
-                    tags=tags or [],
+                    limitations=_as_str_list(limitations),
+                    references=_as_str_list(references),
+                    tags=_as_str_list(tags),
                     author=session.author,
                     category=session.domain or "derived",
                 )
@@ -719,7 +733,7 @@ def register_session_tools(mcp: Any) -> None:
     def session_add_note(
         note: str,
         note_type: str = "observation",
-        related_variables: list[str] | None = None,
+        related_variables: list[str] | str | None = None,
     ) -> dict[str, Any]:
         """
         Add a human knowledge note to the derivation (non-computational step)
@@ -740,7 +754,7 @@ def register_session_tools(mcp: Any) -> None:
             after_step=len(session.steps),
             note=note,
             note_type=note_type,
-            related_variables=related_variables,
+            related_variables=_as_str_list(related_variables),
         )
 
     @mcp.tool()
@@ -809,7 +823,7 @@ def register_session_tools(mcp: Any) -> None:
     def session_set_goal(
         goal: str,
         target_expression: str | None = None,
-        target_variables: list[str] | None = None,
+        target_variables: list[str] | str | None = None,
     ) -> dict[str, Any]:
         """Set a natural-language derivation goal for the current session.
 
@@ -835,7 +849,7 @@ def register_session_tools(mcp: Any) -> None:
         if target_expression:
             parsed_goal.target_expression = target_expression
         if target_variables is not None:
-            parsed_goal.target_variables = list(target_variables)
+            parsed_goal.target_variables = _as_str_list(target_variables)
         session.set_goal(parsed_goal)
         return {
             "success": True,
@@ -889,8 +903,8 @@ def register_session_tools(mcp: Any) -> None:
         description: str,
         operation: str = "custom",  # noqa: ARG001
         notes: str = "",
-        assumptions: list[str] | None = None,
-        limitations: list[str] | None = None,
+        assumptions: list[str] | str | None = None,
+        limitations: list[str] | str | None = None,
     ) -> dict[str, Any]:
         """Manually record a derivation step (e.g. a result computed outside the tool).
 
@@ -943,8 +957,8 @@ def register_session_tools(mcp: Any) -> None:
             output_expr=new_expr,
             sympy_command="manual_record",  # Non-executable descriptor to avoid being run as SymPy code
             notes=notes,
-            assumptions=assumptions,
-            limitations=limitations,
+            assumptions=_as_str_list(assumptions),
+            limitations=_as_str_list(limitations),
             prior_expr=prior,
         )
         return {

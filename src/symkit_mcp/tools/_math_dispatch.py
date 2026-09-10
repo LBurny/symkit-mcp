@@ -147,13 +147,77 @@ def _rekey_subs_to_expression(
     return rebound
 
 
-def _parse_ode(expr_str: str, func: str, var: str) -> sp.Basic | sp.Equality | None:
+def _build_ics_dict(
+    ics: dict[str, Any], func: str
+) -> tuple[dict[Any, Any] | None, dict[str, Any] | None]:
+    """Parse an initial-condition mapping into SymPy form for ``dsolve``.
+
+    Accepts ``{"V(0)": "V_0"}`` style keys — the dependent function applied to
+    a point — and parses both sides as expressions. Returns ``(ics, None)`` on
+    success and ``(None, error_dict)`` on failure.
+    """
+    f = sp.Function(func)
+    parsed_ics: dict[Any, Any] = {}
+    for key_str, value_str in ics.items():
+        match = re.fullmatch(
+            rf"{re.escape(func)}\s*\(\s*(.+?)\s*\)", str(key_str).strip()
+        )
+        if match is None:
+            return None, {
+                "success": False,
+                "error": (
+                    f"Cannot parse initial condition '{key_str}'. "
+                    f"Use the form '{func}(0)': '<value>'."
+                ),
+            }
+        point, point_error = _parse_math_expression(match.group(1))
+        if point is None:
+            return None, {
+                "success": False,
+                "error": f"Cannot parse ics point in '{key_str}': {point_error}",
+            }
+        value, value_error = _parse_math_expression(str(value_str))
+        if value is None:
+            return None, {
+                "success": False,
+                "error": f"Cannot parse ics value '{value_str}': {value_error}",
+            }
+        parsed_ics[f(point)] = value
+    return parsed_ics, None
+
+
+def _prefer_representative_solution(solutions: list[Any]) -> Any:
+    """Choose the most useful representative root for the ``solution`` field.
+
+    ``all_solutions`` always keeps the full ordered set; this only picks which
+    root is promoted.  Roots provably positive under active symbol assumptions
+    win (run-011/run-012 presented ``-1/sqrt(L*C)`` as THE solution even though
+    L and C carried positive assumptions); otherwise prefer a root that does
+    not obviously extract a minus sign.
+    """
+    for sol in solutions:
+        if getattr(sol, "is_positive", None):
+            return sol
+    for sol in solutions:
+        if not sol.could_extract_minus_sign():
+            return sol
+    return solutions[0]
+
+
+def _parse_ode(
+    expr_str: str, func: str, var: str
+) -> tuple[sp.Basic | sp.Equality | None, str | None]:
     """Parse an ODE expression such as ``diff(C, t) + k*C`` into SymPy form.
 
-    Supports both ``diff(C, t)`` and ``diff(C(t), t)`` notations, plus an
-    optional derivative order (``diff(C, t, 2)``). The dependent variable is
+    Supports ``diff(C, t)`` / ``diff(C(t), t)`` with optional derivative order,
+    and Leibniz notation ``dC/dt`` / ``d^2C/dt^2``. The dependent variable is
     treated as a SymPy ``Function`` so that ``C(t)`` is not rewritten as an
     implicit multiplication ``C*t`` by the parser.
+
+    Returns ``(expr, None)`` on success and ``(None, error)`` otherwise. Input
+    without any derivative of ``func`` is rejected loudly: before this check,
+    ``R*C*dV/dt + V`` parsed ``dV``/``dt`` as plain symbols and dsolve returned
+    an algebraic rearrangement disguised as an ODE solution (run-012).
     """
     _TRANSFORMATIONS = standard_transformations + (
         implicit_multiplication,
@@ -161,9 +225,28 @@ def _parse_ode(expr_str: str, func: str, var: str) -> sp.Basic | sp.Equality | N
         convert_xor,
     )
 
+    _NOTATION_HINT = (
+        f"Accepted notations: 'diff({func},{var})', 'd{func}/d{var}', "
+        f"'d^2{func}/d{var}^2'."
+    )
+
+    result_str = preprocess_unicode(expr_str)
+
+    # Leibniz notation, second order before first order: d^2C/dt^2, dC/dt.
+    result_str = re.sub(
+        rf"d\s*(?:\^\s*2|\*\*\s*2)\s*{re.escape(func)}\s*/\s*d\s*{re.escape(var)}"
+        rf"\s*(?:\^\s*2|\*\*\s*2)",
+        f"Derivative({func}({var}), ({var}, 2))",
+        result_str,
+    )
+    result_str = re.sub(
+        rf"\bd\s*{re.escape(func)}\s*/\s*d\s*{re.escape(var)}\b",
+        f"Derivative({func}({var}), {var})",
+        result_str,
+    )
+
     # Pattern: diff(C, t), diff(C(t), t), diff(C, t, 2), diff(C(t), t, 2)
     pattern = rf"diff\({func}\s*(?:\(\s*{var}\s*\))?\s*,\s*{var}(?:\s*,\s*(\d+))?\)"
-    result_str = expr_str
 
     def _make_deriv(m: re.Match[str]) -> str:
         order_str = m.group(1)
@@ -212,12 +295,18 @@ def _parse_ode(expr_str: str, func: str, var: str) -> sp.Basic | sp.Equality | N
             )
             expr = _rationalize_unevaluated_divisions(expr)
     except Exception:  # pragma: no cover - parser raises many types
-        return None
+        return None, f"Cannot parse ODE. {_NOTATION_HINT}"
 
     # If the user gave an expression, turn it into an equation equal to 0.
     if not isinstance(expr, sp.Equality):
         expr = sp.Eq(expr, 0)
-    return expr
+
+    if not expr.atoms(sp.Derivative):
+        return None, (
+            f"No derivative of {func} with respect to {var} found — dsolve "
+            f"requires an ODE. {_NOTATION_HINT}"
+        )
+    return expr, None
 
 
 # ── Operation dispatcher ──────────────────────────────────────────────
@@ -256,6 +345,7 @@ _KNOB_DEFAULTS: dict[str, Any] = {
     "lower": None,
     "upper": None,
     "method": "auto",
+    "ics": None,
 }
 
 _PARAM_USE: dict[str, frozenset[str]] = {
@@ -278,7 +368,7 @@ _PARAM_USE: dict[str, frozenset[str]] = {
     "integrate": frozenset({"variable", "lower", "upper"}),
     "limit": frozenset({"variable", "point", "direction"}),
     "series": frozenset({"variable", "point", "order"}),
-    "dsolve": frozenset({"variable", "with_respect_to"}),
+    "dsolve": frozenset({"variable", "with_respect_to", "ics"}),
     "gradient": frozenset({"variable"}),
     "divergence": frozenset({"variable"}),
     "curl": frozenset({"variable"}),
@@ -322,6 +412,7 @@ def _execute_operation(
     lower: str | None = None,
     upper: str | None = None,
     method: str = "auto",
+    ics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a single math operation and return result dict.
 
@@ -340,6 +431,7 @@ def _execute_operation(
         "lower": lower,
         "upper": upper,
         "method": method,
+        "ics": ics,
     }
     result = _execute_operation_inner(
         operation,
@@ -353,6 +445,7 @@ def _execute_operation(
         lower=lower,
         upper=upper,
         method=method,
+        ics=ics,
     )
     warnings = _ignored_param_warnings(operation, provided)
     if warnings:
@@ -373,6 +466,7 @@ def _execute_operation_inner(
     lower: str | None = None,
     upper: str | None = None,
     method: str = "auto",
+    ics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a single math operation and return result dict.
 
@@ -506,7 +600,7 @@ def _execute_operation_inner(
             solutions = sp.solve(eq, v)
             if not solutions:
                 return {"success": False, "error": f"No solution found for {variable}"}
-            sol = solutions[0]
+            sol = _prefer_representative_solution(solutions)
             result = sp.Eq(v, sol)
             # Warn when float coefficients silently truncate the solution to a
             # numeric approximation (use exact fractions like 1/2 for exact
@@ -584,11 +678,16 @@ def _execute_operation_inner(
             out = _engine.series(expr_obj, v, pt, order, context)
         elif operation == "dsolve":
             func_var = with_respect_to or "t"
-            # Parse as ODE: convert "diff(y,t) - k*y" to SymPy form
-            ode_expr = _parse_ode(preprocessed, v, func_var)
+            # Parse as ODE: convert "diff(y,t) - k*y" or "dy/dt - k*y" to SymPy form
+            ode_expr, ode_error = _parse_ode(preprocessed, v, func_var)
             if ode_expr is None:
                 return {"success": False,
-                        "error": f"Cannot parse ODE. Use format: 'diff({v},{func_var}) - k*{v}'"}
+                        "error": ode_error or "Cannot parse ODE"}
+            ics_objs: dict[Any, Any] | None = None
+            if ics:
+                ics_objs, ics_error = _build_ics_dict(ics, v)
+                if ics_error is not None:
+                    return ics_error
             # Wrap the parsed ODE directly as an Expression
             from symkit.domain.entities import Expression as ExprEntity
             from symkit.domain.entities import ExpressionType
@@ -599,7 +698,7 @@ def _execute_operation_inner(
                 expr_type=ExpressionType.EQUATION,
             )
             input_obj = ode_expr
-            out = _engine.dsolve(ode_obj, v, func_var, context)
+            out = _engine.dsolve(ode_obj, v, func_var, context, ics=ics_objs)
         elif operation in ("gradient", "divergence", "curl", "laplacian"):
             coords = [c.strip() for c in (v or "x,y,z").split(",")]
             if operation == "gradient":

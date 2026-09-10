@@ -112,3 +112,104 @@ def test_session_complete_autosave_skips_numeric_closing_steps(
     assert "v_t" in entry.sympy_str
     assert "3.14" not in entry.sympy_str
     assert entry.variables, "variables metadata must be backfilled"
+
+
+def test_session_complete_autosave_prefers_goal_target_steps(
+    fresh_session_manager, tmp_path
+):
+    """Regression (run-011): after the derivation reached its target, unrelated
+    symbolic probes (here ``limit (1+x/n)**n -> exp(x)``) moved the "last
+    symbolic output" away from the goal; auto_save stored ``exp(x)`` under the
+    derivation's name. The saver must prefer step outputs that involve the
+    goal's target variables."""
+    _ = fresh_session_manager
+    mcp = MockMCP()
+    register_math_tools(mcp)
+    register_session_tools(mcp)
+    mcp.tools["session_start"](
+        "mb", goal="derive v_rms from Maxwell-Boltzmann", target_variables=["v_rms"]
+    )
+    solved = mcp.tools["math"](
+        operation="solve",
+        expression="v_rms**2 == 3*k_B*T/m",
+        variable="v_rms",
+    )
+    assert solved["success"], solved
+    probe = mcp.tools["math"](
+        operation="limit", expression="(1 + x/n)**n", variable="n", point="oo"
+    )
+    assert probe["success"], probe
+
+    done = mcp.tools["session_complete"](auto_save=True)
+    assert done["success"], done
+    saved = Path(done["saved_to"])
+    lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
+    entry = lib.get(done["session_id"])
+    assert entry is not None
+    assert "v_rms" in entry.sympy_str
+    assert "exp(x)" not in entry.sympy_str
+
+
+def test_session_complete_autosave_matches_function_targets(
+    fresh_session_manager, tmp_path
+):
+    """Regression (run-012): target variable ``V`` is satisfied by a step output
+    ``Eq(V(t), ...)`` — the function name counts as involving the target, so a
+    later unrelated solve for ``omega`` must not displace the RC discharge law."""
+    _ = fresh_session_manager
+    mcp = MockMCP()
+    register_math_tools(mcp)
+    register_session_tools(mcp)
+    mcp.tools["session_start"](
+        "rc",
+        goal="derive the RC discharge law",
+        target_variables=["V", "omega_0"],
+    )
+    ode = mcp.tools["math"](
+        operation="dsolve",
+        expression="diff(V,t) + V/(R*C)",
+        variable="V",
+        with_respect_to="t",
+    )
+    assert ode["success"], ode
+    res = mcp.tools["math"](
+        operation="solve", expression="omega*L - 1/(omega*C)", variable="omega"
+    )
+    assert res["success"], res
+
+    done = mcp.tools["session_complete"](auto_save=True)
+    assert done["success"], done
+    saved = Path(done["saved_to"])
+    lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
+    entry = lib.get(done["session_id"])
+    assert entry is not None
+    assert "V(t)" in entry.sympy_str
+    assert "omega" not in entry.sympy_str
+
+
+def test_session_complete_accepts_scalar_string_for_list_params(
+    fresh_session_manager,
+):
+    """Regression (run-011): ``limitations="a string"`` (not a list) failed
+    FastMCP schema validation outright, and inside the function a bare string
+    would flow into the stored record. Scalar strings are coerced to
+    single-element lists at the tool boundary, so the archive stays list-typed."""
+    _ = fresh_session_manager
+    mcp = MockMCP()
+    register_math_tools(mcp)
+    register_session_tools(mcp)
+    mcp.tools["session_start"]("coerce", goal="solve for x")
+    res = mcp.tools["math"](operation="solve", expression="x - 1 == 0", variable="x")
+    assert res["success"], res
+    done = mcp.tools["session_complete"](
+        auto_save=True,
+        limitations="single string",
+        tags="one-tag",
+        assumptions="x real",
+    )
+    assert done["success"], done
+    assert "saved_to" in done, done.get("warnings")
+    data = yaml.safe_load(Path(done["saved_to"]).read_text(encoding="utf-8"))
+    assert data["limitations"] == ["single string"]
+    assert data["tags"] == ["one-tag"]
+    assert data["assumptions"] == ["x real"]

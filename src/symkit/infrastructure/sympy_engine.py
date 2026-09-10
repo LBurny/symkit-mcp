@@ -451,17 +451,22 @@ class SymPyEngine(SymbolicEngine):
     # ═══════════════════════════════════════════════════════════════
 
     def dsolve(self, ode: Expression, func: str, var: str,
-               context: MathContext | None = None) -> Expression:
-        """Solve an ordinary differential equation."""
+               context: MathContext | None = None,
+               ics: dict[Any, Any] | None = None) -> Expression:
+        """Solve an ordinary differential equation.
+
+        ``ics`` maps applied-function points to values, e.g.
+        ``{V(0): V_0}``, and is forwarded to ``sympy.dsolve``.
+        """
         if not ode.is_valid:
             return ode
         try:
             f = sp.Function(func)
             v = sp.Symbol(var)
             if isinstance(ode.sympy_expr, sp.Equality):
-                result = sp.dsolve(ode.sympy_expr, f(v))
+                result = sp.dsolve(ode.sympy_expr, f(v), ics=ics)
             else:
-                result = sp.dsolve(sp.Eq(ode.sympy_expr, 0), f(v))
+                result = sp.dsolve(sp.Eq(ode.sympy_expr, 0), f(v), ics=ics)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.EQUATION)
         except Exception as e:
@@ -508,7 +513,7 @@ class SymPyEngine(SymbolicEngine):
             p, error = parse_expression_string(point, convert_equation=False)
             if p is None:
                 raise ValueError(error or f"cannot parse point '{point}'")
-            result = sp.series(expr.sympy_expr, v, p, order).removeO()
+            result = sp.series(expr.sympy_expr, v, p, order)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.ALGEBRAIC)
         except Exception as e:
