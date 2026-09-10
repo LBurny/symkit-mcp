@@ -12,10 +12,13 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Ensure src is on path
 src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
+from symkit.domain import formula_library as _formula_library_module  # noqa: E402
 from symkit.domain.formula_library import FormulaEntry, FormulaLibrary  # noqa: E402
 from symkit.domain.formula_search_query import (  # noqa: E402
     expand_query_variants,
@@ -27,6 +30,22 @@ from symkit.infrastructure.adapters.local_formula import LocalFormulaAdapter  # 
 from symkit.infrastructure.adapters.wikidata_formulas import (  # noqa: E402
     WikidataFormulaAdapter,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_user_formula_dirs(tmp_path, monkeypatch):
+    """Keep default-constructed libraries away from the real user data dir.
+
+    ``FormulaLibrary()`` resolves the user overlay and derived directories;
+    tests here must not depend on the developer machine's actual contents.
+    Bundled seeds are unaffected (they come from the wheel resources).
+    """
+    monkeypatch.setattr(
+        _formula_library_module, "user_library_dir", lambda: tmp_path / "user_library"
+    )
+    monkeypatch.setattr(
+        _formula_library_module, "user_derived_dir", lambda: tmp_path / "user_derived"
+    )
 
 
 class TestQueryNormalization:
@@ -440,3 +459,43 @@ class TestLocalFormulaAdapter:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDerivedCorpus:
+    """Derived formulas (formulas/derived) must be searchable, not just seeds
+    and the user overlay (black-box run-002 finding: an existing SA model
+    formula was invisible to formula_search)."""
+
+    def test_derived_formulas_are_searchable(self, tmp_path):
+        import yaml
+
+        derived = tmp_path / "derived" / "fluid_dynamics"
+        derived.mkdir(parents=True)
+        (derived / "sa_model.yaml").write_text(
+            yaml.safe_dump({
+                "id": "sa_turbulence_model",
+                "name": "Spalart-Allmaras turbulence model",
+                "sympy_str": "dnu_tilde_dt == c_b1*S_tilde*nu_tilde - c_w1*f_w*(nu_tilde/d)**2",
+                "domain": "fluid_dynamics",
+                "category": "fluid_dynamics",
+                "tags": ["turbulence", "rans", "spalart-allmaras"],
+                "description": "Spalart-Allmaras one-equation RANS turbulence model",
+            }),
+            encoding="utf-8",
+        )
+        lib = FormulaLibrary(derived_path=tmp_path / "derived")
+        hits = lib.search("spalart allmaras turbulence model")
+        assert any(entry.id == "sa_turbulence_model" for _score, entry in hits)
+
+    def test_user_overlay_overrides_derived_entry(self, tmp_path):
+        import yaml
+
+        derived = tmp_path / "derived"
+        overlay = tmp_path / "library"
+        for root, name in ((derived, "derived version"),
+                           (overlay, "overlay version")):
+            (root / "x").mkdir(parents=True, exist_ok=True)
+            (root / "x" / "dup.yaml").write_text(
+                yaml.safe_dump({"id": "dup", "name": name}), encoding="utf-8")
+        lib = FormulaLibrary(library_path=overlay, derived_path=derived)
+        assert lib.get("dup").name == "overlay version"

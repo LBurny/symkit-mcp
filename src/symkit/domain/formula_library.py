@@ -3,17 +3,20 @@
 The local library stores formula entries as YAML files. It is user-editable:
 you can add, remove, or edit files directly, or use the ``formula_add`` MCP tool.
 
-Entries are sourced from two layers:
+Entries are sourced from three layers:
 
 1. **Bundled seed formulas** — read-only YAML files shipped inside the wheel
    under ``symkit/resources/seed_formulas/``. These always load and provide the
    baseline library (Reynolds number, Navier-Stokes, ideal gas law, …) so the
    package works immediately after ``pip install`` from any working directory.
-2. **User overlay** — a writable directory (``user_library_dir()`` by default,
+2. **Derived formulas** — read-only YAML files produced by completed
+   derivation sessions (``user_derived_dir()`` by default, or an explicit
+   ``derived_path``). Including them makes session outputs searchable.
+3. **User overlay** — a writable directory (``user_library_dir()`` by default,
    or an explicit ``library_path``) where the ``formula_add`` / ``delete`` MCP
-   tools persist entries. A user entry with the same id as a seed overrides the
-   seed; deleting a seed-id removes only the user override, leaving the seed
-   intact.
+   tools persist entries. A user entry with the same id as a seed or derived
+   entry overrides it; deleting a seed-id removes only the user override,
+   leaving the seed intact.
 
 Each entry is indexed by id, name, aliases, tags, and keywords so that
 ``formula_search`` returns ranked results deterministically and without network
@@ -29,7 +32,11 @@ from typing import Any
 
 import yaml
 
-from symkit.domain.paths import bundled_seed_library_dir, user_library_dir
+from symkit.domain.paths import (
+    bundled_seed_library_dir,
+    user_derived_dir,
+    user_library_dir,
+)
 
 
 @dataclass
@@ -107,9 +114,16 @@ class FormulaLibrary:
     always loaded underneath it.
     """
 
-    def __init__(self, library_path: str | Path | None = None):
+    def __init__(
+        self,
+        library_path: str | Path | None = None,
+        derived_path: str | Path | None = None,
+    ):
         self._writable_path: Path = (
             Path(library_path) if library_path else user_library_dir()
+        )
+        self._derived_path: Path = (
+            Path(derived_path) if derived_path else user_derived_dir()
         )
         self._seed_path: Path = bundled_seed_library_dir()
         self._entries: dict[str, FormulaEntry] = {}
@@ -120,15 +134,23 @@ class FormulaLibrary:
         """Writable overlay directory where ``add_or_update`` persists entries."""
         return self._writable_path
 
-    def _load_entries(self) -> None:
-        """Load all YAML files from the bundled seeds and the writable overlay.
+    @property
+    def derived_path(self) -> Path:
+        """Read-only directory holding session-derived formula YAMLs."""
+        return self._derived_path
 
-        Seeds are loaded first; user entries with the same id override them.
+    def _load_entries(self) -> None:
+        """Load all YAML files from seeds, derived outputs, and the overlay.
+
+        Seeds and derived formulas are read-only; user entries with the same
+        id override either of them.
         """
         self._entries.clear()
         # Read-only bundled seeds (always loaded).
         self._load_from(self._seed_path, read_only=True)
-        # Writable user overlay (may override seeds by id).
+        # Read-only derived formulas produced by completed sessions.
+        self._load_from(self._derived_path, read_only=True)
+        # Writable user overlay (may override seeds and derived by id).
         self._load_from(self._writable_path, read_only=False)
 
     def _load_from(self, root: Path, read_only: bool) -> None:
