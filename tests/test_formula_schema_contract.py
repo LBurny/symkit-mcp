@@ -187,6 +187,51 @@ def test_session_complete_autosave_matches_function_targets(
     assert "omega" not in entry.sympy_str
 
 
+def test_session_complete_autosave_skips_tangential_probes(
+    fresh_session_manager, tmp_path
+):
+    """Regression (run-013): when NO step output mentions the target variable
+    (the agent derived ``sqrt(3*k_B*T/m)`` without ever binding it to the name
+    ``v_rms``), goal-target matching cannot fire.  Tangential probes (series of
+    ``exp(-x)``, limit of ``(1+x/n)**n``) introduce symbols unrelated to the
+    derivation's lineage and must not displace it in the saved formula."""
+    _ = fresh_session_manager
+    mcp = MockMCP()
+    register_math_tools(mcp)
+    register_session_tools(mcp)
+    mcp.tools["session_start"](
+        "mb2", goal="derive v_rms", target_variables=["v_rms"]
+    )
+    integ = mcp.tools["math"](
+        operation="integrate",
+        expression="v**2 * 4*pi*(m/(2*pi*k_B*T))**(3/2) * v**2 * exp(-m*v**2/(2*k_B*T))",
+        variable="v",
+        lower="0",
+        upper="oo",
+        assumptions=["k_B positive", "T positive", "m positive", "v positive"],
+    )
+    assert integ["success"], integ
+    root = mcp.tools["math"](operation="powsimp", expression="sqrt(3*k_B*T/m)")
+    assert root["success"], root
+    # Two tangential probes: symbols x and n never join the derivation lineage.
+    ser = mcp.tools["math"](
+        operation="series", expression="exp(-x)", variable="x", point="0", order=4
+    )
+    assert ser["success"], ser
+    lim = mcp.tools["math"](
+        operation="limit", expression="(1 + x/n)**n", variable="n", point="oo"
+    )
+    assert lim["success"], lim
+
+    done = mcp.tools["session_complete"](auto_save=True)
+    assert done["success"], done
+    saved = Path(done["saved_to"])
+    lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
+    entry = lib.get(done["session_id"])
+    assert entry is not None
+    assert "k_B" in entry.sympy_str
+
+
 def test_session_complete_accepts_scalar_string_for_list_params(
     fresh_session_manager,
 ):

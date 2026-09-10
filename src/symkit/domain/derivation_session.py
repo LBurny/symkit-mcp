@@ -841,24 +841,28 @@ class DerivationSession:
         Numeric closing steps (evalf probes, residual checks) legitimately move
         the current expression to a float or ``0``; a formula saved from that
         trailing constant is useless (run-008 saved ``3.15594676761190`` and
-        run-009 would have saved ``0``).  Prefer the last SYMBOLIC step output,
-        skipping note steps, and fall back to the current expression when the
-        derivation is genuinely numeric-only.
+        run-009 would have saved ``0``).
 
-        When the session goal names target variables, prefer the last symbolic
-        output that *involves a target variable* — after reaching the goal the
-        user often runs unrelated probes (run-011 saved ``exp(x)`` from a
-        ``limit`` probe under the Maxwell-Boltzmann name; run-012 saved an
-        ``omega`` root over the RC discharge law).  A target matches a free
-        symbol name, an applied-function name (``V(t)`` satisfies target
-        ``"V"``), or the lhs of an Equality.
+        Selection order:
+
+        1. The last symbolic step output that *involves a goal target
+           variable* — a free symbol name, an applied-function name (``V(t)``
+           satisfies target ``"V"``), or the lhs of an Equality (run-011/
+           run-012: unrelated post-derivation probes were saved instead).
+        2. The last symbolic step output in the derivation *lineage*: walking
+           forward from the first symbolic step, a step joins the lineage when
+           it shares at least one symbol with it.  Steps introducing only
+           disjoint symbols are tangential probes (run-013: the agent derived
+           ``sqrt(3*k_B*T/m)`` without ever naming it ``v_rms``, so target
+           matching could not fire, and the ``exp(x)`` limit probe won).
+        3. The last symbolic step output at all, then the current expression.
         """
         targets: list[str] = []
         if self.goal is not None and self.goal.target_variables:
             targets = list(self.goal.target_variables)
 
-        last_symbolic: sp.Basic | None = None
-        for step in reversed(self.steps):
+        candidates: list[tuple[sp.Basic, set[str]]] = []
+        for step in self.steps:
             if step.operation == OperationType.CUSTOM:
                 continue
             out = self._safe_load_expression(
@@ -866,25 +870,41 @@ class DerivationSession:
             )
             if out is None or not out.free_symbols:
                 continue
-            if last_symbolic is None:
-                last_symbolic = out
-            if targets and self._involves_target_variables(out, targets):
-                return out
-        if last_symbolic is not None:
-            return last_symbolic
-        return self.current_expression
+            candidates.append((out, self._symbol_names(out)))
+
+        if not candidates:
+            return self.current_expression
+
+        if targets:
+            for out, _names in reversed(candidates):
+                if set(targets) & self._candidate_names(out, _names):
+                    return out
+
+        lineage: set[str] = set()
+        lineage_members: list[sp.Basic] = []
+        for out, names in candidates:
+            if not lineage or names & lineage:
+                lineage |= names
+                lineage_members.append(out)
+        if lineage_members:
+            return lineage_members[-1]
+        return candidates[-1][0]
 
     @staticmethod
-    def _involves_target_variables(expr: sp.Basic, targets: list[str]) -> bool:
-        """True when any target name appears in the expression's symbols,
-        applied-function names, or (for equations) the left-hand side."""
+    def _symbol_names(expr: sp.Basic) -> set[str]:
+        """Names of free symbols plus applied-function names (``V(t)`` → ``V``)."""
         from sympy.core.function import AppliedUndef
 
         names = {str(s) for s in expr.free_symbols}
         names.update(str(f.func) for f in expr.atoms(AppliedUndef))
+        return names
+
+    @classmethod
+    def _candidate_names(cls, expr: sp.Basic, names: set[str]) -> set[str]:
+        """Candidate name set extended with the Equality lhs (string form)."""
         if isinstance(expr, sp.Equality):
-            names.add(str(expr.lhs))
-        return any(t in names for t in targets)
+            names = names | {str(expr.lhs)}
+        return names
 
     def verify_step(self, step_number: int) -> dict[str, Any]:
         """Re-verify a single step.

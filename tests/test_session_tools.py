@@ -130,5 +130,38 @@ class TestSessionExplain:
         assert "All recorded assumptions" in result["summary"]
 
 
+class TestListAssumptionsLevels:
+    """list_assumptions accepts "merged" as an alias for the default merged
+    view (run-014: the docstring said "None for merged" but the literal string
+    was rejected)."""
+
+    def test_merged_alias_accepted(self, fresh_session_manager):
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+        from symkit_mcp.tools.assumptions import register_assumption_tools
+
+        register_assumption_tools(mcp)
+        mcp.tools["session_start"](name="lvl_test")
+        merged_default = mcp.tools["list_assumptions"]()
+        merged_alias = mcp.tools["list_assumptions"](level="merged")
+        assert merged_default["success"] is True
+        assert merged_alias["success"] is True
+        assert merged_alias["level"] == "merged"
+        assert merged_alias["assumptions"] == merged_default["assumptions"]
+
+    def test_unknown_level_still_rejected(self, fresh_session_manager):
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+        from symkit_mcp.tools.assumptions import register_assumption_tools
+
+        register_assumption_tools(mcp)
+        mcp.tools["session_start"](name="lvl_test2")
+        result = mcp.tools["list_assumptions"](level="bogus")
+        assert result["success"] is False
+        assert "Invalid level" in result["error"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -79,6 +79,7 @@ def register_assumption_tools(mcp: Any) -> None:
 
         Args:
             level: "global", "domain", "session", "step", or None for merged
+                (the string "merged" is accepted as an alias for None)
 
         Returns:
             Assumptions at the requested level
@@ -90,7 +91,7 @@ def register_assumption_tools(mcp: Any) -> None:
                 "error": "No active session. Use session_start() or derive() first.",
             }
 
-        if level is None:
+        if level is None or level == "merged":
             return {
                 "success": True,
                 "level": "merged",
