@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-370%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-398%20passed-brightgreen.svg)]()
 [![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
 🌐 **English** | [简体中文](README.zh-CN.md)
@@ -100,7 +100,7 @@ User: Calculate and verify ∫(x² + 3x) dx.
 
 ## 🛠️ 41 MCP tools, one coherent workflow
 
-SymKit exposes **41 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
+SymKit exposes **42 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
 
 | Category | Tools | Count |
 |---|---|---|
@@ -333,9 +333,9 @@ symkit-mcp/
 │   │   └── infrastructure/  # SymPy engine, adapters, persistence
 │   └── symkit_mcp/          # MCP server layer
 │       ├── server.py
-│       └── tools/           # 41 MCP tools
+│       └── tools/           # 42 MCP tools
 ├── formulas/                # Seed formula library (source tree)
-├── tests/                   # 370 tests
+├── tests/                   # 398 tests
 └── pyproject.toml
 ```
 

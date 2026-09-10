@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-10
+
+Sixteen defects found by black-box rounds run-020/run-021 (deep-water tasks: Laplace-transform chains, series/limits, the simplification family, assumption toggles, cantilever beam, matrix ops; and meta-tools: symbol registry, assumption-engine layers, derive() recommender, formula-library ecology, rollback branches, error resilience). Two were CRITICAL: a *verified* but semantically wrong beam solution caused by E/I constant capture, and `assume_for_step` being entirely uncallable through the real MCP schema.
+
+### Breaking-ish
+
+- **`E` and `I` now parse as symbols**, not Euler's number / the imaginary unit. In a formula-derivation tool they are overwhelmingly variables (Young's modulus, moment of inertia, energy, current); the old behavior let a beam ODE solve with `E*I → e*i` and pass verification. Use `exp(1)` / `1j` for the constants.
+- **`assume_for_step` signature changed** from variadic `*args` (which no MCP client could actually call) to `args: str | list[str]` — e.g. `assume_for_step("x positive y real")`.
+
+### Added
+
+- 🧹 **`formula_remove` tool** — deletes user-overlay and session-derived formulas (read-only seeds untouched), giving the library a cleanup path for polluted entries.
+- 🧭 **derive() sees the live library** — `formula_add` entries are immediately recommendable (previously invisible until server restart), and session-derived candidates whose variables are disjoint from the goal targets are vetoed (junk auto-saves with misleading names can no longer ride keyword overlap into recommendations).
+- 🔀 **True bidirectional limits** — `direction="+-"` computes both one-sided limits and fails loud when they disagree; SymPy's no-dir default was silently right-handed (`1/x` at 0 "succeeded" with `oo`).
+- 📐 **dsolve accepts Leibniz notation of any order** — `d^4w/dx^4` works; mismatched orders are rejected loudly; the notation hint no longer misreports order-4 as unsupported.
+- 🔍 **solve infers the variable** when the expression has exactly one free symbol, and lists the candidates otherwise.
+
+### Fixed
+
+- **eigenvects records a session step** and renders LaTeX (it returned `_result_obj=None`, leaving an invisible step and an empty `$$$$` display).
+- **check_symbol_conflicts checks user/session registrations**, not just symbols already in expressions (`symbols_checked: 0` blindness).
+- **Unknown domains are preserved verbatim** (with an explicit warning) instead of silently degrading to `general`.
+- **Ghost variable `s`** from English possessives ("Hooke's law") no longer pollutes goal target variables.
+- **parse() accepts matrix literals** (`[[a,b],[c,d]]`), matching the matrix ops' input convention.
+- **Parse errors are sanitized** — no more raw `('unexpected EOF in multi-line statement', (1, 0))` arg tuples.
+- **resume → complete no longer overwrites** the earlier saved record; a new `-v2` id is minted with a warning when the expression differs.
+- **tool_categories is built live** from the tool registry; the static map had drifted (12 registered tools missing, 3 phantom tools).
+- `assume()` echoes `assumptions_applied`; `generate_sympy_script` declares `E`/`I` symbols.
+
 ## [1.4.0] - 2026-09-10
 
 Eight defects found by black-box rounds run-017/run-018 (gravitational-field + inertia-tensor and SHM + codegen tasks driven by subagents — the first black-box coverage of vector calculus, matrix ops, rollback, `derive()`, and the code generators).
