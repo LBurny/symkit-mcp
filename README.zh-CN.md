@@ -329,7 +329,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # SymPy 引擎、适配器、持久化
 │   └── symkit_mcp/          # MCP 服务器层
 │       ├── server.py
-│       └── tools/           # 42 个 MCP 工具
+│       └── tools/           # 44 个 MCP 工具
 ├── formulas/                # 推导成果仓库
 ├── tests/                   398 个测试
 └── pyproject.toml

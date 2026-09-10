@@ -14,7 +14,7 @@ SymKit is a **general-purpose symbolic derivation engine** that provides AI agen
 ├─────────────────────────────────────────────────────────────────┤
 │                     MCP Protocol Layer                           │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │              symkit_mcp (42 Tools)                          ││
+│  │              symkit_mcp (44 Tools)                          ││
 │  │  ┌───────────┐ ┌───────────┐ ┌───────────────┐ ┌─────────┐ ││
 │  │  │  Session  │ │   Math    │ │ Tool Discovery│ │ Formula │ ││
 │  │  │ 17 tools  │ │  1 tool   │ │  2 tools      │ │ 4 tools │ ││
@@ -75,13 +75,13 @@ MCP protocol interface, independent of the core library.
 | Module | Description |
 |--------|-------------|
 | `server.py` | MCP Server entry point |
-| `tools/` | 42 MCP tool implementations |
+| `tools/` | 44 MCP tool implementations |
 | `tools/_math_dispatch.py` | `math()` internals: operation dispatch, expression parsing, per-operation parameter audit |
 | `tools/_state.py` | Process-global current session/context shared by all tool modules |
 
 ---
 
-## Tool Categories (42 Tools)
+## Tool Categories (44 Tools)
 
 | Category | Count | Description |
 |----------|-------|-------------|
@@ -126,7 +126,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # Persistence, external adapters
 │   └── symkit_mcp/          # MCP Server
 │       ├── server.py        # Entry point
-│       └── tools/           # 42 tools
+│       └── tools/           # 44 tools
 ├── formulas/                # Formula repository
 │   ├── derivations/         # Derivation examples (Markdown)
 │   └── fluid_dynamics/      # Saved formula examples

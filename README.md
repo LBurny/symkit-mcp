@@ -100,7 +100,7 @@ User: Calculate and verify ∫(x² + 3x) dx.
 
 ## 🛠️ 41 MCP tools, one coherent workflow
 
-SymKit exposes **42 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
+SymKit exposes **44 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
 
 | Category | Tools | Count |
 |---|---|---|
@@ -333,7 +333,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # SymPy engine, adapters, persistence
 │   └── symkit_mcp/          # MCP server layer
 │       ├── server.py
-│       └── tools/           # 42 MCP tools
+│       └── tools/           # 44 MCP tools
 ├── formulas/                # Seed formula library (source tree)
 ├── tests/                   # 398 tests
 └── pyproject.toml
