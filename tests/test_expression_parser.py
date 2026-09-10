@@ -297,3 +297,44 @@ class TestUnevaluatedDivisionNormalization:
         expr, error = parse_expression_string("diff(y(x), x)")
         assert error is None
         assert expr.has(sp.Derivative)
+
+
+class TestFunctionNotationRedLine:
+    """Unknown ``name(...)`` call sites parse as undefined Functions.
+
+    Red line: function notation must never silently degrade to implicit
+    multiplication (``v(t)`` becoming ``v*t``).
+    """
+
+    def test_function_notation_parses_as_undefined_function(self):
+        expr, err = parse_expression_string("v(t)")
+        assert err is None and expr is not None
+        assert isinstance(expr, sp.core.function.AppliedUndef)
+        assert expr.func == sp.Function("v")
+        assert expr.args == (sp.Symbol("t"),)
+
+    def test_function_notation_inside_derivative_equation(self):
+        expr, err = parse_expression_string(
+            "Derivative(v(t), t) = g - (1/2)*rho*C_d*A*v(t)**2/m"
+        )
+        assert err is None and isinstance(expr, sp.Equality)
+        assert isinstance(expr.lhs, sp.Derivative)
+        assert expr.lhs.expr == sp.Function("v")(sp.Symbol("t"))
+        # rhs must contain v(t)**2, never t**2*v
+        assert expr.rhs.has(sp.Function("v")(sp.Symbol("t")) ** 2)
+
+    def test_reserved_functions_keep_native_semantics(self):
+        expr, err = parse_expression_string("sin(x) + sqrt(y) + beta(1, 2)")
+        assert err is None and expr is not None
+        assert expr.has(sp.sin(sp.Symbol("x")))
+        assert not expr.atoms(sp.core.function.AppliedUndef)
+
+    def test_implicit_multiplication_without_call_syntax_unchanged(self):
+        expr, err = parse_expression_string("2 x + x*(y + 1)")
+        assert err is None and expr is not None
+        assert sp.simplify(expr - (2 * sp.Symbol("x") + sp.Symbol("x") * (sp.Symbol("y") + 1))) == 0
+
+    def test_numeric_call_still_implicit_multiplication(self):
+        expr, err = parse_expression_string("2(x + 1)")
+        assert err is None and expr is not None
+        assert sp.simplify(expr - (2 * sp.Symbol("x") + 2)) == 0

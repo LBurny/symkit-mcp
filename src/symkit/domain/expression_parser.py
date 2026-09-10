@@ -469,6 +469,43 @@ def _build_vector_calculus_local_dict(expr: str) -> dict[str, Any]:
     return local_dict
 
 
+# Namespace that already has native semantics when called: every public SymPy
+# name (``sin``, ``sqrt``, ``Eq``, ``Derivative``, ``beta``, ...) plus Python
+# keywords/constants that ``parse_expr`` may legitimately encounter.
+_KNOWN_CALLABLE_NAMESPACE: frozenset[str] = frozenset(
+    set(dir(sp)) | {"and", "or", "not", "True", "False"}
+)
+
+# Matches ``name(`` call sites, excluding attribute access (``a.name(``).
+_UNDEFINED_FUNC_CALL_RE: re.Pattern[str] = re.compile(
+    r"(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*)\s*\("
+)
+
+
+def _build_undefined_function_local_dict(
+    expr: str, exclude: set[str] | frozenset[str] = frozenset()
+) -> dict[str, Any]:
+    """Bind unknown ``name(`` call sites to SymPy undefined ``Function``s.
+
+    Red line: function notation must never degrade to implicit
+    multiplication. ``v(t)`` is the function v evaluated at t, not ``v*t``.
+    Names already bound by other protection layers (``exclude``), known to
+    SymPy, or listed as constants keep their existing semantics. Bare names
+    without a call site are unaffected and remain Symbols.
+    """
+    local_dict: dict[str, Any] = {}
+    for name in set(_UNDEFINED_FUNC_CALL_RE.findall(expr)):
+        if (
+            name in _KNOWN_CALLABLE_NAMESPACE
+            or name in exclude
+            or name in _VECTOR_CALCULUS_NAMES
+            or name in _CONSTANT_NAMES
+        ):
+            continue
+        local_dict[name] = sp.Function(name)
+    return local_dict
+
+
 def _convert_equals_to_eq(expr_str: str) -> str:
     """Convert a single ``A = B`` into ``Eq(A, B)``.
 
@@ -555,6 +592,9 @@ def parse_expression_string(
 
     merged_local_dict = _build_local_dict(processed)
     merged_local_dict.update(_build_vector_calculus_local_dict(processed))
+    merged_local_dict.update(
+        _build_undefined_function_local_dict(processed, exclude=set(merged_local_dict))
+    )
     if local_dict:
         merged_local_dict.update(local_dict)
 
@@ -597,18 +637,21 @@ def parse_expression_string(
 
 
 def _rationalize_unevaluated_divisions(expr: sp.Basic) -> sp.Basic:
-    """Fold unevaluated numeric divisions ``Mul(a, 1/b)`` into ``Rational(a, b)``.
+    """Fold unevaluated numeric divisions into ``Rational`` factors.
 
-    ``parse_expr(..., evaluate=False)`` keeps Python divisions unevaluated, so a
-    fractional exponent like ``x**(1/6)`` carries an unevaluated ``Mul(1, 1/6)``
-    exponent and blocks numeric evaluation of float bases. Numeric divisions
-    are canonically ``Rational``; folding them is value-preserving and does not
-    disturb deferred constructs such as unevaluated ``Derivative`` nodes.
+    ``parse_expr(..., evaluate=False)`` keeps Python divisions unevaluated, so
+    a fractional exponent like ``x**(1/6)`` carries an unevaluated
+    ``Mul(1, 1/6)`` exponent, and a coefficient like ``1/2*rho*...`` keeps
+    ``Integer(1) * Pow(Integer(2), -1)`` as separate Mul factors instead of
+    ``Rational(1, 2)``. Both forms block numeric evaluation and round-trip
+    identity (the ``Eq(...)`` fast path evaluates its sides and produces
+    ``Rational``). Numeric divisions are canonically ``Rational``; folding the
+    ``Integer * Integer**-1`` factor pair inside any Mul is value-preserving
+    and does not disturb deferred constructs such as unevaluated
+    ``Derivative`` nodes.
     """
 
-    def _match(node: sp.Basic) -> bool:
-        if not isinstance(node, sp.Mul) or len(node.args) != 2:
-            return False
+    def _pair(node: sp.Mul) -> tuple[sp.Integer, sp.Pow] | None:
         num = next((a for a in node.args if a.is_Integer), None)
         den = next(
             (
@@ -618,12 +661,22 @@ def _rationalize_unevaluated_divisions(expr: sp.Basic) -> sp.Basic:
             ),
             None,
         )
-        return num is not None and den is not None
+        if num is None or den is None:
+            return None
+        return num, den
 
-    def _fold(node: sp.Mul) -> sp.Rational:
-        num = next(a for a in node.args if a.is_Integer)
-        den = next(a for a in node.args if isinstance(a, sp.Pow) and a.exp == -1)
-        return sp.Rational(int(num), int(den.base))
+    def _match(node: sp.Basic) -> bool:
+        return isinstance(node, sp.Mul) and _pair(node) is not None
+
+    def _fold(node: sp.Basic) -> sp.Basic:
+        assert isinstance(node, sp.Mul)
+        pair = _pair(node)
+        assert pair is not None
+        num, den = pair
+        args = list(node.args)
+        args.remove(num)
+        args.remove(den)
+        return sp.Mul(sp.Rational(int(num), int(den.base)), *args)
 
     if not isinstance(expr, sp.Basic):
         # Comma-separated inputs (e.g. vector arguments) parse to a plain
