@@ -108,6 +108,52 @@ class TestStepVerifierIntegrate:
         assert result.status == VerificationStatus.VERIFIED
 
 
+class TestStepVerifierDefiniteIntegrate:
+    """Regression (run-011): reverse differentiation is meaningless for a
+    definite integral — the result no longer depends on the integration
+    variable, so d/dv of the correct constant ``3*k_B*T/m`` is ``0`` and the
+    old check false-FAILED a correct Maxwell-Boltzmann moment. Definite
+    integrals are verified by numeric quadrature instead; disagreement yields
+    INCONCLUSIVE (quadrature can mislead), never a false FAILED."""
+
+    GAUSSIAN = "4*pi*v**4*(m/(2*pi*k_B*T))**(3/2)*exp(-m*v**2/(2*k_B*T))"
+
+    def test_definite_integral_verified_by_quadrature(self, verifier):
+        step = _make_step(
+            OperationType.INTEGRATE,
+            {"original": self.GAUSSIAN},
+            "3*T*k_B/m",
+            sympy_command="integrate(expr, (v, 0, oo))",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+
+    def test_definite_integral_wrong_output_is_not_failed(self, verifier):
+        step = _make_step(
+            OperationType.INTEGRATE,
+            {"original": self.GAUSSIAN},
+            "2*T*k_B/m",
+            sympy_command="integrate(expr, (v, 0, oo))",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.INCONCLUSIVE
+        assert result.status != VerificationStatus.FAILED
+
+    def test_definite_integral_without_valuatable_output_is_inconclusive(
+        self, verifier
+    ):
+        # Output still depends on the integration variable: quadrature cannot
+        # run, must degrade to INCONCLUSIVE rather than FAILED.
+        step = _make_step(
+            OperationType.INTEGRATE,
+            {"original": self.GAUSSIAN},
+            "3*T*k_B/m + v",
+            sympy_command="integrate(expr, (v, 0, oo))",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.INCONCLUSIVE
+
+
 class TestStepVerifierSubstitute:
     def test_substitute(self, verifier):
         step = _make_step(

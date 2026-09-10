@@ -377,9 +377,19 @@ class StepVerifier:
         step: DerivationStep,
         input_expr: sp.Basic,
         output_expr: sp.Basic,
-        _assumptions: dict[str, dict[str, bool]],
+        assumptions: dict[str, dict[str, bool]],
     ) -> VerificationResult:
-        """Verify integration by reverse differentiation."""
+        """Verify integration: reverse differentiation for indefinite integrals,
+        numeric quadrature for definite ones."""
+        definite = re.search(
+            r"integrate\(expr,\s*\(\s*(\w+)\s*,\s*([^,]+),\s*([^)]+)\)",
+            step.sympy_command,
+        )
+        if definite:
+            return self._verify_definite_integration(
+                definite, input_expr, output_expr, assumptions
+            )
+
         var = self._extract_variable_from_command(step.sympy_command, "integrate")
         if var is None:
             return VerificationResult(
@@ -402,6 +412,61 @@ class StepVerifier:
             derivative=str(derivative),
             expected=str(input_expr),
             reverse_check=False,
+        )
+
+    def _verify_definite_integration(
+        self,
+        match: re.Match[str],
+        input_expr: sp.Basic,
+        output_expr: sp.Basic,
+        assumptions: dict[str, dict[str, bool]],
+    ) -> VerificationResult:
+        """Verify a definite integral by numeric quadrature with valued parameters.
+
+        Reverse differentiation is meaningless here: the result no longer
+        depends on the integration variable, so d/dx of a correct constant
+        result is 0 and the indefinite check false-FAILED correct work
+        (run-011's Maxwell-Boltzmann moment).  Parameters are valued with
+        small primes (same policy as limit verification); disagreement yields
+        INCONCLUSIVE, never FAILED — quadrature of improper or oscillatory
+        integrals can legitimately mislead, and FAILED is reserved for
+        symbolic proof of error.
+        """
+        var = self._assumed_symbol(match.group(1), assumptions)
+        lo = self._parse(match.group(2).strip(), assumptions)
+        hi = self._parse(match.group(3).strip(), assumptions)
+        if lo is None or hi is None:
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message="Could not parse integration bounds",
+            )
+        others = [
+            s
+            for s in (input_expr.free_symbols | output_expr.free_symbols)
+            if str(s) != str(var)
+        ]
+        primes = [2, 3, 5, 7, 11, 13]
+        valuation = {s: sp.Integer(primes[i % len(primes)]) for i, s in enumerate(others)}
+        try:
+            quadrature = sp.Integral(input_expr, (var, lo, hi)).subs(valuation)
+            expected = complex(sp.N(quadrature, 20))
+            actual = complex(sp.N(output_expr.subs(valuation), 20))
+        except (TypeError, ValueError):
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message="Numeric quadrature not possible for definite integral",
+            )
+        tol = 1e-6 * max(1.0, abs(expected))
+        if abs(expected - actual) < tol:
+            return VerificationResult(
+                status=VerificationStatus.VERIFIED,
+                message="Definite integral verified by numeric quadrature",
+                reverse_check=True,
+            )
+        return VerificationResult(
+            status=VerificationStatus.INCONCLUSIVE,
+            message="Numeric quadrature disagrees with the stated "
+            "definite-integral result",
         )
 
     def _verify_substitution(

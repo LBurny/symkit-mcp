@@ -844,16 +844,47 @@ class DerivationSession:
         run-009 would have saved ``0``).  Prefer the last SYMBOLIC step output,
         skipping note steps, and fall back to the current expression when the
         derivation is genuinely numeric-only.
+
+        When the session goal names target variables, prefer the last symbolic
+        output that *involves a target variable* — after reaching the goal the
+        user often runs unrelated probes (run-011 saved ``exp(x)`` from a
+        ``limit`` probe under the Maxwell-Boltzmann name; run-012 saved an
+        ``omega`` root over the RC discharge law).  A target matches a free
+        symbol name, an applied-function name (``V(t)`` satisfies target
+        ``"V"``), or the lhs of an Equality.
         """
+        targets: list[str] = []
+        if self.goal is not None and self.goal.target_variables:
+            targets = list(self.goal.target_variables)
+
+        last_symbolic: sp.Basic | None = None
         for step in reversed(self.steps):
             if step.operation == OperationType.CUSTOM:
                 continue
             out = self._safe_load_expression(
                 step.output_expression, step.output_srepr
             )
-            if out is not None and out.free_symbols:
+            if out is None or not out.free_symbols:
+                continue
+            if last_symbolic is None:
+                last_symbolic = out
+            if targets and self._involves_target_variables(out, targets):
                 return out
+        if last_symbolic is not None:
+            return last_symbolic
         return self.current_expression
+
+    @staticmethod
+    def _involves_target_variables(expr: sp.Basic, targets: list[str]) -> bool:
+        """True when any target name appears in the expression's symbols,
+        applied-function names, or (for equations) the left-hand side."""
+        from sympy.core.function import AppliedUndef
+
+        names = {str(s) for s in expr.free_symbols}
+        names.update(str(f.func) for f in expr.atoms(AppliedUndef))
+        if isinstance(expr, sp.Equality):
+            names.add(str(expr.lhs))
+        return any(t in names for t in targets)
 
     def verify_step(self, step_number: int) -> dict[str, Any]:
         """Re-verify a single step.
