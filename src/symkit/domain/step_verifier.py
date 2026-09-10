@@ -294,7 +294,7 @@ class StepVerifier:
             # it decidable.  The verifier often cannot see those per-call
             # assumptions, so treat an unconfirmable boolean claim as
             # INCONCLUSIVE rather than crashing or false-failing (run-008).
-            if out_bool and isinstance(input_expr, sp.Equality):
+            if isinstance(input_expr, sp.Equality):
                 diff = sp.simplify(input_expr.lhs - input_expr.rhs)
                 if is_numerically_zero(diff):
                     return VerificationResult.success(
@@ -306,6 +306,20 @@ class StepVerifier:
                         f"{operation} returned True; the identity holds under "
                         "assumptions the verifier cannot confirm"
                     ),
+                )
+            in_bool = self._boolean_value(input_expr)
+            if in_bool is not None:
+                # Under session assumptions the parser itself may collapse an
+                # Eq to a boolean before recording (run-016): input True →
+                # output True is trivially value-preserving; a flip is a bug.
+                if in_bool == out_bool:
+                    return VerificationResult.success(
+                        f"{operation.capitalize()} verified: boolean value preserved"
+                    )
+                return VerificationResult.failure(
+                    f"{operation.capitalize()} changed the boolean value",
+                    input=str(input_expr),
+                    output=str(output_expr),
                 )
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,

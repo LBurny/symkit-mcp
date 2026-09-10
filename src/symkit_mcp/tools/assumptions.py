@@ -12,7 +12,12 @@ from __future__ import annotations
 from typing import Any
 
 from symkit.domain.assumption_engine import AssumptionLevel
-from symkit_mcp.tools._state import get_session
+from symkit.domain.value_objects import MathContext
+from symkit_mcp.tools._state import get_context, get_session, set_context
+
+# Assumption levels a user can have set (domain defaults are preserved by
+# removal tools: they come from the domain profile, not from user calls).
+_USER_LEVELS = (AssumptionLevel.GLOBAL, AssumptionLevel.SESSION, AssumptionLevel.STEP)
 
 
 def register_assumption_tools(mcp: Any) -> None:
@@ -170,4 +175,77 @@ def register_assumption_tools(mcp: Any) -> None:
             "success": True,
             "message": "Step-level assumptions cleared.",
             "remaining_assumptions": session.assumption_engine.get_assumptions(),
+        }
+
+    @mcp.tool(
+        meta={
+            "category": "Assumptions",
+            "example": 'unassume(["x", "y"])',
+        }
+    )
+    def unassume(variables: list[str]) -> dict[str, Any]:
+        """
+        🧹 Remove symbolic assumptions for named symbols.
+
+        Strips the symbols from the shared math context and from the active
+        session's assumption engine (global/session/step layers; domain
+        defaults are preserved).  Without a session only the shared context is
+        touched.  Previously `assume({"x": "positive"})` was irreversible
+        short of a server restart; assumptions could silently poison every
+        later parse (run-013).
+
+        Args:
+            variables: Symbol names to strip, e.g. ["x", "y"]
+
+        Returns:
+            Remaining assumptions
+        """
+        if not variables:
+            return {
+                "success": True,
+                "assumptions": get_context().assumptions,
+                "message": "Nothing to remove (empty variable list).",
+            }
+        set_context(get_context().without_assumptions(variables))
+        session = get_session()
+        if session is not None:
+            for name in variables:
+                for lvl in _USER_LEVELS:
+                    session.assumption_engine.unassume(name, level=lvl)
+        remaining = get_context().assumptions
+        return {
+            "success": True,
+            "removed": list(variables),
+            "assumptions": remaining,
+            "message": f"Assumptions removed for {len(variables)} symbol(s).",
+        }
+
+    @mcp.tool(
+        meta={
+            "category": "Assumptions",
+            "example": "clear_assumptions()",
+        }
+    )
+    def clear_assumptions() -> dict[str, Any]:
+        """
+        🧹 Clear ALL symbolic assumptions in the current scope.
+
+        Resets the shared math context and the active session's assumption
+        engine (global/session/step layers).  Domain defaults (loaded from the
+        domain profile when a session starts) are preserved.  Useful when a
+        stray assumption is suspected of skewing results (run-013: per-call
+        assumptions used to leak permanently and could not be removed).
+
+        Returns:
+            Remaining assumptions (normally empty)
+        """
+        set_context(MathContext())
+        session = get_session()
+        if session is not None:
+            for lvl in _USER_LEVELS:
+                session.assumption_engine.clear_level(lvl)
+        return {
+            "success": True,
+            "assumptions": {},
+            "message": "All assumptions cleared (domain defaults preserved).",
         }

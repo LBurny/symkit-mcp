@@ -413,6 +413,7 @@ def _execute_operation(
     upper: str | None = None,
     method: str = "auto",
     ics: dict[str, Any] | None = None,
+    assumption_context: MathContext | None = None,
 ) -> dict[str, Any]:
     """Execute a single math operation and return result dict.
 
@@ -420,6 +421,10 @@ def _execute_operation(
     with the live SymPy objects; callers must pop them before responding.
     Parameters that do not apply to the requested operation produce explicit
     entries in ``warnings`` (fail-loud; nothing is silently ignored).
+
+    ``assumption_context`` overrides the shared context for this call — used
+    by per-call ``assumptions`` with ``session=false`` so stateless calls are
+    side-effect free.
     """
     provided = {
         "variable": variable,
@@ -446,6 +451,7 @@ def _execute_operation(
         upper=upper,
         method=method,
         ics=ics,
+        assumption_context=assumption_context,
     )
     warnings = _ignored_param_warnings(operation, provided)
     if warnings:
@@ -467,6 +473,7 @@ def _execute_operation_inner(
     upper: str | None = None,
     method: str = "auto",
     ics: dict[str, Any] | None = None,
+    assumption_context: MathContext | None = None,
 ) -> dict[str, Any]:
     """Execute a single math operation and return result dict.
 
@@ -474,7 +481,11 @@ def _execute_operation_inner(
     with the live SymPy objects; callers must pop them before responding.
     """
     preprocessed = _preprocess(expr_str)
-    context = get_context()
+    context = (
+        assumption_context
+        if assumption_context is not None
+        else get_context()
+    )
 
     # Helper to parse with consistent error handling
     def _parse(expr: str) -> tuple[sp.Expr | None, str | None]:

@@ -5,6 +5,7 @@ Value objects are immutable objects defined by their attributes.
 They have no identity and are compared by value.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -68,6 +69,21 @@ class MathContext:
         """Create new context with additional assumption."""
         new_assumptions = dict(self.assumptions)
         new_assumptions[var] = {**new_assumptions.get(var, {}), **assumptions}
+        return MathContext(
+            assumptions=new_assumptions,
+            precision=self.precision,
+            simplify_level=self.simplify_level,
+            evaluate_numerically=self.evaluate_numerically,
+            domain=self.domain,
+            coordinate_system=self.coordinate_system,
+        )
+
+    def without_assumptions(self, names: Iterable[str]) -> "MathContext":
+        """Create new context with assumptions removed for the given symbols."""
+        drop = set(names)
+        new_assumptions = {
+            k: v for k, v in self.assumptions.items() if k not in drop
+        }
         return MathContext(
             assumptions=new_assumptions,
             precision=self.precision,

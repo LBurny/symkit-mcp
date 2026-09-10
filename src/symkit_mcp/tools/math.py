@@ -17,7 +17,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from symkit.domain.assumption_engine import AssumptionLevel
 from symkit.domain.derivation_session import OperationType
+from symkit.domain.value_objects import MathContext
 from symkit_mcp.tools._math_dispatch import (
     _OP_TYPE_MAP,
     _execute_operation,
@@ -123,7 +125,11 @@ def register_math_tools(mcp: Any) -> None:
             order: Differentiation order / number of series terms (default 1)
             lower: Definite integral lower bound
             upper: Definite integral upper bound
-            assumptions: Symbolic assumptions ["x is positive", "t is real"]
+            assumptions: Symbolic assumptions ["x is positive", "t is real"].
+                With session=true they persist for the session (and become
+                visible to the step verifier); with session=false they apply
+                to this call only. Use assume() for cross-session globals and
+                unassume()/clear_assumptions() to remove them.
             method: Simplification method "auto", "trig", "radical", "expand_then_simplify"
             ics: Initial conditions for dsolve {"V(0)": "V_0"} — keys are the
                 dependent function applied to a point, values are expressions
@@ -158,10 +164,15 @@ def register_math_tools(mcp: Any) -> None:
         """
         preprocessed = _preprocess(expression)
 
-        # Apply symbolic assumptions if provided. Both "x is positive" and
-        # "x positive" forms are accepted; unparseable clauses warn instead
-        # of being silently dropped.
+        # Per-call assumption scoping: with session=true the assumptions
+        # persist into the shared context AND the session's assumption engine
+        # (so the step verifier can see them); with session=false they apply
+        # to THIS call only — the shared context is left untouched, keeping
+        # stateless calls side-effect free (run-013).  Cross-session globals
+        # are set explicitly via assume().
         assumption_warnings: list[str] = []
+        applied_assumptions: dict[str, dict[str, bool]] = {}
+        call_context: MathContext | None = None
         if assumptions:
             ctx = get_context()
             for a in assumptions:
@@ -174,7 +185,16 @@ def register_math_tools(mcp: Any) -> None:
                     continue
                 var_name, props_dict = clause
                 ctx = ctx.with_assumption(var_name, **props_dict)
-            set_context(ctx)
+                applied_assumptions[var_name] = props_dict
+            call_context = ctx
+            if session:
+                set_context(ctx)
+                sess = get_session()
+                if sess is not None:
+                    for var_name, props_dict in applied_assumptions.items():
+                        sess.assumption_engine.assume(
+                            var_name, *props_dict, level=AssumptionLevel.SESSION
+                        )
 
         # Execute the operation
         result = _execute_operation(
@@ -189,7 +209,14 @@ def register_math_tools(mcp: Any) -> None:
             upper=upper,
             method=method,
             ics=ics,
+            assumption_context=call_context,
         )
+
+        if applied_assumptions:
+            result["assumptions_applied"] = {
+                var: [p for p, v in props.items() if v]
+                for var, props in applied_assumptions.items()
+            }
 
         # Internal live SymPy objects: consumed for session recording below,
         # never leaked to the MCP client.
