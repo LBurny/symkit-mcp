@@ -112,3 +112,21 @@ class TestSessionCompleteVerification:
         )
         result = session.complete()
         assert result["verification_summary"]["overall"] == "inconclusive"
+
+
+class TestSessionStatusOnSave:
+    """Regression (run-001): 持久化本身不应改变会话状态——
+    session_start 创建即持久化导致返回 status "paused" 的怪异措辞。"""
+
+    def test_save_does_not_pause_active_session(self, tmp_path):
+        manager = SessionManager()
+        session = manager.create(
+            name="t",
+            description="d",
+            domain="general",
+            auto_persist=False,
+        )
+        assert session.status == SessionStatus.ACTIVE
+        saved_path = session.save(tmp_path / "session_t.json")
+        assert saved_path.exists()
+        assert session.status == SessionStatus.ACTIVE

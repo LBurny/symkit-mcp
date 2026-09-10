@@ -1522,7 +1522,9 @@ class DerivationSession:
             json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
 
         self._persist_path = save_path
-        self.status = SessionStatus.PAUSED if self.status == SessionStatus.ACTIVE else self.status
+        # Persisting is orthogonal to lifecycle state: an ACTIVE session stays
+        # ACTIVE after save() (auto-persisting at creation used to flip it to
+        # PAUSED, producing the confusing "status: paused" on session_start).
 
         return save_path
 

@@ -589,7 +589,9 @@ def register_session_tools(mcp: Any) -> None:
             limitations: Usage limitations
             references: References
             tags: Tags
-            auto_save: Whether to auto-save (default True)
+            auto_save: Persist the derived formula into the formula library
+                (default True). The session record JSON is always persisted
+                regardless; this flag only controls the formula-library write.
             require_target_match: If True, the derivation will only be saved as
                 completed when the current expression matches the goal target.
                 Default is False for backward compatibility, but a warning is
