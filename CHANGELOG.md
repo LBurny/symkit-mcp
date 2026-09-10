@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.0] - 2026-09-10
+## [1.4.0] - 2026-09-10
+
+Eight defects found by black-box rounds run-017/run-018 (gravitational-field + inertia-tensor and SHM + codegen tasks driven by subagents — the first black-box coverage of vector calculus, matrix ops, rollback, `derive()`, and the code generators).
+
+### Added
+
+- 🧭 **solve accepts systems** — a comma-separated expression (e.g. `"x + y - 2, x - y"`) with comma-separated variables solves as a system; previously it crashed with a cryptic `'tuple' object has no attribute 'has'`.
+- 🧮 **dsolve ics accepts derivative initial values** — `{"x'(0)": "v_0"}` (one prime per order) alongside `{"x(0)": "x_0"}`; second-order IVPs no longer need a 9-call manual workaround.
+- 📜 **generate_sympy_script declares symbols from operations** — solve/diff/integrate inputs routinely introduce symbols absent from the expressions; generated scripts no longer die with `NameError` on first run, and single-argument `Eq()` (deprecated) is no longer emitted for inputs without `=`.
+- 🔢 **eigenvals records a session step** and renders LaTeX (previously an empty `$$$$` display and an invisible step).
+
+### Fixed
+
+- 🚨 **gradient no longer returns the zero vector for every input** — coordinate substitution matched bare Symbols against assumption-bearing parsed symbols and silently no-opped, so the field never depended on the basis coordinates (run-017; 4th incarnation of the assumption-mismatch class). Coordinates are matched by name; divergence/curl zeros are now real (a non-zero control `div(x*y, z*x, y*z) = 2*y` is pinned by test).
+- 🧮 **dsolve applies context assumptions** — with k, m positive, `m*x'' + k*x` solves to the trig form instead of complex-root exponentials.
+- 🛡️ **Tuple guards** — comma parses (python tuples) can no longer poison a session: `session_record_step` rejects them fail-loud, and session_show's risk/suggestion builders plus the domain-level expression loader degrade gracefully instead of crashing with `'tuple' object has no attribute 'free_symbols'`.
+- ➗ **divergence results are simplified** — the radial field rendered three unsimplified r^(5/2) terms instead of 0.
 
 Assumption-scope reform motivated by run-013 (per-call assumptions leaked permanently into the shared context even for `session=false` probe calls) and the design discussion that followed.
 
@@ -24,6 +40,10 @@ Assumption-scope reform motivated by run-013 (per-call assumptions leaked perman
 ### Fixed
 
 - ✅ **Parse-collapsed boolean steps verify** — when session assumptions make the parser resolve `Eq(...)` to a boolean before recording, a same-value boolean step verifies instead of landing in an unverifiable inconclusive limbo.
+
+## [1.3.0] - 2026-09-10
+
+Assumption-scope reform motivated by run-013 (per-call assumptions leaked permanently into the shared context even for `session=false` probe calls) and the design discussion that followed.
 
 ## [1.2.2] - 2026-09-10
 
