@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-286%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-328%20passed-brightgreen.svg)]()
 [![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
 🌐 [English](README.md) | **简体中文**
@@ -138,6 +138,8 @@ SymKit 可以从 Wikidata 拉取权威公式，从 SciPy 拉取物理常数，�
 **查询规范化：** 你可以用自然写法查询——`fluid_dynamics`、`fluid mechanics`、`cfd` 都会解析到同一个领域；`Navier–Stokes`（en dash）和 `Navier-Stokes`（hyphen）会匹配同一个 Wikidata 条目。
 
 **MathML 处理：** Wikidata 的搜索预览有时会返回渲染后的 MathML。调用 `formula_get` 获取结果 ID 对应的原版 LaTeX 和 SymPy 可用字符串。
+
+**函数记号与结果：** 未知调用如 `v(t)` 会解析为未定义函数（Mathematica 惯例），绝不会退化为隐式乘法；`solve` 在 `Eq(...)` 表达式之外另返回裸的 `solution` / `solution_latex`；`evalf` 支持 `substitution` 一次完成代入求值；`session_start` / `session_set_goal` 接受显式 `target_variables`，目标追踪不再依赖启发式文本抽取。
 
 ## 🎛️ 每一步都由你掌控
 
@@ -329,7 +331,7 @@ symkit-mcp/
 │       ├── server.py
 │       └── tools/           # 41 个 MCP 工具
 ├── formulas/                # 推导成果仓库
-├── tests/                   # 286 个测试
+├── tests/                   # 328 个测试
 └── pyproject.toml
 ```
 

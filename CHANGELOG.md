@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-10
+
+Structural fixes from the framework-design review of black-box regression rounds run-005/006/007: unknown function calls can no longer degrade to implicit multiplication, recorded steps are the same SymPy objects returned to the client, the derived-formula read/write schema is pinned by contract tests, ignored parameters warn instead of disappearing, and session verification grades outcomes instead of all-or-nothing.
+
+### Added
+
+- 🧩 **solve returns a bare solution** — `solution` / `solution_latex` fields carry the isolated right-hand side alongside the `Eq(v, ...)` expression, so agents no longer hand-strip the wrapper (and corrupt parentheses doing so).
+- 🎯 **`session_start` / `session_set_goal` accept `target_variables`** — explicit override for the heuristic goal-text variable extraction.
+- 🔢 **`evalf` accepts `substitution`** — substitute symbols and numerically evaluate in one call.
+- ✅ **dsolve / limit / evalf steps are auto-verified** — via `checkodesol`, numeric probe points, and numeric re-evaluation respectively.
+
+### Fixed
+
+- 🚨 **Parser red line: `v(t)` stays a function call** — unknown `name(...)` call sites parse as undefined SymPy Functions (Mathematica convention) instead of silently degrading to implicit multiplication (`v*t`); `Integer * Integer**-1` factor pairs fold into exact rationals inside any product, so `1/2*rho*...` round-trips stably through the parser.
+- 📼 **Recorded steps are the returned objects** — zero-reparse recording: the session archive is built from the live SymPy object, so archive and response can no longer diverge on function notation, assumptions, or unevaluated forms.
+- 📖 **Derived formulas are readable by the library** — writer (`DerivationResult`) and reader (`FormulaEntry`) agree on `sympy_str` / `expression` / `latex` keys, pinned by contract tests; legacy expression-only YAML still loads.
+- ⚠️ **Ignored parameters warn** — a per-operation parameter audit table flags caller-set params the operation does not consume (e.g. `point` on `simplify`); two-word assumptions (`"x positive"`) are accepted alongside `"x is positive"`, and malformed clauses warn instead of being silently dropped.
+- 🔥 **Engine errors propagate** — 14 previously-silent `except` sites now surface `{ExceptionType}: {message}` in the tool's failure message.
+- 📊 **Verification is graded** — a chain is `verified` when nothing failed and at least one substantive step verified; inconclusive steps (notes, ops without an automatic checker) lower confidence but no longer poison the chain; `generate_derivation_report` always renders the failed/inconclusive counts and LaTeX-renders `given` symbol keys.
+- 🧭 **Goal tracking sees the whole history** — "solve for X" is satisfied when ANY step output isolates X, so a later `evalf` no longer false-reports "Not yet solved".
+
+### Changed
+
+- 🧱 **`math()` internals split into `tools/_math_dispatch.py`** (operation dispatch, parsing, parameter audit); `tools/math.py` is now a thin recording wrapper.
+
 ## [1.1.0] - 2026-09-10
 
 Validated end-to-end by a black-box regression harness (headless MCP client, byte-identical task inputs, artifacts isolated via `SYMKIT_DATA_DIR`): verification false-failures dropped from 15 to 0, generated reports retain all step formulas, fractional exponents parse as exact rationals, and no cross-run formula contamination was observed.

@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-286%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-328%20passed-brightgreen.svg)]()
 [![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
 🌐 **English** | [简体中文](README.zh-CN.md)
@@ -138,6 +138,8 @@ SymKit can pull authoritative formulas from Wikidata and physical constants from
 **Query normalization:** you can write queries naturally — `fluid_dynamics`, `fluid mechanics`, and `cfd` all resolve to the same domain; `Navier–Stokes` (en dash) and `Navier-Stokes` (hyphen) match the same Wikidata item.
 
 **MathML handling:** Wikidata sometimes returns rendered MathML for search previews. Call `formula_get` on the result ID to retrieve the original LaTeX and a SymPy-ready string.
+
+**Function notation & results:** unknown calls like `v(t)` parse as undefined functions (Mathematica convention), never as implicit multiplication; `solve` returns a bare `solution` / `solution_latex` next to the `Eq(...)` expression; `evalf` accepts `substitution`; and `session_start` / `session_set_goal` accept explicit `target_variables` so goal tracking does not depend on heuristic text extraction.
 
 ## 🎛️ You own every step
 
@@ -333,7 +335,7 @@ symkit-mcp/
 │       ├── server.py
 │       └── tools/           # 41 MCP tools
 ├── formulas/                # Seed formula library (source tree)
-├── tests/                   # 286 tests
+├── tests/                   # 328 tests
 └── pyproject.toml
 ```
 

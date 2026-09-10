@@ -76,6 +76,8 @@ MCP protocol interface, independent of the core library.
 |--------|-------------|
 | `server.py` | MCP Server entry point |
 | `tools/` | 41 MCP tool implementations |
+| `tools/_math_dispatch.py` | `math()` internals: operation dispatch, expression parsing, per-operation parameter audit |
+| `tools/_state.py` | Process-global current session/context shared by all tool modules |
 
 ---
 
@@ -83,7 +85,7 @@ MCP protocol interface, independent of the core library.
 
 | Category | Count | Description |
 |----------|-------|-------------|
-| **Session** | 17 | Derivation session management and step operations |
+| **Session** | 17 | Derivation session management and step operations; graded overall verification (a chain is verified when nothing failed and at least one substantive step verified) |
 | **Math** | 1 | Unified math entry point (~26 operations: calculus, matrices, ODE, transforms, numeric `evalf`, etc.) |
 | **Assumption** | 6 | Symbolic assumption management |
 | **Formula** | 4 | Formula search and management; searchable corpus = bundled seeds + session-derived formulas (read-only) + writable user overlay |
