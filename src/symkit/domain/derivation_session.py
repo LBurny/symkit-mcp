@@ -36,6 +36,7 @@ from symkit.domain.math_domain import MathDomain
 from symkit.domain.paths import user_sessions_dir
 from symkit.domain.step_verifier import (
     StepVerifier,
+    is_numerically_zero,
     verification_result_from_json,
     verification_result_to_json,
 )
@@ -1001,8 +1002,8 @@ class DerivationSession:
             if isinstance(current, sp.Equality) and isinstance(target, sp.Equality):
                 current_form = current.lhs - current.rhs
                 target_form = target.lhs - target.rhs
-                return bool(sp.simplify(current_form - target_form) == 0)
-            return bool(sp.simplify(current - target) == 0)
+                return is_numerically_zero(sp.simplify(current_form - target_form))
+            return is_numerically_zero(sp.simplify(current - target))
         except Exception:
             return False
 

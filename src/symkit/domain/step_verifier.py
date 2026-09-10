@@ -63,6 +63,28 @@ _CONFLICT_PAIRS: set[tuple[str, str]] = {
     ("integer", "irrational"),
 }
 
+# Numeric residual tolerance for symbolic verification. Symbolic derivation
+# diffs are dimensionless algebraic residuals; machine-precision noise from
+# float inputs must not flip a correct step to FAILED.
+_NUM_ZERO_TOL = 1e-9
+
+
+def is_numerically_zero(diff: sp.Basic) -> bool:
+    """True if ``diff`` is exactly zero, or numerically zero within tolerance.
+
+    Symbolic (free-symbol) differences must simplify to exact zero; purely
+    numeric differences are compared in floating point with an absolute
+    tolerance of 1e-9.
+    """
+    if diff == 0:
+        return True
+    if diff.free_symbols:
+        return False
+    try:
+        return abs(complex(diff.evalf())) < _NUM_ZERO_TOL
+    except (TypeError, ValueError):
+        return False
+
 
 class StepVerifier:
     """Verify correctness of a single derivation step or the entire derivation chain."""
@@ -239,6 +261,15 @@ class StepVerifier:
             local_dict[name] = sp.Symbol(name, **kwargs)
         return local_dict
 
+    def _assumed_symbol(
+        self, name: str, assumptions: dict[str, dict[str, bool]]
+    ) -> sp.Symbol:
+        """Build ``name`` as a Symbol carrying the same assumptions used to
+        parse the step input, so ``subs`` actually matches the input symbols
+        (a bare ``sp.Symbol(name)`` is a different object when assumptions
+        apply and the substitution silently becomes a no-op)."""
+        return self._build_symbol_dict(name, assumptions).get(name, sp.Symbol(name))
+
     # ═══════════════════════════════════════════════════════════════════════════
     # Operation-level verification
     # ═══════════════════════════════════════════════════════════════════════════
@@ -251,7 +282,7 @@ class StepVerifier:
     ) -> VerificationResult:
         """Verify that simplify/expand/factor preserves the expression value."""
         diff = sp.simplify(self._difference(input_expr, output_expr))
-        if diff == 0:
+        if is_numerically_zero(diff):
             return VerificationResult.success(
                 f"{operation.capitalize()} verified: expressions are equal"
             )
@@ -260,7 +291,7 @@ class StepVerifier:
         diff_expanded = sp.simplify(
             sp.expand(self._difference(input_expr, output_expr))
         )
-        if diff_expanded == 0:
+        if is_numerically_zero(diff_expanded):
             return VerificationResult.success(
                 f"{operation.capitalize()} verified after expansion"
             )
@@ -295,7 +326,9 @@ class StepVerifier:
         # Reverse integration
         integral = sp.integrate(output_expr, var_sym)
         diff = sp.simplify(integral - input_expr)
-        if diff.free_symbols <= {var_sym} and sp.diff(diff, var_sym) == 0:
+        if diff.free_symbols <= {var_sym} and is_numerically_zero(
+            sp.diff(diff, var_sym)
+        ):
             return VerificationResult(
                 status=VerificationStatus.VERIFIED,
                 message="Differentiation verified by reverse integration",
@@ -326,7 +359,7 @@ class StepVerifier:
         var_sym = sp.Symbol(var)
         derivative = sp.diff(output_expr, var_sym)
         diff = sp.simplify(derivative - input_expr)
-        if diff == 0:
+        if is_numerically_zero(diff):
             return VerificationResult(
                 status=VerificationStatus.VERIFIED,
                 message="Integration verified by differentiation",
@@ -357,16 +390,24 @@ class StepVerifier:
 
         expected = input_expr
         for part in replacement_str.split(","):
-            match = re.match(r"^(\w+)\s*=\s*(.+)$", part.strip())
-            if not match:
+            left, sep, right = part.strip().partition("=")
+            if not sep or not left.strip() or not right.strip():
                 return VerificationResult(
                     status=VerificationStatus.INCONCLUSIVE,
                     message="Could not parse substitution mapping",
                 )
-            target_var = match.group(1)
-            replacement_expr_str = match.group(2)
-            target_sym = sp.Symbol(target_var)
-            replacement_expr = self._parse(replacement_expr_str, assumptions)
+            key_str = left.strip()
+            if re.fullmatch(r"\w+", key_str):
+                target_sym: sp.Basic = self._assumed_symbol(key_str, assumptions)
+            else:
+                # Non-identifier keys (e.g. ``x**2`` or ``Derivative(f(x), x)``)
+                target_sym = self._parse(key_str, assumptions)
+                if target_sym is None:
+                    return VerificationResult(
+                        status=VerificationStatus.INCONCLUSIVE,
+                        message="Could not parse substitution key",
+                    )
+            replacement_expr = self._parse(right.strip(), assumptions)
             if replacement_expr is None:
                 return VerificationResult(
                     status=VerificationStatus.INCONCLUSIVE,
@@ -375,7 +416,7 @@ class StepVerifier:
             expected = expected.subs(target_sym, replacement_expr)
 
         diff = sp.simplify(self._difference(expected, output_expr))
-        if diff == 0:
+        if is_numerically_zero(diff):
             return VerificationResult.success("Substitution verified")
 
         return VerificationResult.failure(
@@ -413,7 +454,7 @@ class StepVerifier:
                 residual=str(expected),
             )
         diff = sp.simplify(self._difference(expected, sp.Integer(0)))
-        if diff == 0:
+        if is_numerically_zero(diff):
             return VerificationResult.success(
                 "Solution verified by substitution back into original equation"
             )

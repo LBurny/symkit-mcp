@@ -216,3 +216,44 @@ class TestStepVerifierRobustParsing:
         result = verifier.verify_step(step)
         assert result.status == VerificationStatus.VERIFIED
         assert "n*u*t" not in str(result.message)
+
+
+class TestSubstituteAssumptionAwareness:
+    """Regression: substitution must use assumption-aware symbols, otherwise
+    ``subs`` is a silent no-op and every substitute step is judged FAILED."""
+
+    def test_substitute_with_assumptions_verifies(self, verifier):
+        engine = AssumptionEngine(domain=MathDomain.GENERAL)
+        engine.assume("a", "positive")
+        engine.assume("m", "positive")
+        step = _make_step(
+            OperationType.SUBSTITUTE,
+            {"original": "a*m", "replacement": "a = 0"},
+            "0",
+        )
+        result = verifier.verify_step(step, assumption_engine=engine)
+        assert result.status == VerificationStatus.VERIFIED
+
+    def test_substitute_non_identifier_key(self, verifier):
+        step = _make_step(
+            OperationType.SUBSTITUTE,
+            {"original": "x**4", "replacement": "x**2 = w**2"},
+            "w**4",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+
+
+class TestFloatTolerance:
+    """Purely numeric residuals within machine precision must not flip a
+    correct step to FAILED."""
+
+    def test_machine_epsilon_diff_passes(self, verifier):
+        step = _make_step(OperationType.SIMPLIFY, {"original": "0.1 + 0.2"}, "0.3")
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+
+    def test_real_mismatch_still_fails(self, verifier):
+        step = _make_step(OperationType.SIMPLIFY, {"original": "x"}, "x + 1")
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.FAILED
