@@ -627,6 +627,7 @@ def register_session_tools(mcp: Any) -> None:
                     id=session.session_id,
                     name=session.name,
                     expression=str(session.current_expression),
+                    latex=sp.latex(session.current_expression),
                     variables={
                         str(s): {"description": "", "unit": ""}
                         for s in (session.current_expression.free_symbols

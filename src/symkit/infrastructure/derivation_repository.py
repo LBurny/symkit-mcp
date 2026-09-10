@@ -15,7 +15,7 @@ What does NOT belong here:
 ❌ Raw user input → Temporary and session-scoped
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +38,7 @@ class DerivationResult:
     id: str
     name: str
     expression: str  # SymPy expression string
+    latex: str = ""  # LaTeX representation (display form of `expression`)
     version: str = "1.0.0"
     variables: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -69,12 +70,19 @@ class DerivationResult:
         return sympify(self.expression)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
+        """Convert to dictionary for serialization.
+
+        ``expression`` is the canonical SymPy string; ``sympy_str`` mirrors it
+        so the formula-library schema (``FormulaEntry``) can read the same
+        file without key translation.
+        """
         return {
             "id": self.id,
             "name": self.name,
             "version": self.version,
             "expression": self.expression,
+            "sympy_str": self.expression,
+            "latex": self.latex,
             "variables": self.variables,
             "derived_from": self.derived_from,
             "derivation_steps": self.derivation_steps,
@@ -95,8 +103,13 @@ class DerivationResult:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DerivationResult":
-        """Create from dictionary."""
-        return cls(**data)
+        """Create from dictionary.
+
+        Unknown keys are ignored so newer writers (e.g. adding ``latex`` or
+        ``sympy_str``) never break older readers and vice versa.
+        """
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
     @classmethod
     def from_yaml(cls, yaml_str: str) -> "DerivationResult":

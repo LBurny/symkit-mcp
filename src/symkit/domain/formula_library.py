@@ -58,11 +58,16 @@ class FormulaEntry:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], source_path: Path | None = None) -> FormulaEntry:
-        """Create a FormulaEntry from a dictionary."""
+        """Create a FormulaEntry from a dictionary.
+
+        ``sympy_str`` is the canonical key; derived formulas written by
+        ``DerivationResult`` historically used ``expression``, which is
+        accepted as a fallback so every readable file keeps its expression.
+        """
         return cls(
             id=str(data.get("id", "")),
             name=str(data.get("name", "")),
-            sympy_str=str(data.get("sympy_str", "")),
+            sympy_str=str(data.get("sympy_str") or data.get("expression") or ""),
             latex=str(data.get("latex", "")),
             domain=str(data.get("domain", "")),
             category=str(data.get("category", "")),

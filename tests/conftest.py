@@ -6,7 +6,9 @@ fresh_manager helpers that were previously duplicated across ~11 test modules.
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,6 +20,12 @@ import pytest
 src_path = Path(__file__).parent.parent / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
+
+# Isolate the entire test run (including MCP server subprocesses spawned by
+# e2e tests, which inherit this environment) from the real per-user data
+# directory. Must be set before any symkit import because
+# ``symkit.domain.paths`` caches its locations via ``lru_cache``.
+os.environ.setdefault("SYMKIT_DATA_DIR", tempfile.mkdtemp(prefix="symkit-test-"))
 
 from symkit.domain.derivation_session import SessionManager  # noqa: E402
 from symkit.domain.value_objects import MathContext  # noqa: E402
