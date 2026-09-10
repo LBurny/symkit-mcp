@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-10
+
+Four defects found by black-box round run-008 (damped-oscillator task) and accepted by run-010 probe: all four fixes verified from the black box.
+
+### Fixed
+
+- 🔢 **`evalf` substitution works under context assumptions** — substitution keys are rebound by name to the assumption-bearing symbols actually present in the parsed expression, instead of silently no-opping when earlier calls installed positive assumptions.
+- 💾 **Derived-formula saver stores the representative symbolic output** — `session_complete(auto_save=true)` no longer saves a trailing numeric check (evalf float or residual `0`); the last symbolic step output is saved, `variables` metadata is backfilled, and the response reports `saved_expression`.
+- ✅ **Boolean `simplify` outputs record cleanly** — `simplify(Eq(...))` resolving to a plain Python `True` no longer crashes step verification (`Add - bool` TypeError silently dropped the step); identities are verified when the verifier can confirm them, otherwise INCONCLUSIVE.
+- 🎯 **Goal extraction ignores apostrophes** — prose primes like `x''(t)` are no longer mistaken for single-quoted expressions (junk targets such as `(t) + c x` no longer poison progress matching); double-quoted targets still extract.
+
 ## [1.2.0] - 2026-09-10
 
 Structural fixes from the framework-design review of black-box regression rounds run-005/006/007: unknown function calls can no longer degrade to implicit multiplication, recorded steps are the same SymPy objects returned to the client, the derived-formula read/write schema is pinned by contract tests, ignored parameters warn instead of disappearing, and session verification grades outcomes instead of all-or-nothing.
