@@ -624,20 +624,28 @@ def register_session_tools(mcp: Any) -> None:
         verified_at = datetime.now().isoformat() if is_verified else None
 
         saved_path = None
+        saved_expression_str: str | None = None
         if auto_save:
             try:
                 # Use the global repository singleton (defaults to the per-user
                 # derived-formula directory) rather than a CWD-relative path.
                 repo = get_repository()
+                # The current expression may be a trailing numeric check
+                # (evalf / residual); save the representative symbolic output.
+                saved_expr = session.representative_expression()
+                if saved_expr is None:
+                    saved_expr = session.current_expression
+                if saved_expr is None:
+                    raise ValueError("No expression available to save")
+                saved_expression_str = str(saved_expr)
                 derivation_result = DerivationResult(
                     id=session.session_id,
                     name=session.name,
-                    expression=str(session.current_expression),
-                    latex=sp.latex(session.current_expression),
+                    expression=str(saved_expr),
+                    latex=sp.latex(saved_expr),
                     variables={
                         str(s): {"description": "", "unit": ""}
-                        for s in (session.current_expression.free_symbols
-                                  if session.current_expression is not None else [])
+                        for s in saved_expr.free_symbols
                     },
                     derived_from=list(session.formulas.keys()),
                     derivation_steps=[step["description"] for step in result["steps"]],
@@ -662,6 +670,7 @@ def register_session_tools(mcp: Any) -> None:
         set_session(None)
         if saved_path:
             result["saved_to"] = str(saved_path)
+            result["saved_expression"] = saved_expression_str
             result["message"] = f"Derivation completed and saved to {saved_path}"
         if warnings:
             result["warnings"] = warnings

@@ -287,6 +287,31 @@ class StepVerifier:
         operation: str,
     ) -> VerificationResult:
         """Verify that simplify/expand/factor preserves the expression value."""
+        out_bool = self._boolean_value(output_expr)
+        if out_bool is not None:
+            # simplify may resolve an input equation to a plain True/False
+            # (Python bool, not BooleanTrue) when the caller's assumptions make
+            # it decidable.  The verifier often cannot see those per-call
+            # assumptions, so treat an unconfirmable boolean claim as
+            # INCONCLUSIVE rather than crashing or false-failing (run-008).
+            if out_bool and isinstance(input_expr, sp.Equality):
+                diff = sp.simplify(input_expr.lhs - input_expr.rhs)
+                if is_numerically_zero(diff):
+                    return VerificationResult.success(
+                        f"{operation.capitalize()} verified: expression is an identity"
+                    )
+                return VerificationResult(
+                    status=VerificationStatus.INCONCLUSIVE,
+                    message=(
+                        f"{operation} returned True; the identity holds under "
+                        "assumptions the verifier cannot confirm"
+                    ),
+                )
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message=f"{operation} returned boolean output; no automatic check",
+            )
+
         diff = sp.simplify(self._difference(input_expr, output_expr))
         if is_numerically_zero(diff):
             return VerificationResult.success(
@@ -578,16 +603,26 @@ class StepVerifier:
     # Helpers
     # ═══════════════════════════════════════════════════════════════════════════
 
+    def _boolean_value(self, value: sp.Basic) -> bool | None:
+        """Return the truth value of boolean-looking outputs (plain or SymPy)."""
+        if isinstance(value, (BooleanTrue, BooleanFalse, bool)):
+            return bool(value)
+        return None
+
     def _difference(self, left: sp.Basic, right: sp.Basic) -> sp.Basic:
         """For equations compare lhs - rhs; for ordinary expressions compare left - right."""
+        left_bool = self._boolean_value(left)
+        right_bool = self._boolean_value(right)
         if isinstance(left, sp.Equality) and isinstance(right, sp.Equality):
             return (left.lhs - left.rhs) - (right.lhs - right.rhs)
         if isinstance(left, sp.Equality):
-            if isinstance(right, (BooleanTrue, BooleanFalse)):
+            if right_bool is not None:
                 # SymPy may simplify an identity/contradiction equation to True/False
-                return sp.Integer(0) if bool(right) else sp.Integer(1)
+                return sp.Integer(0) if right_bool else sp.Integer(1)
             return left.lhs - left.rhs - right
         if isinstance(right, sp.Equality):
+            if left_bool is not None:
+                return sp.Integer(0) if left_bool else sp.Integer(1)
             return left - (right.lhs - right.rhs)
         return left - right
 

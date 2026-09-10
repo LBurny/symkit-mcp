@@ -835,6 +835,26 @@ class DerivationSession:
             prev_step.output_srepr,
         )
 
+    def representative_expression(self) -> sp.Basic | None:
+        """The step output that best represents this derivation's outcome.
+
+        Numeric closing steps (evalf probes, residual checks) legitimately move
+        the current expression to a float or ``0``; a formula saved from that
+        trailing constant is useless (run-008 saved ``3.15594676761190`` and
+        run-009 would have saved ``0``).  Prefer the last SYMBOLIC step output,
+        skipping note steps, and fall back to the current expression when the
+        derivation is genuinely numeric-only.
+        """
+        for step in reversed(self.steps):
+            if step.operation == OperationType.CUSTOM:
+                continue
+            out = self._safe_load_expression(
+                step.output_expression, step.output_srepr
+            )
+            if out is not None and out.free_symbols:
+                return out
+        return self.current_expression
+
     def verify_step(self, step_number: int) -> dict[str, Any]:
         """Re-verify a single step.
 

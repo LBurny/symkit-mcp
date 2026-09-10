@@ -107,3 +107,23 @@ def test_extract_variables_multi_letter_underscored():
     """多字母词干带下标的符号（nu_tilde、c_w1 类）也应被提取为目标变量。"""
     goal = DerivationGoal.from_text("derive nu_tilde and c_w1 for the SA model")
     assert {"nu_tilde", "c_w1"} <= set(goal.target_variables)
+
+
+def test_apostrophes_in_prose_are_not_quotation_marks():
+    """Regression (run-008): x''(t) primes in goal prose were treated as single
+    quotes by the quoted-expression branch, capturing the junk fragment
+    '(t) + c x' as target_expression and poisoning progress matching."""
+    text = (
+        "Derive natural frequency omega_0 = sqrt(k/m) and underdamped damped "
+        "oscillation frequency omega_d = sqrt(4*m*k - c**2)/(2*m) from "
+        "m x''(t) + c x'(t) + k x(t) = 0, then verify omega_d -> omega_0 as c -> 0"
+    )
+    goal = DerivationGoal.from_text(text)
+    assert goal.target_expression is None
+
+
+def test_double_quoted_target_expression_still_extracted():
+    goal = DerivationGoal.from_text(
+        'derive the range, target "R = v**2*sin(2*theta)/g"'
+    )
+    assert goal.target_expression == "R = v**2*sin(2*theta)/g"

@@ -77,3 +77,38 @@ def test_session_complete_autosave_is_readable_by_library(fresh_session_manager,
     assert entry.sympy_str  # non-empty!
     assert "v_t" in entry.sympy_str
     assert entry.latex  # non-empty!
+
+
+def test_session_complete_autosave_skips_numeric_closing_steps(
+    fresh_session_manager, tmp_path
+):
+    """Regression (run-008/run-009): the saver used session.current_expression,
+    which numeric closing steps (evalf / residual substitute) move to a float
+    or ``0``; the saved formula then contained a constant instead of the
+    derived symbolic formula."""
+    _ = fresh_session_manager
+    mcp = MockMCP()
+    register_math_tools(mcp)
+    register_session_tools(mcp)
+    mcp.tools["session_start"]("vt", goal="solve for v_t")
+    solved = mcp.tools["math"](
+        operation="solve",
+        expression="1/2*rho*C_d*A*v_t**2 == m*g",
+        variable="v_t",
+    )
+    assert solved["success"], solved
+    # Numeric closing step drifts the current expression to a plain float.
+    numeric = mcp.tools["math"](operation="evalf", expression="pi")
+    assert numeric["success"], numeric
+    assert "free_symbols" not in numeric or not numeric.get("free_symbols")
+
+    done = mcp.tools["session_complete"](auto_save=True)
+    assert done["success"], done
+    saved = Path(done["saved_to"])
+    lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
+    entry = lib.get(done["session_id"])
+    assert entry is not None
+    # The stored formula is the symbolic solution, not the trailing float.
+    assert "v_t" in entry.sympy_str
+    assert "3.14" not in entry.sympy_str
+    assert entry.variables, "variables metadata must be backfilled"

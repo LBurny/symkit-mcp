@@ -155,9 +155,12 @@ class DerivationGoal:
             if cls._is_valid_expression_candidate(expr):
                 return cls._normalize_expression(expr)
 
-        # Try matching an expression inside quotes
+        # Try matching an expression inside double quotes.  Single quotes are
+        # deliberately excluded: apostrophes in prose (contractions, or math
+        # primes like ``x''(t)``) would otherwise capture junk fragments such
+        # as "(t) + c x" as the target expression (run-008).
         match = re.search(
-            r"['\"]([a-zA-Z0-9_\^\*\+\-/\(\)\[\]\s,=.]+)['\"]",
+            r'"([a-zA-Z0-9_\^\*\+\-/\(\)\[\]\s,=.]+)"',
             text,
         )
         if match:
