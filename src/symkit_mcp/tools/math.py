@@ -176,7 +176,7 @@ _ENGINE_OPS = {
 }
 
 ALL_OPS = sorted(_SYNTACTIC_OPS | _ENGINE_OPS |
-                 {"simplify", "solve", "substitute", "parse"})
+                 {"simplify", "solve", "substitute", "parse", "evalf"})
 
 
 def _execute_operation(
@@ -278,6 +278,13 @@ def _execute_operation(
             return parsed
         result = parsed
 
+    # ── NUMERIC EVALUATION ──
+    elif operation == "evalf":
+        parsed = _require_parse_with_assumptions(preprocessed)
+        if isinstance(parsed, dict):
+            return parsed
+        result = parsed.evalf()
+
     # ── SOLVE ──
     elif operation == "solve":
         if not variable:
@@ -294,11 +301,24 @@ def _execute_operation(
                 return {"success": False, "error": f"No solution found for {variable}"}
             sol = solutions[0]
             result = sp.Eq(v, sol)
+            # Warn when float coefficients silently truncate the solution to a
+            # numeric approximation (use exact fractions like 1/2 for exact
+            # symbolic results).
+            float_atoms = sorted(eq.atoms(sp.Float), key=str)
+            warnings: list[str] = []
+            if float_atoms:
+                shown = ", ".join(str(f) for f in float_atoms[:3])
+                warnings.append(
+                    "Input contains float coefficients (" + shown + "); the "
+                    "solution is numerically truncated. Use exact fractions "
+                    "(e.g. 1/2 instead of 0.5) for exact symbolic results."
+                )
             return {
                 "success": True,
                 "expression": str(result),
                 "latex": sp.latex(result),
                 "all_solutions": [str(s) for s in solutions],
+                "warnings": warnings,
                 "operation": operation,
             }
         except Exception as e:
@@ -334,7 +354,7 @@ def _execute_operation(
             if val is None:
                 return {"success": False, "error": f"Cannot parse substitution value '{v}': {val_error}"}
             subs[key] = val
-        result = expr.subs(subs)
+        result = expr.subs(subs).doit()
 
     # ── ENGINE-BASED OPERATIONS ──
     elif operation in _ENGINE_OPS:
@@ -469,6 +489,7 @@ _OP_TYPE_MAP = {
     "powsimp": OperationType.SIMPLIFY,
     "radsimp": OperationType.SIMPLIFY,
     "combsimp": OperationType.SIMPLIFY,
+    "evalf": OperationType.CUSTOM,
 }
 
 
@@ -511,6 +532,7 @@ def register_math_tools(mcp: Any) -> None:
         | Category | Operation | Description |
         |------|------|------|
         | Parse | `parse` | Parse expression and extract symbols |
+        | Numeric | `evalf` | Numeric floating-point evaluation |
         | Simplify | `simplify` | General simplification |
         | | `expand` | Expand polynomial |
         | | `factor` | Factorization |

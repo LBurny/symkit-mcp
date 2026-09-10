@@ -111,3 +111,47 @@ def test_unified_math_all_operations() -> None:
 if __name__ == "__main__":
     test_unified_math_all_operations()
     print("✅ Unified math operation coverage passed")
+
+
+def test_evalf_numeric_value() -> None:
+    """evalf 数值求值：分数指数（Task 2 已规范化为 Rational）可直接算出浮点值。"""
+    mcp = MockMCP()
+    _register_math_tools(mcp)
+    result = mcp.tools["math"]("evalf", "65.0**(1/6)", session=False)
+    assert result["success"], result.get("error")
+    assert abs(float(result["expression"]) - 2.0051747451504215) < 1e-12
+
+
+def test_solve_warns_on_float_coefficients() -> None:
+    """solve 输入含浮点系数时应给出警告（黑箱发现的浮点陷阱无提示问题）。"""
+    mcp = MockMCP()
+    _register_math_tools(mcp)
+    result = mcp.tools["math"](
+        "solve", "0.5*A*C_d*rho*v**2 - g*m = 0", variable="v", session=False
+    )
+    assert result["success"], result.get("error")
+    assert any("float" in w.lower() for w in result.get("warnings", []))
+
+
+def test_solve_exact_input_no_warning() -> None:
+    mcp = MockMCP()
+    _register_math_tools(mcp)
+    result = mcp.tools["math"](
+        "solve", "(1/2)*A*C_d*rho*v**2 - g*m = 0", variable="v", session=False
+    )
+    assert result["success"], result.get("error")
+    assert not result.get("warnings")
+
+
+def test_substitute_folds_zero_derivative() -> None:
+    """substitute 代入后应折叠可求值的未求值导数（Derivative(0, x) → 0）。"""
+    mcp = MockMCP()
+    _register_math_tools(mcp)
+    result = mcp.tools["math"](
+        "substitute",
+        "Derivative(y(x), x) + y(x)",
+        substitution={"y(x)": "0"},
+        session=False,
+    )
+    assert result["success"], result.get("error")
+    assert result["expression"] == "0"
