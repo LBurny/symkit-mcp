@@ -26,6 +26,7 @@ from sympy.parsing.sympy_parser import (
 from symkit.domain.derivation_session import OperationType
 from symkit.domain.expression_parser import (
     _convert_equals_to_eq,
+    _rationalize_unevaluated_divisions,
     _split_eq_args,
     build_reserved_local_dict,
     parse_user_expression,
@@ -148,6 +149,7 @@ def _parse_ode(expr_str: str, func: str, var: str) -> sp.Basic | sp.Equality | N
                 transformations=_TRANSFORMATIONS,
                 evaluate=False,
             )
+            expr = _rationalize_unevaluated_divisions(expr)
     except Exception:  # pragma: no cover - parser raises many types
         return None
 

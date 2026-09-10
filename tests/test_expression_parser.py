@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sympy as sp
+
 from symkit.domain.expression_parser import (
     parse_expression_string,
     parse_user_expression,
@@ -267,3 +269,31 @@ class TestComplexExpressions:
         expr, error = parse_expression_string("x +++ @#$")
         assert expr is None
         assert error is not None
+
+
+class TestUnevaluatedDivisionNormalization:
+    """parse_expr(evaluate=False) keeps numeric divisions unevaluated; they must
+    fold into canonical Rational so fractional exponents evaluate numerically."""
+
+    def test_simple_division_is_rational(self):
+        expr, error = parse_expression_string("1/6")
+        assert error is None
+        assert expr == sp.Rational(1, 6)
+
+    def test_fractional_exponent_is_rational(self):
+        expr, error = parse_expression_string("x**(1/6)")
+        assert error is None
+        # structural check: the exponent must be a canonical Rational, not an
+        # unevaluated Mul(1, 1/6)
+        assert expr.exp == sp.Rational(1, 6)
+
+    def test_numeric_fractional_power_value(self):
+        expr, error = parse_expression_string("65.0**(1/6)")
+        assert error is None
+        assert isinstance(expr, sp.Float)
+        assert abs(float(expr) - 2.0051747451504215) < 1e-12
+
+    def test_deferred_derivative_preserved(self):
+        expr, error = parse_expression_string("diff(y(x), x)")
+        assert error is None
+        assert expr.has(sp.Derivative)

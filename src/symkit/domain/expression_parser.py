@@ -591,9 +591,45 @@ def parse_expression_string(
             transformations=TRANSFORMATIONS,
             evaluate=False,
         )
-        return expr, None
+        return _rationalize_unevaluated_divisions(expr), None
     except Exception as exc:  # pragma: no cover - parser raises many types
         return None, str(exc)
+
+
+def _rationalize_unevaluated_divisions(expr: sp.Basic) -> sp.Basic:
+    """Fold unevaluated numeric divisions ``Mul(a, 1/b)`` into ``Rational(a, b)``.
+
+    ``parse_expr(..., evaluate=False)`` keeps Python divisions unevaluated, so a
+    fractional exponent like ``x**(1/6)`` carries an unevaluated ``Mul(1, 1/6)``
+    exponent and blocks numeric evaluation of float bases. Numeric divisions
+    are canonically ``Rational``; folding them is value-preserving and does not
+    disturb deferred constructs such as unevaluated ``Derivative`` nodes.
+    """
+
+    def _match(node: sp.Basic) -> bool:
+        if not isinstance(node, sp.Mul) or len(node.args) != 2:
+            return False
+        num = next((a for a in node.args if a.is_Integer), None)
+        den = next(
+            (
+                a
+                for a in node.args
+                if isinstance(a, sp.Pow) and a.exp == -1 and a.base.is_Integer
+            ),
+            None,
+        )
+        return num is not None and den is not None
+
+    def _fold(node: sp.Mul) -> sp.Rational:
+        num = next(a for a in node.args if a.is_Integer)
+        den = next(a for a in node.args if isinstance(a, sp.Pow) and a.exp == -1)
+        return sp.Rational(int(num), int(den.base))
+
+    if not isinstance(expr, sp.Basic):
+        # Comma-separated inputs (e.g. vector arguments) parse to a plain
+        # Python tuple, which is not a Basic and has no walkable tree.
+        return expr
+    return expr.replace(_match, _fold)
 
 
 def parse_expression_string_to_str(
