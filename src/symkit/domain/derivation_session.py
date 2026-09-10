@@ -1056,10 +1056,23 @@ class DerivationSession:
                 gaps.append("Current expression does not match target expression")
                 score = 0.5
 
-        # Target form: solve for variable
+        # Target form: solve for variable.  The variable counts as solved when
+        # ANY step output (or the current expression) is an equation with the
+        # variable isolated on the left — later steps may legitimately move the
+        # current expression onward (e.g. numeric evaluation), which used to
+        # false-report "Not yet solved" (run-005/006).
         if self.goal.target_form and self.goal.target_form.startswith("solve_for_"):
             var = self.goal.target_form.split("_", 2)[-1]
-            if isinstance(current, sp.Equality) and str(current.lhs) == var:
+            solved = isinstance(current, sp.Equality) and str(current.lhs) == var
+            if not solved:
+                for step in self.steps:
+                    out = self._safe_load_expression(
+                        step.output_expression, step.output_srepr
+                    )
+                    if isinstance(out, sp.Equality) and str(out.lhs) == var:
+                        solved = True
+                        break
+            if solved:
                 matches = True
                 score = max(score, 1.0)
             else:

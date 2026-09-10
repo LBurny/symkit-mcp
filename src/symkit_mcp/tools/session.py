@@ -218,6 +218,7 @@ def register_session_tools(mcp: Any) -> None:
         pattern: str = "direct-manipulation",
         goal: str | None = None,
         author: str = "",
+        target_variables: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Start a new derivation session
@@ -229,6 +230,9 @@ def register_session_tools(mcp: Any) -> None:
             pattern: Derivation pattern
             goal: Natural-language goal (optional)
             author: Author
+            target_variables: Optional explicit list of target variables (e.g.
+                ["v_t"]).  When provided, it overrides the variables extracted
+                heuristically from the goal text.
 
         Returns:
             Session information
@@ -244,6 +248,8 @@ def register_session_tools(mcp: Any) -> None:
         )
         if goal:
             parsed_goal = DerivationGoal.from_text(goal, domain=domain)
+            if target_variables is not None:
+                parsed_goal.target_variables = list(target_variables)
             session.set_goal(parsed_goal)
         set_session(session)
 
@@ -794,6 +800,7 @@ def register_session_tools(mcp: Any) -> None:
     def session_set_goal(
         goal: str,
         target_expression: str | None = None,
+        target_variables: list[str] | None = None,
     ) -> dict[str, Any]:
         """Set a natural-language derivation goal for the current session.
 
@@ -802,6 +809,9 @@ def register_session_tools(mcp: Any) -> None:
             target_expression: Optional explicit target expression (e.g.
                 "v = sqrt(2*G*M/R)").  When provided, it overrides the
                 automatically-extracted target expression.
+            target_variables: Optional explicit list of target variables (e.g.
+                ["v_t"]).  When provided, it overrides the variables extracted
+                heuristically from the goal text.
 
         Returns:
             Parsed goal and session status.
@@ -815,6 +825,8 @@ def register_session_tools(mcp: Any) -> None:
         parsed_goal = DerivationGoal.from_text(goal, domain=session.domain)
         if target_expression:
             parsed_goal.target_expression = target_expression
+        if target_variables is not None:
+            parsed_goal.target_variables = list(target_variables)
         session.set_goal(parsed_goal)
         return {
             "success": True,
