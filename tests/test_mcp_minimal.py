@@ -55,3 +55,11 @@ async def test_mcp_minimal_session_start() -> None:
         assert payload["success"], payload
         assert payload["session_id"]
         assert payload["name"] == "minimal_test"
+
+
+def test_server_info_version_is_package_version() -> None:
+    """initialize 的 serverInfo.version 应报告 symkit 包版本，而非 mcp SDK 版本。"""
+    from symkit_mcp import __version__
+    from symkit_mcp.server import mcp
+
+    assert getattr(mcp._mcp_server, "version", None) == __version__

@@ -1,6 +1,6 @@
 [project]
 name = "symkit-mcp"
-version = "1.0.1"
+version = "1.1.0"
 description = "SymKit MCP - Symbolic derivation and verification toolkit for AI agents via MCP."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -37,8 +37,8 @@ dependencies = [
     "sympy>=1.13",
     # LaTeX parsing backend for sympy.parsing.latex
     "antlr4-python3-runtime>=4.11,<4.12",
-    # MCP SDK with FastMCP
-    "mcp>=1.0.0",
+    # MCP SDK with FastMCP (2.x removed mcp.server.fastmcp — keep on 1.x)
+    "mcp>=1.0.0,<2.0",
     # Data validation
     "pydantic>=2.0",
     # YAML parsing for DSL

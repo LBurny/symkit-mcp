@@ -26,6 +26,15 @@ mcp = FastMCP(
     ),
 )
 
+try:
+    # mcp 1.x 的低层 Server 未设 version 时在 initialize 回退报告 SDK 版本；
+    # 覆盖为 symkit 包版本，避免 serverInfo.version 误导客户端。
+    from symkit_mcp import __version__ as _symkit_version
+
+    mcp._mcp_server.version = _symkit_version
+except (AttributeError, ImportError):
+    pass
+
 # Register all tools
 register_all_tools(mcp)
 
