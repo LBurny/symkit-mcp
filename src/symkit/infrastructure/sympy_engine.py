@@ -512,8 +512,32 @@ class SymPyEngine(SymbolicEngine):
                 result = sp.limit(expr.sympy_expr, v, p, dir="+")
             elif direction == "-":
                 result = sp.limit(expr.sympy_expr, v, p, dir="-")
-            else:
+            elif p in (sp.oo, -sp.oo):
                 result = sp.limit(expr.sympy_expr, v, p)
+            else:
+                # "+-" must be a genuine bidirectional limit.  SymPy's
+                # no-dir default is silently right-handed, so ``1/x`` at 0
+                # used to "succeed" with oo (run-020).  Compute both sides
+                # and fail loud when they disagree.
+                right = sp.limit(expr.sympy_expr, v, p, dir="+")
+                left = sp.limit(expr.sympy_expr, v, p, dir="-")
+                same = right == left
+                if not same:
+                    try:
+                        same = bool(sp.simplify(right - left) == 0)
+                    except Exception:
+                        same = False
+                if not same:
+                    return Expression(
+                        raw="", latex="", sympy_expr=None,
+                        expr_type=ExpressionType.UNKNOWN,
+                        error=(
+                            f"Bidirectional limit does not exist: right-hand "
+                            f"limit is {right}, left-hand limit is {left}. "
+                            "Pass direction='+' or '-' for a one-sided limit."
+                        ),
+                    )
+                result = right
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
         except Exception as e:

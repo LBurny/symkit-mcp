@@ -242,17 +242,28 @@ def _parse_ode(
     )
 
     _NOTATION_HINT = (
-        f"Accepted notations: 'diff({func},{var})', 'd{func}/d{var}', "
-        f"'d^2{func}/d{var}^2'."
+        f"Accepted notations: 'diff({func},{var})', 'diff({func},{var},N)', "
+        f"'d{func}/d{var}', 'd^N{func}/d{var}^N' (any order N)."
     )
 
     result_str = preprocess_unicode(expr_str)
 
-    # Leibniz notation, second order before first order: d^2C/dt^2, dC/dt.
+    # Leibniz notation, any order (higher orders before first order):
+    # d^2C/dt^2, d^4w/dx^4, dC/dt.  Mismatched numerator/denominator orders
+    # are left untouched so the parser fails loudly instead of guessing
+    # (run-020: the hardcoded order-2 regex made d^4 input report "order not
+    # supported" even though dsolve handles it fine).
+    def _leibniz_ho_repl(m: re.Match[str]) -> str:
+        n_num = m.group(1) or m.group(2)
+        n_den = m.group(3) or m.group(4)
+        if n_num != n_den:
+            return m.group(0)
+        return f"Derivative({func}({var}), ({var}, {n_num}))"
+
     result_str = re.sub(
-        rf"d\s*(?:\^\s*2|\*\*\s*2)\s*{re.escape(func)}\s*/\s*d\s*{re.escape(var)}"
-        rf"\s*(?:\^\s*2|\*\*\s*2)",
-        f"Derivative({func}({var}), ({var}, 2))",
+        rf"d\s*(?:\^\s*(\d+)|\*\*\s*(\d+))\s*{re.escape(func)}\s*/\s*d\s*{re.escape(var)}"
+        rf"\s*(?:\^\s*(\d+)|\*\*\s*(\d+))",
+        _leibniz_ho_repl,
         result_str,
     )
     result_str = re.sub(
@@ -614,14 +625,36 @@ def _execute_operation_inner(
 
     # ── SOLVE ──
     elif operation == "solve":
-        if not variable:
-            return {"success": False, "error": "solve requires variable parameter"}
         try:
             # The shared parser already converts a single '=' to Eq(...).
             parsed = _require_parse_with_assumptions(preprocessed)
             if isinstance(parsed, dict):
                 return parsed
             input_obj = parsed
+            # Infer the solve variable when omitted: a single free symbol is
+            # unambiguous; otherwise list the candidates instead of the terse
+            # "solve requires variable parameter" (run-021).
+            if not variable:
+                if isinstance(parsed, sp.Basic):
+                    free_names = {str(s) for s in parsed.free_symbols}
+                elif isinstance(parsed, (list, tuple)):
+                    free_names = {
+                        str(s) for eq in parsed for s in eq.free_symbols
+                    }
+                else:
+                    free_names = set()
+                free = sorted(free_names)
+                if len(free) == 1:
+                    variable = free[0]
+                else:
+                    return {
+                        "success": False,
+                        "error": (
+                            "solve requires the variable parameter; the "
+                            f"expression has free symbols: {', '.join(free)}. "
+                            "Pass one of them as variable."
+                        ),
+                    }
             # A comma-separated expression parses to a python tuple — treat it
             # as a system of equations (run-018).
             if isinstance(parsed, (list, tuple)):
@@ -796,12 +829,30 @@ def _execute_operation_inner(
                 }
             else:  # eigenvects
                 vects = _engine.matrix_eigenvects(expr_obj, context)
+                # As with eigenvals (run-017), wrap the result in a sympy
+                # Tuple so it records into the session chain and renders —
+                # eigenvects used to return _result_obj=None, leaving no step
+                # and an empty "$$$$" display (run-020).
+                vects_obj: sp.Basic | None = None
+                try:
+                    items = []
+                    for entry in vects:
+                        val = sp.sympify(entry["eigenvalue"])
+                        vec_objs = [sp.sympify(v) for v in entry["vectors"]]
+                        items.append(
+                            sp.Tuple(val, sp.Integer(entry["multiplicity"]), *vec_objs)
+                        )
+                    vects_obj = sp.Tuple(*items)
+                except Exception:
+                    vects_obj = None
                 return {
                     "success": True,
                     "eigenvectors": vects,
+                    "expression": str(vects_obj) if vects_obj is not None else "",
+                    "latex": sp.latex(vects_obj) if vects_obj is not None else "",
                     "operation": operation,
                     "_input_obj": input_obj,
-                    "_result_obj": None,
+                    "_result_obj": vects_obj,
                 }
         elif operation in ("laplace", "ilaplace"):
             freq = with_respect_to or ("s" if operation == "laplace" else "t")

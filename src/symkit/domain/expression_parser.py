@@ -224,14 +224,20 @@ _RESERVED_NAMES: frozenset[str] = frozenset({
     "Beta",
     "Gamma",
     "Lambda",
+    # In a formula-derivation tool, ``E`` and ``I`` are overwhelmingly
+    # variables (Young's modulus, energy, moment of inertia, current), not
+    # Euler's number and the imaginary unit.  SymPy's parser otherwise
+    # silently captures them as constants, which produced a *verified* but
+    # semantically wrong cantilever-beam solution in run-020.  Users who need
+    # the constants can write ``exp(1)`` / ``1j``.
+    "E",
+    "I",
 })
 
 # Constants that should keep their native SymPy meaning. We intentionally do NOT
 # protect these as Symbols.
 _CONSTANT_NAMES: frozenset[str] = frozenset({
     "pi",
-    "E",
-    "I",
     "oo",
     "zoo",
     "nan",
@@ -622,7 +628,7 @@ def parse_expression_string(
             )
             return sp.Eq(lhs, rhs), None
         except Exception as exc:  # pragma: no cover
-            return None, str(exc)
+            return None, _format_parse_error(exc)
 
     try:
         expr = parse_expr(
@@ -631,9 +637,31 @@ def parse_expression_string(
             transformations=TRANSFORMATIONS,
             evaluate=False,
         )
+        # A list-of-lists literal is a matrix (``[[a,b],[c,d]]``).  Matrix
+        # operations accepted this shape while ``parse`` rejected it
+        # (run-020); unify on ``sp.Matrix``.
+        if (
+            isinstance(expr, list)
+            and expr
+            and all(isinstance(row, list) for row in expr)
+        ):
+            expr = sp.Matrix(expr)
         return _rationalize_unevaluated_divisions(expr), None
     except Exception as exc:  # pragma: no cover - parser raises many types
-        return None, str(exc)
+        return None, _format_parse_error(exc)
+
+
+def _format_parse_error(exc: Exception) -> str:
+    """Render a parse failure without leaking raw exception arg tuples.
+
+    ``tokenize.TokenError`` (not a SyntaxError subclass) stringifies to its
+    raw ``args`` tuple — e.g. ``('unexpected EOF in multi-line statement',
+    (1, 0))`` — which is meaningless to an agent (run-021).  Surface just the
+    message.
+    """
+    if len(exc.args) >= 2 and isinstance(exc.args[0], str):
+        return f"{type(exc).__name__}: {exc.args[0]}"
+    return str(exc)
 
 
 def _rationalize_unevaluated_divisions(expr: sp.Basic) -> sp.Basic:
