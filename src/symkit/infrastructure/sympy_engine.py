@@ -11,6 +11,7 @@ import sympy as sp
 from symkit.domain.entities import Expression, ExpressionType
 from symkit.domain.expression_parser import (
     TRANSFORMATIONS,
+    name_used_as_function,
     parse_expression_string,
 )
 from symkit.domain.services import SymbolicEngine
@@ -86,7 +87,7 @@ class SymPyEngine(SymbolicEngine):
         """Parse a string into an Expression using SymPy."""
         try:
             # Get symbols with assumptions if provided
-            local_dict = self._get_local_dict(context)
+            local_dict = self._get_local_dict(expr_str, context)
 
             # Parse through the shared parser: Unicode, Leibniz derivatives,
             # equation conversion and reserved-name protection are handled
@@ -644,12 +645,22 @@ class SymPyEngine(SymbolicEngine):
                 error=f"{type(e).__name__}: {e}",
             )
 
-    def _get_local_dict(self, context: MathContext | None) -> dict[str, Any]:
-        """Get local dictionary for parsing with symbol assumptions."""
+    def _get_local_dict(
+        self, expr_str: str, context: MathContext | None
+    ) -> dict[str, Any]:
+        """Symbol bindings for parsing with symbol assumptions.
+
+        A name that appears as a call site in ``expr_str`` is skipped: binding
+        it to a plain ``Symbol`` lets implicit multiplication turn ``k(x)``
+        into ``k*x`` (run-024).  Function notation wins; the parser keeps its
+        ``Function`` binding for that name.
+        """
         local_dict: dict[str, Any] = {}
 
         if context and context.assumptions:
             for var_name, assumptions in context.assumptions.items():
+                if name_used_as_function(expr_str, var_name):
+                    continue
                 local_dict[var_name] = sp.Symbol(var_name, **assumptions)
 
         return local_dict

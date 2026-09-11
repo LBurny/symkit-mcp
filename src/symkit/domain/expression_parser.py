@@ -22,6 +22,7 @@ that were previously duplicated across ``math.py``, ``derivation.py``,
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 import sympy as sp
@@ -440,6 +441,36 @@ def _name_used_as_variable(expr: str, name: str) -> bool:
     )
 
 
+def name_used_as_function(expr: str, name: str) -> bool:
+    """True if ``name`` appears in ``expr`` as a call site (``name(...)``).
+
+    Exposed so callers that build their own ``local_dict`` (assumption-aware
+    symbol tables) can avoid binding a call-site name to a plain Symbol.
+    """
+    return bool(_func_pattern(name).search(expr))
+
+
+def _merge_caller_local_dict(
+    merged: dict[str, Any],
+    expr: str,
+    local_dict: Mapping[str, Any],
+) -> None:
+    """Merge caller bindings, protecting function-call sites.
+
+    Callers such as ``SymPyEngine`` pass ``{name: Symbol(name, **props)}`` to
+    carry assumptions.  If ``name`` is a call site in ``expr`` that binding
+    makes SymPy's implicit multiplication rewrite the call into a product
+    (``k(x)`` → ``k*x``, run-024).  The parser's own ``Function`` binding for
+    the call site wins; the caller entry is skipped for that name only.
+    Non-call-site names keep full caller precedence, and callers that pass a
+    genuinely callable binding (e.g. ``Function('k')``) are still honoured.
+    """
+    for name, value in local_dict.items():
+        if name_used_as_function(expr, name) and not callable(value):
+            continue
+        merged[name] = value
+
+
 def _build_local_dict(expr: str) -> dict[str, Any]:
     """Build a ``local_dict`` that protects reserved names used as variables."""
     local_dict: dict[str, Any] = {}
@@ -579,7 +610,10 @@ def parse_expression_string(
             derivative (``dX/dY``), and vector-calculus preprocessing.
         local_dict: Optional mapping of symbol names to SymPy objects. When
             provided, it is merged with the reserved-name protection built by
-            this parser; caller-provided entries take precedence.
+            this parser; caller-provided entries take precedence, except that
+            a name used as a call site (``k(x)``) is never rebound to a
+            non-callable — function notation always wins over a plain Symbol
+            binding (run-024).
 
     Returns:
         A tuple ``(sympy_expr, error)``. On success, ``error`` is ``None``; on
@@ -602,7 +636,7 @@ def parse_expression_string(
         _build_undefined_function_local_dict(processed, exclude=set(merged_local_dict))
     )
     if local_dict:
-        merged_local_dict.update(local_dict)
+        _merge_caller_local_dict(merged_local_dict, processed, local_dict)
 
     # SymPy's ``parse_expr(..., evaluate=False)`` fails for ``Eq`` when the RHS
     # contains an expression that simplifies to zero (e.g. ``1*(0+0)/2``),
