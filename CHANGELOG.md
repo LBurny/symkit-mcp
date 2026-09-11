@@ -77,6 +77,15 @@ binding, with the session's `AssumptionEngine` as the source of truth.
   is left, so an identically zero residual looked like a changed value. The
   equality check now evaluates pending operations first. (Found by the 1.5.1
   black-box acceptance run; pre-existing, not a 1.5.1 regression.)
+- **Substitution with a comma inside a value was reported INCONCLUSIVE.** The
+  step archived the mapping as a comma-joined display string
+  (`"L_fw = (1 + c_w3**6)**Rational(1,6)"`) and the verifier split it on `","`,
+  fragmenting the value and producing a false "Could not parse replacement
+  expression" — while the substitution had in fact been applied correctly. The
+  mapping is now also archived as JSON and the verifier reads that first; the
+  string form remains as a fallback for older records. Any comma-bearing value
+  was affected: `Rational(1,6)`, `Eq(a, b)`, multi-argument calls. (Found by
+  the 1.5.1 black-box acceptance run; pre-existing.)
 
 ### Changed
 
@@ -99,7 +108,7 @@ binding, with the session's `AssumptionEngine` as the source of truth.
 
 ### Verification
 
-- 475 tests (was 398).
+- 478 tests (was 398).
 - 405-cell sweep (45 inputs × 9 assumption sets across all 32 operations)
   against a pre-change worktree: exactly 16 cells changed, all of them the
   correctness fixes above; the `_parse_ode` parser-stack consolidation is

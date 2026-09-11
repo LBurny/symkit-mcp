@@ -530,22 +530,15 @@ class StepVerifier:
         assumptions: dict[str, dict[str, bool]],
     ) -> VerificationResult:
         """Verify substitution operation."""
-        replacement_str = step.input_expressions.get("replacement", "")
-        if not replacement_str:
+        pairs = self._substitution_pairs(step)
+        if pairs is None:
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
                 message="Could not parse substitution mapping",
             )
 
         expected = input_expr
-        for part in replacement_str.split(","):
-            left, sep, right = part.strip().partition("=")
-            if not sep or not left.strip() or not right.strip():
-                return VerificationResult(
-                    status=VerificationStatus.INCONCLUSIVE,
-                    message="Could not parse substitution mapping",
-                )
-            key_str = left.strip()
+        for key_str, value_str in pairs:
             if re.fullmatch(r"\w+", key_str):
                 target_sym: sp.Basic = self._assumed_symbol(key_str, assumptions)
             else:
@@ -556,7 +549,7 @@ class StepVerifier:
                         status=VerificationStatus.INCONCLUSIVE,
                         message="Could not parse substitution key",
                     )
-            replacement_expr = self._parse(right.strip(), assumptions)
+            replacement_expr = self._parse(value_str, assumptions)
             if replacement_expr is None:
                 return VerificationResult(
                     status=VerificationStatus.INCONCLUSIVE,
@@ -573,6 +566,37 @@ class StepVerifier:
             expected=str(expected),
             actual=str(output_expr),
         )
+
+    @staticmethod
+    def _substitution_pairs(step: DerivationStep) -> list[tuple[str, str]] | None:
+        """The step's ``key = value`` substitution pairs, losslessly.
+
+        Prefers the archived JSON map.  The human-readable ``replacement``
+        string is comma-joined, so a value containing a comma —
+        ``Rational(1,6)``, ``Eq(a, b)``, any multi-argument call — splits into
+        fragments and the verifier reported a false "Could not parse
+        replacement expression" (task-02 step 23).  The string form is only a
+        fallback for records written before the map was archived.
+        """
+        raw_map = step.input_expressions.get("replacement_map")
+        if raw_map:
+            try:
+                mapping = json.loads(raw_map)
+            except (TypeError, ValueError):
+                mapping = None
+            if isinstance(mapping, dict) and mapping:
+                return [(str(k), str(v)) for k, v in mapping.items()]
+
+        replacement_str = step.input_expressions.get("replacement", "")
+        if not replacement_str:
+            return None
+        pairs: list[tuple[str, str]] = []
+        for part in replacement_str.split(","):
+            left, sep, right = part.strip().partition("=")
+            if not sep or not left.strip() or not right.strip():
+                return None
+            pairs.append((left.strip(), right.strip()))
+        return pairs or None
 
     def _verify_solution(
         self,

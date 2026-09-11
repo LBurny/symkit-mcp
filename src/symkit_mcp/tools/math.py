@@ -15,6 +15,7 @@ session recording from the live SymPy objects the dispatcher returns.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from symkit.domain.assumption_engine import AssumptionLevel
@@ -269,6 +270,15 @@ def register_math_tools(mcp: Any) -> None:
                         if operation == "substitute" and substitution:
                             input_expressions["replacement"] = ", ".join(
                                 f"{k} = {v}" for k, v in substitution.items()
+                            )
+                            # Machine-readable copy. The human-readable join is
+                            # lossy: a value containing a comma (``Rational(1,6)``,
+                            # ``Eq(a, b)``, a multi-argument call) splits into
+                            # fragments the verifier cannot parse, producing a
+                            # false "Could not parse replacement expression"
+                            # (task-02 step 23).
+                            input_expressions["replacement_map"] = json.dumps(
+                                substitution, ensure_ascii=False
                             )
                         elif operation == "solve" and variable:
                             input_expressions["target_variable"] = variable

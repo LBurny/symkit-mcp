@@ -210,6 +210,72 @@ def test_sign_decision_failure_resolves_with_assumptions(fresh_session_manager):
     assert "sqrt(2)" in res["expression"], res
 
 
+# ── Substitution mapping must survive values containing commas ──────────────
+
+
+def test_substitution_with_comma_in_value_is_verified(fresh_session_manager):
+    """``Rational(1,6)`` contains a comma; the mapping must not be split on it.
+
+    The human-readable ``replacement`` string is comma-joined, so splitting it
+    on ``","`` fragments any value that itself contains a comma and produced a
+    false "Could not parse replacement expression" (task-02 step 23).
+    """
+    _ = fresh_session_manager
+    tools = _tools()
+    tools["session_start"]("sub_comma")
+
+    res = tools["math"](
+        operation="substitute",
+        expression="L_fw*c_w1*(nu_tilde/d)**2",
+        substitution={"L_fw": "(1 + c_w3**6)**Rational(1,6)"},
+        session=True,
+    )
+    assert res["success"], res
+
+    step = _last_step()
+    assert "replacement_map" in step.input_expressions, step.input_expressions
+    assert _verification(step)["status"] == "verified", _verification(step)
+
+
+def test_substitution_with_multi_argument_call_is_verified(fresh_session_manager):
+    """A multi-argument replacement (``Max(a, b)``) has the same failure mode."""
+    _ = fresh_session_manager
+    tools = _tools()
+    tools["session_start"]("sub_max")
+
+    res = tools["math"](
+        operation="substitute",
+        expression="x + y",
+        substitution={"x": "Max(y, 0)"},
+        session=True,
+    )
+    assert res["success"], res
+    assert _verification(_last_step())["status"] == "verified", _verification(_last_step())
+
+
+def test_legacy_comma_string_still_verifies():
+    """Records written before the JSON map must keep verifying."""
+    import sympy as sp
+
+    from symkit.domain.derivation_session import DerivationStep, OperationType
+    from symkit.domain.step_verifier import StepVerifier
+
+    x, y = sp.Symbol("x"), sp.Symbol("y")
+    step = DerivationStep(
+        step_number=1,
+        operation=OperationType.SUBSTITUTE,
+        description="legacy record",
+        input_expressions={"original": "x + y", "replacement": "x = 2"},
+        output_expression=str(sp.Integer(2) + y),
+        output_latex="",
+        output_srepr=sp.srepr(sp.Integer(2) + y),
+        input_srepr=sp.srepr(x + y),
+        sympy_command="math('substitute', ...)",
+    )
+    result = StepVerifier().verify_step(step)
+    assert result.is_verified, f"{result.status.value}: {result.message}"
+
+
 def test_dsolve_with_matching_variable_still_works(fresh_session_manager):
     _ = fresh_session_manager
     tools = _tools()
