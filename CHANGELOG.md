@@ -7,14 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-09-11
+
+Patch release with no behaviour change: the `@mcp.tool` docstrings are the only
+text a client renders in its tool list, so they are user-facing copy, and they
+were written in a decorated style a caller cannot use.
+
 ### Changed
 
-- **Tool descriptions rewritten** (the `@mcp.tool` docstrings, i.e. what an MCP
-  client renders in its tool list): emoji and decorative separator banners
-  removed, prose tightened, operation count corrected to 32. The codegen tools
-  no longer reference tools that do not exist in this project (`SymPy-MCP`,
-  `print_latex_expression()`) — they now name `math` and `session_verify_step` /
-  `session_verify_session`.
+- **Tool descriptions rewritten.** Emoji and decorative separator banners
+  removed, prose tightened. The codegen tools no longer instruct callers to use
+  `SymPy-MCP` / `print_latex_expression()` — neither exists in this project;
+  they now name `math` and `session_verify_step` / `session_verify_session`.
+  `formula_search` no longer implies it only searches locally: `source="local"`
+  (the default) is offline, other sources query Wikidata / SciPy constants /
+  BioModels. Semantic marks (check/cross) stay in tool *output* and reports,
+  where they carry meaning.
+
+### Fixed
+
+- Documentation counts corrected to the live registry (44 tools, 32 operations)
+  in `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` and
+  `docs/symkit-vs-sympy-mcp.md`; they had drifted to 41/43 tools, `~25`
+  operations, and a `v1.0.1` version stamp.
 
 ## [1.5.1] - 2026-09-11
 

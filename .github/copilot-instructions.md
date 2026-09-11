@@ -69,5 +69,5 @@ See `.github/bylaws/git-workflow.md` for details.
 ## Project Notes
 
 - SymKit is a **domain-agnostic** symbolic formula derivation engine.
-- It exposes **43 MCP tools** for math, derivation sessions, assumptions, verification, and orchestration.
+- It exposes **44 MCP tools** for math, derivation sessions, assumptions, verification, and orchestration.
 - Respond in Simplified Chinese when the user writes in Chinese.

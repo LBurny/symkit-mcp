@@ -1,12 +1,12 @@
 # AGENTS.md
 
-Workspace instructions for ZCode agents working in `nsforge-mcp-sigma`.
+Workspace instructions for ZCode agents working in `symkit-mcp-master`.
 
 ## Repository Purpose
 
-**SymKit MCP** (`symkit-mcp`) — a FastMCP server exposing ~43 MCP tools for symbolic formula derivation over SymPy. Domain-agnostic: physics, engineering, chemistry, biology, economics. The server runs over MCP stdio; AI agents (Claude, etc.) are the clients.
+**SymKit MCP** (`symkit-mcp`) — a FastMCP server exposing 44 MCP tools for symbolic formula derivation over SymPy. Domain-agnostic: physics, engineering, chemistry, biology, economics. The server runs over MCP stdio; AI agents (Claude, etc.) are the clients.
 
-Entry point: `src/symkit_mcp/server.py` → `symkit-mcp` console script. The single `math()` tool covers ~25 symbolic operations; `session_*` tools manage step-by-step derivations with full provenance persisted to `derivation_sessions/`.
+Entry point: `src/symkit_mcp/server.py` → `symkit-mcp` console script. The single `math()` tool covers 32 symbolic operations; `session_*` tools manage step-by-step derivations with full provenance persisted to `derivation_sessions/`.
 
 ## Major Directories
 
@@ -55,6 +55,7 @@ Modularity limits (bylaw §5): files ≤200 lines soft / 400 hard; functions ≤
 ## Coding Conventions
 
 - **Language for docs/comments**: the constitution, bylaws, and ARCHITECTURE.md are written in Traditional/Mandarin Chinese; match the surrounding language when editing those files. Code identifiers and docstrings are English. Per `CLAUDE.md`: respond in Simplified Chinese when the user writes in Chinese.
+- **Tool descriptions** (the `@mcp.tool` docstrings): these are the only text a client renders in its tool list, so write them concise and factual — no emoji, no decorative separator banners (`═══`), no marketing or run-history notes. Say what the tool does, then the `Args:`/`Returns:` a caller needs. Reference real tool names only (`math`, `session_verify_step`, …), never a name borrowed from another project. Semantic marks (`✅`/`❌`) belong in tool *output* and reports, not in descriptions.
 - **Commits**: Conventional Commits — `<type>(<scope>): <subject>` with `feat|fix|docs|refactor|test|chore`. Branch model: `main` (protected, stable), `develop`, `feature/*`, `hotfix/*`.
 - **Imports**: isort with `known-first-party = ["symkit", "symkit_mcp"]` (configured in `pyproject.toml`). Ruff selects E/W/F/I/B/C4/UP/ARG/SIM; E501 ignored.
 - **Typing**: mypy strict, `warn_return_any`, `warn_unused_ignores`. `disallow_untyped_decorators = false` (MCP decorators lack annotations). Missing stubs ignored for `sympy`, `mcp`, `yaml`.
