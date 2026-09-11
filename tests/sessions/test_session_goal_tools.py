@@ -1,0 +1,193 @@
+"""Tests for unified session tools: goal-aware derivation and recommendations."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from symkit_mcp.tools import math as math_tools
+from symkit_mcp.tools import orchestration as orchestration_tools
+from symkit_mcp.tools import session as session_tools
+
+# MockMCP is provided by conftest.py
+
+def _register_all_tools(mcp: Any) -> None:
+    """Register session, math, and orchestration tools."""
+# ruff: noqa: F821  # MockMCP from conftest.py
+    session_tools.register_session_tools(mcp)
+    math_tools.register_math_tools(mcp)
+    orchestration_tools.register_orchestration_tools(mcp)
+
+class TestGoalTools:
+    def test_set_goal_requires_session(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+        result = mcp.tools["session_set_goal"]("solve for x")
+        assert result["success"] is False
+        assert "No active session" in result["error"]
+
+    def test_set_goal_parses_and_recommends(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        mcp.tools["session_start"]("test")
+        result = mcp.tools["session_set_goal"]("solve for x in x**2 + b*x + c")
+        assert result["success"] is True
+        assert result["goal"]["target_form"] == "solve_for_x"
+
+        rec = mcp.tools["session_suggest_formulas"]()
+        assert rec["success"] is True
+        assert isinstance(rec["recommendations"], list)
+
+    def test_suggest_formulas_with_explicit_goal(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        mcp.tools["session_start"]("test")
+        mcp.tools["session_set_goal"]("derive navier stokes equations")
+        result = mcp.tools["session_suggest_formulas"]()
+        assert result["success"] is True
+        assert isinstance(result["recommendations"], list)
+
+    def test_suggest_formulas_without_goal_or_session(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        mcp.tools["session_start"]("test")
+        result = mcp.tools["session_suggest_formulas"]()
+        assert result["success"] is False
+        assert "No goal set" in result["error"]
+
+    def test_suggest_next_steps_without_session(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+        result = mcp.tools["session_show"]()
+        assert result["success"] is False
+        assert "No active session" in result["error"]
+
+    def test_suggest_next_steps_with_goal(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        mcp.tools["session_start"]("test")
+        mcp.tools["session_load_formula"]("x**2 + 2*x + 1")
+        mcp.tools["session_set_goal"]("derive x**2 + 2*x + 1")
+        result = mcp.tools["session_show"]()
+        assert result["success"] is True
+        assert "next_steps" in result
+        assert result["progress"]["has_goal"] is True
+
+class TestOrchestrationDerive:
+    def test_derive_auto_selects_pattern(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        result = mcp.tools["derive"](
+            "derive Navier-Stokes equations from conservation laws",
+            domain="fluid_dynamics",
+        )
+        assert result["success"] is True
+        assert result["pattern"] == "conservation+constitutive"
+        assert result["goal"]["domain"] == "fluid_dynamics"
+        assert "recommended_next_steps" in result
+        assert "progress" in result
+
+    def test_derive_with_target_expression(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        result = mcp.tools["derive"](
+            "derive the quadratic",
+            given=["x**2 + 2*x + 1"],
+            target_expression="x**2 + 2*x + 1",
+            auto_load=True,
+        )
+        assert result["success"] is True
+        assert result["progress"]["matches_target"] is True
+        assert result["progress"]["progress_score"] == 1.0
+
+    def test_derive_with_explicit_pattern(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        result = mcp.tools["derive"](
+            "derive energy equation",
+            pattern="variational",
+            domain="general",
+        )
+        assert result["success"] is True
+        assert result["pattern"] == "variational"
+
+class TestSessionGoalIntegration:
+    def test_session_start_accepts_goal(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        result = mcp.tools["session_start"](
+            "ns_derivation",
+            domain="fluid_dynamics",
+            goal="derive incompressible NS equations",
+        )
+        assert result["success"] is True
+        assert result["goal"] is not None
+        assert result["goal"]["domain"] == "fluid_dynamics"
+
+    def test_session_show_includes_goal_progress(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        mcp.tools["session_start"](
+            "show_test",
+            goal="derive x**2 + 2*x + 1",
+        )
+        mcp.tools["session_load_formula"]("x**2 + 2*x + 1")
+        result = mcp.tools["session_show"](show_steps=True)
+        assert result["success"] is True
+        # session_show returns goal-aware next steps and pattern
+        assert "next_steps" in result
+        assert "pattern_used" in result
+
+    def test_session_explain_includes_goal(self, fresh_session_manager: Any) -> None:
+        _ = fresh_session_manager
+        mcp = MockMCP()
+        _register_all_tools(mcp)
+
+        mcp.tools["session_start"](
+            "explain_test",
+            goal="derive x**2 + 2*x + 1",
+        )
+        mcp.tools["session_load_formula"]("x**2 + 2*x + 1")
+        result = mcp.tools["session_explain"](level="medium")
+        assert result["success"] is True
+        assert "summary" in result
+        text = result["summary"]
+        assert "Goal" in text or "goal" in text
+
+def test_progress_covers_intermediate_step_variables(fresh_session_manager):
+    """Regression (run-002): 目标变量只要出现在任意步骤就应算覆盖，
+    progress_score 不应因最终表达式不含该变量而恒为 0。"""
+    _ = fresh_session_manager
+    mcp = MockMCP()
+    _register_all_tools(mcp)
+    mcp.tools["session_start"]("prog")
+    mcp.tools["session_set_goal"]("derive the wall damping function f_w")
+
+    # f_w 只出现在中间步骤；之后 current_expression 不再含它
+    mcp.tools["session_record_step"](expression="f_w", description="wall damping")
+    mcp.tools["session_record_step"](expression="k = 1", description="constant")
+
+    show = mcp.tools["session_show"]()
+    progress = show.get("progress") or {}
+    gaps = " ".join(progress.get("remaining_gaps", []))
+    assert "Missing target variables" not in gaps
+    assert progress.get("progress_score", 0) > 0

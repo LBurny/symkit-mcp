@@ -605,10 +605,9 @@ Tests are organized by functional layer in `tests/`, with shared fixtures
 | `test_formula_recommender.py` | Formula recommender ranking and external-adapter merging |
 | `test_external_adapters.py` | External formula adapter integration |
 | `test_formula_search.py` | Formula search framework |
-| `test_math_transforms.py` | Integral transforms via `math()` |
-| `test_unified_math_coverage.py` | `math()` unified tool coverage |
+| `test_unified_math_coverage.py` | `math()` unified tool coverage, incl. integral transforms |
 
-Current status: 398 tests pass; Ruff and MyPy report no errors.
+Current status: 585 tests pass; Ruff and MyPy report no errors.
 
 ---
 
@@ -677,8 +676,8 @@ Current status: 398 tests pass; Ruff and MyPy report no errors.
 | `src/symkit_mcp/tools/orchestration.py` | Orchestration tools |
 | `src/symkit_mcp/tools/_state.py` | Global state |
 | `src/symkit_mcp/tools/_expression_parser.py` | Unified parser compatibility shim |
-| `tests/test_expression_parser.py` | Expression parser tests |
-| `tests/test_step_crud.py` | Step CRUD tests |
+| `tests/domain/test_expression_parser.py` | Expression parser tests |
+| `tests/domain/test_step_crud.py` | Step CRUD tests |
 
 ### C. Quick Entry
 

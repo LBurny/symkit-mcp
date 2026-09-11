@@ -21,7 +21,7 @@ Entry point: `src/symkit_mcp/server.py` → `symkit-mcp` console script. The sin
   - `tools/_state.py` — **Process-global shared state**: single `_current_session` and `_current_context`. All tool modules read/write through `get_session()`/`set_session()`/`get_context()`/`set_context()`.
 - `formulas/` — YAML formula library (`library/<category>/*.yaml`) and `derived/` outputs (gitignored).
 - `derivation_sessions/` — Persisted session JSON (gitignored runtime artifacts).
-- `tests/` — pytest suite, phase-organized (`test_phase1_*` … `test_phase5_*`) plus domain/engine/parser suites. E2E MCP smoke tests (`test_mcp_e2e.py`, `test_mcp_minimal.py`) spawn the server in stdio mode via the MCP client SDK.
+- `tests/` — pytest suite grouped by concern into subdirectories: `domain/` (pure domain units: entities, parser, derivation goal/planner, step verifier), `infrastructure/` (SymPy engine, external adapters), `math/` (unified `math()` tool surface), `assumptions/` (assumption contracts + invariants), `derivation/` (end-to-end derivation examples), `sessions/` (session/step tools + verification), `formulas/` (library, catalog, FTS5 index, pruning), `regression/` (black-box-driven fix suites), `tools/` (codegen, orchestration), `e2e/` (stdio MCP smoke tests spawning the real server via the MCP client SDK). Shared fixtures live in the root `conftest.py`, which also inserts `src/` into `sys.path` — test modules must not add their own path bootstrap.
 - `docs/` — Design docs (`symkit-design.md`, `composable-formula-modification-engine.md`, etc.).
 - `.github/bylaws/` — Binding sub-laws: `ddd-architecture.md`, `git-workflow.md`, `python-environment.md`.
 
@@ -32,11 +32,11 @@ Package manager is **uv** (preferred over pip). Python 3.12+ required (`.python-
 ```bash
 uv venv && uv sync --all-extras          # setup
 uv run pytest                            # run tests (asyncio_mode=auto, --cov=src)
-uv run pytest tests/test_session_verify_tools.py # focused test file
+uv run pytest tests/sessions/test_session_verify_tools.py # focused test file
 uv run ruff check src/ tests/            # lint (line-length 100, py312 target)
 uv run mypy src/                         # typecheck (strict)
 uv run python -m symkit_mcp.server       # run the MCP server (stdio)
-uv run pytest tests/test_mcp_e2e.py      # end-to-end MCP smoke test
+uv run pytest tests/e2e/test_mcp_e2e.py  # end-to-end MCP smoke test
 ```
 
 Pre-commit checklist (from `.github/bylaws/git-workflow.md`): pytest → ruff → mypy are **non-skippable**; update README/CHANGELOG/ROADMAP if user-visible behavior changed.

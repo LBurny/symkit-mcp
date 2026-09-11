@@ -597,10 +597,9 @@ _current_context: MathContext = MathContext()   # 当前数学上下文（假设
 | `test_formula_recommender.py` | 公式推荐器排序与外部适配器合并 |
 | `test_external_adapters.py` | 外部公式适配器集成 |
 | `test_formula_search.py` | 公式搜索框架 |
-| `test_math_transforms.py` | 经由 `math()` 的积分变换 |
-| `test_unified_math_coverage.py` | `math()` 统一工具覆盖 |
+| `test_unified_math_coverage.py` | `math()` 统一工具覆盖（含积分变换） |
 
-当前测试状态：398 个测试全部通过，Ruff 与 MyPy 无错误。
+当前测试状态：585 个测试全部通过，Ruff 与 MyPy 无错误。
 
 ---
 
@@ -669,8 +668,8 @@ _current_context: MathContext = MathContext()   # 当前数学上下文（假设
 | `src/symkit_mcp/tools/orchestration.py` | 编排工具 |
 | `src/symkit_mcp/tools/_state.py` | 全局状态 |
 | `src/symkit_mcp/tools/_expression_parser.py` | 统一解析器兼容 shim |
-| `tests/test_expression_parser.py` | 表达式解析测试 |
-| `tests/test_step_crud.py` | 步骤 CRUD 测试 |
+| `tests/domain/test_expression_parser.py` | 表达式解析测试 |
+| `tests/domain/test_step_crud.py` | 步骤 CRUD 测试 |
 
 ### C. 快速入口
 
