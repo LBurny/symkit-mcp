@@ -671,6 +671,30 @@ class StepVerifier:
         # Deterministic small-prime valuation for unrelated symbols.
         primes = [2, 3, 5, 7, 11, 13]
         valuation = {s: sp.Integer(primes[i % len(primes)]) for i, s in enumerate(others)}
+        # Probe only the side the user asked for. Probing both sides of a
+        # correct one-sided limit always disagrees on the other side, which
+        # reported INCONCLUSIVE with no hint that the answer was right (P5).
+        direction = step.input_expressions.get("limit_direction", "+-")
+
+        def _disagree() -> VerificationResult:
+            if direction in ("+", "-"):
+                side = "right" if direction == "+" else "left"
+                return VerificationResult(
+                    status=VerificationStatus.INCONCLUSIVE,
+                    message=(
+                        f"Numeric spot-check disagrees with the {side}-sided "
+                        "limit (or it converges too slowly to probe)"
+                    ),
+                )
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message=(
+                    "Numeric spot-check disagrees with the two-sided limit (or "
+                    "it converges too slowly to probe). If you meant a "
+                    "one-sided limit, pass direction='+' or '-'."
+                ),
+            )
+
         try:
             if point_expr == sp.oo:
                 probes = [sp.Integer(10**4), sp.Integer(10**5)]
@@ -678,20 +702,32 @@ class StepVerifier:
                 probes = [sp.Integer(-10**4), sp.Integer(-10**5)]
             else:
                 eps = sp.Rational(1, 10**4)
-                probes = [point_expr + eps, point_expr - eps]
-            expected = complex(sp.N(output_expr.subs(valuation)))
+                if direction == "+":
+                    probes = [point_expr + eps]
+                elif direction == "-":
+                    probes = [point_expr - eps]
+                else:
+                    probes = [point_expr + eps, point_expr - eps]
+
+            expected_expr = output_expr.subs(valuation)
+            # An infinite limit is checked by magnitude growth and sign: the
+            # tolerance comparison degenerates for infinities (``inf < inf`` is
+            # False), so every correct infinite limit used to look wrong.
+            infinite = bool(getattr(expected_expr, "is_infinite", False))
+            expected: complex = complex(0) if infinite else complex(sp.N(expected_expr))
+            sign = float(sp.sign(expected_expr)) if infinite else 0.0
+
             for p in probes:
                 value = complex(sp.N(input_expr.subs(valuation).subs(var, p)))
-                if not (abs(value - expected) < 1e-3 * max(1.0, abs(expected))):
-                    return VerificationResult(
-                        status=VerificationStatus.INCONCLUSIVE,
-                        message="Numeric spot-check disagrees with limit "
-                        "(or converges too slowly to probe)",
-                    )
+                if infinite:
+                    if not (abs(value) > 1e3 and value.real * sign > 0):
+                        return _disagree()
+                elif not (abs(value - expected) < 1e-3 * max(1.0, abs(expected))):
+                    return _disagree()
             return VerificationResult.success(
                 "Limit verified by numeric spot-check near the point"
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
                 message="Numeric spot-check not possible",

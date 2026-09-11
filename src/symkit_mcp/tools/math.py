@@ -272,6 +272,12 @@ def register_math_tools(mcp: Any) -> None:
                             )
                         elif operation == "solve" and variable:
                             input_expressions["target_variable"] = variable
+                        elif operation == "limit":
+                            # The verifier must probe the side the user actually
+                            # asked for; without this a correct one-sided limit
+                            # was reported INCONCLUSIVE because the other side
+                            # disagrees (P5).
+                            input_expressions["limit_direction"] = direction
 
                         sess._add_step(
                             operation=op_type,

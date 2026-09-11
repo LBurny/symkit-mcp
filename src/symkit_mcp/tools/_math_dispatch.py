@@ -17,6 +17,7 @@ import re
 from typing import Any
 
 import sympy as sp
+from sympy.core.function import AppliedUndef
 
 from symkit.domain.assumption_binding import apply_assumptions, resolve_assumed_symbol
 from symkit.domain.derivation_session import OperationType
@@ -772,6 +773,23 @@ def _execute_operation_inner(
             # without them sympy returns complex-root exponentials instead of
             # the expected trig form (run-018).
             ode_expr = _apply_context_assumptions(ode_expr, context)
+            # Fail with an actionable message when the requested dependent
+            # variable is not the one in the input.  Otherwise SymPy reports
+            # "is not a solvable differential equation in u(t)", which reads as
+            # if the equation were unsolvable (P5).
+            applied = sorted(
+                {a.func.__name__ for a in ode_expr.atoms(AppliedUndef)}
+            )
+            if applied and v not in applied:
+                suggestion = ", ".join(f"variable='{name}'" for name in applied)
+                return {
+                    "success": False,
+                    "error": (
+                        f"dsolve: variable='{v}' does not appear in the input; "
+                        f"the dependent function there is "
+                        f"{', '.join(applied)}. Pass {suggestion} instead."
+                    ),
+                }
             ics_objs: dict[Any, Any] | None = None
             if ics:
                 ics_objs, ics_error = _build_ics_dict(ics, v, func_var)
