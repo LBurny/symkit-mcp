@@ -142,6 +142,29 @@ class TestWritePaths:
         assert catalog.get("ro_seed") is not None
 
 
+class TestExternallyWrittenEntries:
+    """Curation operations must reconcile the index themselves.
+
+    ``search``/``get`` call ``ensure_fresh``; ``promote``/``remove_entry`` read
+    the store directly, so a file written by hand (or by another process) was
+    invisible to them and they reported "not found" until some other call
+    happened to refresh the index.
+    """
+
+    def test_promote_sees_externally_written_staging_entry(self, env):
+        catalog, _, staging, _ = env
+        write_yaml(staging, "derived", "external-1", name="Externally written")
+        promoted = catalog.promote("external-1", new_id="promoted_external")
+        assert promoted.id == "promoted_external"
+        assert promoted.tier == "curated"
+
+    def test_remove_entry_sees_externally_written_entry(self, env):
+        catalog, _, staging, _ = env
+        path = write_yaml(staging, "derived", "external-2")
+        assert catalog.remove_entry("external-2") == ["staging"]
+        assert not path.exists()
+
+
 class TestPromote:
     def test_promote_staging_to_curated(self, env):
         catalog, _, staging, curated = env

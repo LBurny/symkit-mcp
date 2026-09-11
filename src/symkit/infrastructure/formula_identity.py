@@ -35,10 +35,15 @@ def _canonical_expression(expr_str: str) -> str:
 
 
 def content_hash(expr_str: str) -> str:
-    """Return a 12-char content hash of the canonical expression."""
+    """Return a 12-char content hash of the canonical expression.
+
+    An empty or unparseable-but-blank expression returns ``""``: it has no
+    content identity, so callers must not treat unrelated blank entries as
+    duplicates of one another.
+    """
     canonical = _canonical_expression(expr_str)
     if not canonical:
-        return "empty"
+        return ""
     return hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:12]
 
 

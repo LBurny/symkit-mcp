@@ -5,6 +5,35 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-09-11
+
+Hardening release for the formula index, from a second black-box test pass
+that probed path safety, adversarial queries, duplicate detection, concurrent
+writes, and the 1.5.2 → 1.6.x upgrade path.
+
+### Fixed
+
+- **Path traversal in formula writes.** `formula_add` and `formula_promote`
+  passed the caller-supplied `id`, `category`, and `new_id` straight into a
+  filesystem join, so `id="../../escaped"` wrote a YAML file outside the
+  library root — and then reported failure, leaving the stray file behind.
+  Write targets are now resolved and must stay under the library root;
+  offending calls fail before touching disk. Ids must be plain file names.
+- **Unrelated expression-less entries collapsed as duplicates.**
+  `content_hash("")` returned the shared sentinel `"empty"`, so any two
+  formulas with no expression were treated as the same content and only one
+  stayed visible in search. An empty expression now yields no content identity
+  and is never grouped.
+- **`formula_promote` / `formula_remove` missed externally written files.**
+  Both read the index without reconciling it first (unlike `search` / `get`),
+  so a formula written by hand or by another process was reported as
+  "not found" until some unrelated call happened to refresh the index.
+
+### Changed
+
+- `FormulaLibrary.add_or_update` validates the target path before writing and
+  only updates its in-memory index after the file is safely on disk.
+
 ## [1.6.0] - 2026-09-11
 
 ### Added

@@ -32,6 +32,7 @@ from typing import Any
 
 import yaml
 
+from symkit.domain.formula_paths import safe_entry_path
 from symkit.domain.paths import (
     bundled_seed_library_dir,
     user_derived_dir,
@@ -313,17 +314,19 @@ class FormulaLibrary:
 
         Writing targets the writable overlay directory only; the read-only
         bundled seed tree is never modified. A user entry with the same id as
-        a seed overrides the seed in the in-memory index.
+        a seed overrides the seed in the in-memory index. An id or category
+        that would escape the overlay raises :class:`UnsafeFormulaPathError`
+        before anything is written.
         """
-        self._entries[entry.id] = entry
-        category = entry.category or "uncategorized"
-        target_dir = self._writable_path / category
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / f"{entry.id}.yaml"
+        target_path = safe_entry_path(self._writable_path, entry.category, entry.id)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
         entry.source_path = target_path
 
         with target_path.open("w", encoding="utf-8") as f:
             yaml.dump(entry.to_dict(), f, allow_unicode=True, sort_keys=False)
+
+        # Only index the entry once it is safely on disk.
+        self._entries[entry.id] = entry
 
     def delete(self, formula_id: str) -> bool:
         """Delete a formula by id. Returns True if a writable copy existed.

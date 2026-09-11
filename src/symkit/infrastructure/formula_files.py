@@ -12,7 +12,16 @@ import yaml
 
 from symkit.domain.formula_index import IndexedFormula
 from symkit.domain.formula_library import FormulaEntry
+from symkit.domain.formula_paths import UnsafeFormulaPathError, safe_entry_path
 from symkit.infrastructure.formula_identity import content_hash
+
+__all__ = [
+    "UnsafeFormulaPathError",
+    "YamlFormulaFileSource",
+    "load_indexed",
+    "scan_formula_files",
+    "write_entry_yaml",
+]
 
 
 def scan_formula_files(root: Path) -> list[Path]:
@@ -51,10 +60,13 @@ def load_indexed(path: Path, tier: str) -> IndexedFormula | None:
 
 
 def write_entry_yaml(root: Path, entry: FormulaEntry) -> Path:
-    """Persist an entry as ``<root>/<category>/<id>.yaml``; return the path."""
-    target_dir = root / (entry.category or "uncategorized")
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / f"{entry.id}.yaml"
+    """Persist an entry as ``<root>/<category>/<id>.yaml``; return the path.
+
+    Raises :class:`UnsafeFormulaPathError` before touching the filesystem if
+    the id or category would escape ``root``.
+    """
+    target_path = safe_entry_path(root, entry.category, entry.id)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
     with target_path.open("w", encoding="utf-8") as f:
         yaml.dump(entry.to_dict(), f, allow_unicode=True, sort_keys=False)
     entry.source_path = target_path

@@ -135,6 +135,9 @@ class FormulaCatalog:
 
     def remove_entry(self, formula_id: str) -> list[str]:
         """Remove a formula's YAML and index row. Seeds are read-only."""
+        # Reconcile first: the entry may have been written by hand or by
+        # another process since the last refresh.
+        self.ensure_fresh()
         row = self.store.get(formula_id)
         if row is None or row.tier == TIER_SEED:
             return []
@@ -164,6 +167,9 @@ class FormulaCatalog:
         """Promote a staging formula into the curated tier."""
         from symkit.infrastructure.formula_files import write_entry_yaml
 
+        # Reconcile first: the staging entry may have been written by hand or
+        # by another process since the last refresh.
+        self.ensure_fresh()
         src = self.store.get(formula_id)
         if src is None:
             raise ValueError(f"Formula '{formula_id}' not found")

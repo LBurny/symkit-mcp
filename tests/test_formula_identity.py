@@ -26,8 +26,11 @@ class TestContentHash:
         assert h1 == content_hash("not an (expr")
         assert len(h1) == 12
 
-    def test_empty(self):
-        assert content_hash("") == "empty"
+    def test_empty_has_no_content_identity(self):
+        # Empty is not a shared sentinel: unrelated entries with no expression
+        # must not be grouped as duplicates of one another.
+        assert content_hash("") == ""
+        assert content_hash("   ") == ""
 
 
 class TestSlugify:

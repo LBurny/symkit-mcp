@@ -439,6 +439,10 @@ Staging ids are deterministic (`<slug>-<hash6>`), so re-completing identical
 content is an idempotent re-save rather than a new copy, and the historical
 `-vN` id minting no longer occurs.
 
+Formula ids and categories are treated as untrusted input: a write target that
+would resolve outside the library root (path separators, `..`, or an absolute
+path) is rejected before anything is written, and ids must be plain file names.
+
 ### 8.5 Assumption Tools
 
 - `assume(variables)`: set global/session-level assumptions (affects `MathContext`); the response echoes the applied assumptions.

@@ -136,6 +136,40 @@ class TestGenericTokenPrecision:
         assert "newtons_second_law" in [r["id"] for r in res["results"]]
 
 
+class TestUnsafeIdRejected:
+    """The MCP tools must refuse ids that would escape the library root."""
+
+    @pytest.mark.parametrize("bad_id", ["../../escaped", "sub/dir", "..", "C:/abs"])
+    def test_add_rejects_traversal_id(self, catalog_env, bad_id):
+        res = catalog_env.mcp.tools["formula_add"](
+            id=bad_id, name="Evil", sympy_str="x = 1", latex="x = 1",
+            variables={"x": {}}, category="lab",
+        )
+        assert res["success"] is False, res
+        assert "escape" in res["error"].lower() or "unsafe" in res["error"].lower()
+        # No file may be left outside the curated root.
+        assert not (catalog_env.curated.parent / "escaped.yaml").exists()
+        assert not list(catalog_env.curated.rglob("escaped.yaml"))
+
+    def test_add_rejects_traversal_category(self, catalog_env):
+        res = catalog_env.mcp.tools["formula_add"](
+            id="ok_id", name="Evil cat", sympy_str="x = 1", latex="x = 1",
+            variables={"x": {}}, category="../../outside",
+        )
+        assert res["success"] is False, res
+        assert not (catalog_env.curated.parent / "outside").exists()
+
+    def test_promote_rejects_traversal_new_id(self, catalog_env):
+        _write_yaml(catalog_env.staging, "lab", "stg_trav",
+                    name="Staging", sympy_str="z = 1")
+        catalog_env.catalog.ensure_fresh()
+        res = catalog_env.mcp.tools["formula_promote"](
+            "stg_trav", new_id="../../promo_escaped",
+        )
+        assert res["success"] is False, res
+        assert not (catalog_env.curated.parent / "promo_escaped.yaml").exists()
+
+
 class TestAdapterDelegation:
     def test_adapter_uses_injected_catalog(self, catalog_env):
         from symkit.infrastructure.adapters.local_formula import LocalFormulaAdapter

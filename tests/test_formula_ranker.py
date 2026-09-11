@@ -49,3 +49,14 @@ class TestRankHits:
     def test_limit(self):
         hits = [SearchHit(_f(f"f{i}", "seed", f"h{i}"), "browse", 0.5) for i in range(5)]
         assert len(rank_hits(hits, limit=3)) == 3
+
+    def test_empty_content_hash_entries_do_not_collapse(self):
+        # Entries with no expression share no content identity, so they must
+        # each stay visible rather than collapsing into one representative.
+        hits = [
+            SearchHit(_f("no_expr_one", "curated", ""), "fts", 0.6),
+            SearchHit(_f("no_expr_two", "curated", ""), "fts", 0.5),
+        ]
+        ranked = rank_hits(hits)
+        assert {r.formula.id for r in ranked} == {"no_expr_one", "no_expr_two"}
+        assert all(r.duplicates == 0 for r in ranked)
