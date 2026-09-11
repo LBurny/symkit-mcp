@@ -8,7 +8,7 @@
 [![Tests](https://img.shields.io/badge/tests-398%20passed-brightgreen.svg)]()
 [![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
-🌐 **English** | [简体中文](README.zh-CN.md)
+**English** | [简体中文](README.zh-CN.md)
 
 ## What if you had Mathematica's symbolic engine, driven by natural language?
 
@@ -53,7 +53,7 @@ Known formulas                      New formula
 
 Use it for physics, engineering, chemistry, biology, economics — any domain where you need to combine and transform mathematical relationships.
 
-## ⚡ Four superpowers
+## Four superpowers
 
 | Capability | What it means | Tools |
 |---|---|---|
@@ -62,7 +62,7 @@ Use it for physics, engineering, chemistry, biology, economics — any domain wh
 | **Verify** | Check correctness symbolically and dimensionally | `session_verify_*`, `assume*` |
 | **Ship** | Turn results into Python, LaTeX, Markdown, or SymPy | `generate_*` |
 
-## 🚀 See it in action
+## See it in action
 
 **Derive a physical law from first principles:**
 
@@ -98,7 +98,7 @@ User: Calculate and verify ∫(x² + 3x) dx.
 → Verify: d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 🛠️ 44 MCP tools, one coherent workflow
+## 44 MCP tools, one coherent workflow
 
 SymKit exposes **44 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
 
@@ -115,7 +115,7 @@ SymKit exposes **44 MCP tools** across 8 categories. Everything routes through a
 
 The `math()` tool alone covers 32 symbolic operations — calculus, ODEs, matrices, vector analysis, integral transforms — and can write its result directly into a derivation session.
 
-## 🔍 Formula search workflow
+## Formula search workflow
 
 SymKit can pull authoritative formulas from Wikidata and physical constants from SciPy, normalize LLM queries automatically, and load the chosen formula straight into a derivation session.
 
@@ -141,7 +141,7 @@ SymKit can pull authoritative formulas from Wikidata and physical constants from
 
 **Function notation & results:** unknown calls like `v(t)` parse as undefined functions (Mathematica convention), never as implicit multiplication; `solve` returns a bare `solution` / `solution_latex` next to the `Eq(...)` expression; `evalf` accepts `substitution`; and `session_start` / `session_set_goal` accept explicit `target_variables` so goal tracking does not depend on heuristic text extraction.
 
-## 🎛️ You own every step
+## You own every step
 
 A derivation in SymKit is a chain of immutable, verifiable steps. You can:
 
@@ -153,7 +153,7 @@ A derivation in SymKit is a chain of immutable, verifiable steps. You can:
 
 Expressions are never edited in place. If something goes wrong, roll back to the last good state and continue. This keeps the entire derivation reproducible.
 
-## 🌍 Works with the MCP ecosystem
+## Works with the MCP ecosystem
 
 SymKit is designed to extend, not replace, your scientific computing stack. Symbolic computation runs on its own SymPy engine, and base formulas come from the bundled seed library, Wikidata, or SciPy — SymKit adds derivation, verification, and provenance on top.
 
@@ -169,7 +169,7 @@ SymKit is designed to extend, not replace, your scientific computing stack. Symb
 - ❌ Clinical scoring → use `medical-calc-mcp`
 - ❌ Reading textbook formulas → use the reference directly
 
-## 📦 Get started in 60 seconds
+## Get started in 60 seconds
 
 ### Requirements
 
@@ -320,7 +320,7 @@ run `uv sync` manually when dependencies change.
 > `Scripts/` or uv tool directory. Switch the `command` to an absolute path,
 > e.g. `"C:/Users/you/AppData/Local/uv/tools/symkit-mcp/Scripts/symkit-mcp.exe"`.
 
-## 🏗️ Clean architecture, built to extend
+## Clean architecture, built to extend
 
 ```text
 symkit-mcp/
@@ -341,7 +341,7 @@ symkit-mcp/
 - **Pluggable engines** — swap the symbolic engine or verifier via protocols.
 - **File-based persistence** — formulas and sessions live in readable Markdown/YAML/JSON.
 
-## 🧪 Development
+## Development
 
 ```bash
 # Run the full test suite
@@ -355,7 +355,7 @@ uv run mypy src/
 uv run symkit-mcp
 ```
 
-## 📖 Learn more
+## Learn more
 
 - [Architecture](ARCHITECTURE.md) — DDD layering and responsibilities
 - [SymKit Design](docs/symkit-design.md) — In-depth technical design (English)
@@ -363,12 +363,12 @@ uv run symkit-mcp
 - [SymKit vs SymPy-MCP](docs/symkit-vs-sympy-mcp.md) — Capability comparison
 - [Roadmap](ROADMAP.md) — What's coming next
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 SymKit is built on the foundation of [nsforge-mcp](https://github.com/u9401066/nsforge-mcp), which pioneered the neurosymbolic formula-derivation approach. The original Chinese README of nsforge-mcp can be found [here](https://github.com/u9401066/nsforge-mcp/blob/master/README.zh-TW.md).
 
 SymKit can be used alongside [sympy-mcp](https://github.com/sdiehl/sympy-mcp), which exposes SymPy as a general-purpose MCP computation service.
 
-## 📄 License
+## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+[Apache 2.0](LICENSE).

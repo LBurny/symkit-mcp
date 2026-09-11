@@ -8,7 +8,7 @@
 [![Tests](https://img.shields.io/badge/tests-398%20passed-brightgreen.svg)]()
 [![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
-🌐 [English](README.md) | **简体中文**
+[English](README.md) | **简体中文**
 
 ## 如果你拥有 Mathematica 的符号引擎，但可以用自然语言驱动它？
 
@@ -53,7 +53,7 @@ Mathematica 给了我们精确的符号数学能力，大语言模型给了我�
 
 无论是物理、工程、化学、生物还是经济，只要涉及数学关系的组合与变换，SymKit 都能派上用场。
 
-## ⚡ 四大核心能力
+## 四大核心能力
 
 | 能力 | 含义 | 工具 |
 |---|---|---|
@@ -62,7 +62,7 @@ Mathematica 给了我们精确的符号数学能力，大语言模型给了我�
 | **验证** | 符号等价与量纲分析双重检查 | `session_verify_*`、`assume*` |
 | **交付** | 生成 Python、LaTeX、Markdown、SymPy | `generate_*` |
 
-## 🚀 实际效果
+## 实际效果
 
 **从第一性原理推导物理定律：**
 
@@ -98,7 +98,7 @@ SymKit：
 → 验证：d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 🛠️ 44 个 MCP 工具，一套连贯工作流
+## 44 个 MCP 工具，一套连贯工作流
 
 SymKit 提供 **44 个 MCP 工具**，分为 8 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
 
@@ -115,7 +115,7 @@ SymKit 提供 **44 个 MCP 工具**，分为 8 个类别。日常通过少数高
 
 仅 `math()` 一个工具就覆盖 32 种符号运算——微积分、ODE、矩阵、矢量分析、积分变换——并且可以直接把结果写入推导会话。
 
-## 🔍 公式搜索工作流
+## 公式搜索工作流
 
 SymKit 可以从 Wikidata 拉取权威公式，从 SciPy 拉取物理常数，自动规范化 LLM 的查询，并把选中的公式直接加载到推导会话。
 
@@ -141,7 +141,7 @@ SymKit 可以从 Wikidata 拉取权威公式，从 SciPy 拉取物理常数，�
 
 **函数记号与结果：** 未知调用如 `v(t)` 会解析为未定义函数（Mathematica 惯例），绝不会退化为隐式乘法；`solve` 在 `Eq(...)` 表达式之外另返回裸的 `solution` / `solution_latex`；`evalf` 支持 `substitution` 一次完成代入求值；`session_start` / `session_set_goal` 接受显式 `target_variables`，目标追踪不再依赖启发式文本抽取。
 
-## 🎛️ 每一步都由你掌控
+## 每一步都由你掌控
 
 SymKit 中的推导是一串不可变、可验证的步骤。你可以：
 
@@ -153,7 +153,7 @@ SymKit 中的推导是一串不可变、可验证的步骤。你可以：
 
 表达式不会原地修改。如果出错，回滚到上一个有效状态再继续。这保证了整个推导过程可复现。
 
-## 🌍 与 MCP 生态协同
+## 与 MCP 生态协同
 
 SymKit 的设计目标是扩展科学计算栈，而非取代它。符号计算由自带的 SymPy 引擎执行，基础公式来自内置种子库、Wikidata 或 SciPy——SymKit 在此之上提供推导、验证和来源追溯。
 
@@ -169,7 +169,7 @@ SymKit 的设计目标是扩展科学计算栈，而非取代它。符号计算�
 - ❌ 临床评分 → 使用 `medical-calc-mcp`
 - ❌ 阅读教科书公式 → 直接查阅参考资料
 
-## 📦 60 秒快速开始
+## 60 秒快速开始
 
 ### 环境要求
 
@@ -316,7 +316,7 @@ Cherry Studio 为对应的设置面板）中加入 `mcpServers` 条目。
 > 把 `command` 改成绝对路径即可，例如
 > `"C:/Users/you/AppData/Local/uv/tools/symkit-mcp/Scripts/symkit-mcp.exe"`。
 
-## 🏗️ 架构清晰，易于扩展
+## 架构清晰，易于扩展
 
 ```text
 symkit-mcp/
@@ -337,7 +337,7 @@ symkit-mcp/
 - **可插拔引擎** — 通过协议可替换符号引擎或验证器。
 - **基于文件的持久化** — 公式和会话以 Markdown/YAML/JSON 存储，便于阅读和版本控制。
 
-## 🧪 开发
+## 开发
 
 ```bash
 # 运行完整测试套件
@@ -351,7 +351,7 @@ uv run mypy src/
 uv run symkit-mcp
 ```
 
-## 📖 了解更多
+## 了解更多
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — DDD 分层与职责
 - [docs/symkit-design.md](docs/symkit-design.md) — 深度技术设计文档（英文）
@@ -359,12 +359,12 @@ uv run symkit-mcp
 - [docs/symkit-vs-sympy-mcp.md](docs/symkit-vs-sympy-mcp.md) — 与 SymPy-MCP 的能力对比
 - [ROADMAP.md](ROADMAP.md) — 路线图
 
-## 🙏 感谢
+## 感谢
 
 SymKit 基于 [nsforge-mcp](https://github.com/u9401066/nsforge-mcp) 的成果进一步发展而来。nsforge-mcp 开创了神经符号公式推导的探索方向，其原始中文 README 可参见[此处](https://github.com/u9401066/nsforge-mcp/blob/master/README.zh-TW.md)。
 
 SymKit 可与 [sympy-mcp](https://github.com/sdiehl/sympy-mcp) 搭配使用，后者把 SymPy 包装为通用的 MCP 计算服务。
 
-## 📄 许可证
+## 许可证
 
-Apache 2.0 — 详见 [LICENSE](LICENSE)。
+[Apache 2.0](LICENSE)。
