@@ -1,8 +1,8 @@
 # SymKit MCP Design Document
 
-> Document Version: 0.2  
-> Last Updated: 2026-07-03  
-> Applicable Code Version: `symkit-mcp` 0.2.4 (`src/symkit/` and `src/symkit_mcp/`)
+> Document Version: 0.3  
+> Last Updated: 2026-09-10  
+> Applicable Code Version: `symkit-mcp` 1.5.0 (`src/symkit/` and `src/symkit_mcp/`)
 
 ---
 
@@ -59,7 +59,7 @@ SymKit is a **domain-agnostic** general-purpose formula derivation engine suitab
 - **Human-AI Collaboration**: Supports inserting assumptions, limitations, observations, and correction suggestions into the derivation.
 - **LaTeX Friendly**: Natively supports LaTeX input, subscript symbols, Greek letters, and physical star superscripts (e.g., `\beta^*`).
 
-The external contract is a set of 41 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
+The external contract is a set of 44 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
 
 ---
 
@@ -156,7 +156,7 @@ Technical implementation details:
 
 ### 4.4 MCP Tool Layer
 
-Exposes 41 MCP tools; each module focuses on one capability area:
+Exposes 44 MCP tools; each module focuses on one capability area:
 
 | File | Responsibility |
 |---|---|
@@ -290,7 +290,7 @@ User input (LaTeX / SymPy / Unicode / natural equation)
                     1. Unicode/Greek replacement
                     2. Leibniz derivative notation dX/dY → Derivative(X, Y)
                     3. Single equation conversion A = B → Eq(A, B)
-                    4. Reserved name protection (beta, gamma, S, N, etc.)
+                    4. Reserved name protection (beta, gamma, S, N, E, I, etc.)
                     5. parse_expr
 ```
 
@@ -335,14 +335,14 @@ When rolling back, deleting, or inserting notes, `DerivationSession` no longer d
 
 ### 8.1 Tool Categories
 
-SymKit exposes 41 MCP tools organized into 8 categories:
+SymKit exposes 44 MCP tools organized into 8 categories:
 
 | Tool Module | Representative Tools | Count | Purpose |
 |---|---|---|---|
 | `math` | `math()` | 1 | Unified computation entry |
 | `session` | `session_start`, `session_show`, `session_complete`, ... | 17 | Unified derivation session workflow |
-| `assumptions` | `assume`, `show_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 6 | Global and step-level assumption management |
-| `formula` | `formula_search`, `formula_get`, `formula_add`, `formula_categories` | 4 | External formula search |
+| `assumptions` | `assume`, `show_assumptions`, `unassume`, `clear_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 8 | Global and step-level assumption management |
+| `formula` | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories` | 5 | Local formula library and external formula search |
 | `symbols` | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 | Symbol semantics management |
 | `codegen` | `generate_python_function`, `generate_latex_derivation`, `generate_derivation_report`, `generate_sympy_script` | 4 | Code/report generation |
 | `orchestration` | `derive()`, `intent_execute()`, `list_patterns()` | 3 | High-level automation orchestration |
@@ -363,6 +363,7 @@ SymKit exposes 41 MCP tools organized into 8 categories:
 | Vector | `gradient`, `divergence`, `curl`, `laplacian` |
 | Matrix | `det`, `inv`, `eigenvals`, `eigenvects` |
 | Integral Transforms | `laplace`, `ilaplace`, `fourier`, `ifourier` |
+| Numeric | `evalf` |
 
 Important parameters:
 
@@ -397,18 +398,21 @@ Unified session tools include:
 
 ### 8.4 Formula Search Tools
 
-- `formula_search(query, source="wikidata+scipy", domain=None, limit=10)`: cross-source search.
-- `formula_get(id, source="wikidata")`: get a single formula by ID.
-- `formula_constants(category=None, query="")`: list SciPy physical constants.
-- `formula_categories()` / `formula_pk_models()` / `formula_kinetic_laws()`: domain-specific retrieval.
+- `formula_search(query, source="local", domain=None, limit=10)`: search the local library (bundled seeds + user overlay + session-derived formulas); legacy sources (`wikidata`, `scipy`, `biomodels`, `legacy`, `all`) remain available.
+- `formula_get(id, source="local")`: get a single formula by ID, optionally loading it into the current session.
+- `formula_add(id, name, sympy_str, latex, variables, ...)`: add or update a formula in the writable overlay of the local library.
+- `formula_remove(formula_id)`: remove a user-added or derived formula; bundled seed formulas are read-only and cannot be removed.
+- `formula_categories(source="local")`: list formula categories.
 
 ### 8.5 Assumption Tools
 
-- `assume(variables)`: set global/session-level assumptions (affects `MathContext`).
+- `assume(variables)`: set global/session-level assumptions (affects `MathContext`); the response echoes the applied assumptions.
 - `show_assumptions()`: show current assumptions.
-- `assume_for_step(symbol, property)`: set a temporary assumption for the current step.
-- `list_assumptions(level)`: list assumptions at a given level.
+- `unassume(variables)` / `clear_assumptions()`: remove assumptions for the given symbols / clear all assumptions in the current context.
+- `assume_for_step(args)`: set temporary assumptions for the current step. Accepts a single alternating string (`"x positive y real"`) or a list (`["x", "positive", ...]`); an odd token count fails loudly.
+- `list_assumptions(level=None)`: list assumptions at a given level, or merged across all levels.
 - `check_assumption_conflicts()`: detect conflicts.
+- `clear_step_assumptions()`: clear step-level assumptions.
 
 ### 8.6 Orchestration Tools
 
@@ -565,7 +569,7 @@ Tests are organized by functional layer in `tests/`, with shared fixtures
 | `test_math_transforms.py` | Integral transforms via `math()` |
 | `test_unified_math_coverage.py` | `math()` unified tool coverage |
 
-Current status: 293 tests pass; Ruff and MyPy report no errors.
+Current status: 398 tests pass; Ruff and MyPy report no errors.
 
 ---
 
@@ -651,5 +655,5 @@ Current status: 293 tests pass; Ruff and MyPy report no errors.
 - `derive()` may trigger MCP client timeouts during long derivations or when network adapters are enabled; for complex tasks, use `session_start` + `math(..., session=True)` step by step.
 - Compound LaTeX equations `"A = B, \\quad C = D"` only record the first equation; the rest generate `parse_warnings`. Record them separately.
 - Network-dependent external adapters are disabled by default to avoid default network dependencies.
-- The current version has 41 MCP tools; `formula_pk_models` and `formula_kinetic_laws` are legacy domain-specific category tools and may be renamed to more general names in future versions.
+- `E` and `I` parse as ordinary symbols (reserved names), not as Euler's number / the imaginary unit; use `exp(1)` and `1j` when you need the constants.
 

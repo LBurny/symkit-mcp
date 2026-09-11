@@ -1,8 +1,8 @@
 # SymKit MCP 项目设计文档
 
-> 文档版本：0.2
-> 最后更新：2026-07-03
-> 适用代码版本：`symkit-mcp` 0.2.4（`src/symkit/` 与 `src/symkit_mcp/`）
+> 文档版本：0.3
+> 最后更新：2026-09-10
+> 适用代码版本：`symkit-mcp` 1.5.0（`src/symkit/` 与 `src/symkit_mcp/`）
 
 ---
 
@@ -58,7 +58,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 - **人机协同**：支持在推导中插入假设、限制、观察、修正建议等非计算性知识。
 - **LaTeX 友好**：原生支持 LaTeX 输入、下标符号、希腊字母和物理星号上标（如 `\beta^*`）。
 
-项目的对外主契约是 41 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
+项目的对外主契约是 44 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
 
 ---
 
@@ -155,7 +155,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 
 ### 4.4 MCP Tool 层
 
-对外暴露 41 个 MCP 工具，每个模块聚焦一类能力：
+对外暴露 44 个 MCP 工具，每个模块聚焦一类能力：
 
 | 文件 | 主要职责 |
 |---|---|
@@ -289,7 +289,7 @@ timestamp: str
                     1. Unicode/Greek 替换
                     2. Leibniz 导数记号 dX/dY → Derivative(X, Y)
                     3. 单等式转换 A = B → Eq(A, B)
-                    4. 保留名保护（beta, gamma, S, N 等）
+                    4. 保留名保护（beta, gamma, S, N, E, I 等）
                     5. parse_expr 解析
 ```
 
@@ -334,14 +334,14 @@ timestamp: str
 
 ### 8.1 工具分类
 
-SymKit 共暴露 41 个 MCP 工具，按功能分为 8 类：
+SymKit 共暴露 44 个 MCP 工具，按功能分为 8 类：
 
 | 工具模块 | 代表工具 | 数量 | 定位 |
 |---|---|---|---|
 | `math` | `math()` | 1 | 统一计算入口 |
 | `session` | `session_start`、`session_show`、`session_complete` 等 | 17 | 统一推导会话工作流 |
-| `assumptions` | `assume`、`show_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 6 | 全局与步骤级假设管理 |
-| `formula` | `formula_search`、`formula_get`、`formula_add`、`formula_categories` | 4 | 外部公式检索 |
+| `assumptions` | `assume`、`show_assumptions`、`unassume`、`clear_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 8 | 全局与步骤级假设管理 |
+| `formula` | `formula_search`、`formula_get`、`formula_add`、`formula_remove`、`formula_categories` | 5 | 本地公式库与外部公式检索 |
 | `symbols` | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 | 符号语义管理 |
 | `codegen` | `generate_python_function`、`generate_latex_derivation`、`generate_derivation_report`、`generate_sympy_script` | 4 | 代码/报告生成 |
 | `orchestration` | `derive()`、`intent_execute()`、`list_patterns()` | 3 | 高层自动化编排 |
@@ -362,6 +362,7 @@ SymKit 共暴露 41 个 MCP 工具，按功能分为 8 类：
 | 矢量 | `gradient`、`divergence`、`curl`、`laplacian` |
 | 矩阵 | `det`、`inv`、`eigenvals`、`eigenvects` |
 | 积分变换 | `laplace`、`ilaplace`、`fourier`、`ifourier` |
+| 数值求值 | `evalf` |
 
 重要参数：
 
@@ -396,18 +397,21 @@ SymKit 共暴露 41 个 MCP 工具，按功能分为 8 类：
 
 ### 8.4 公式检索工具（formula）
 
-- `formula_search(query, source="wikidata+scipy", domain=None, limit=10)`：跨来源搜索。
-- `formula_get(id, source="wikidata")`：获取单个公式详情。
-- `formula_constants(category=None, query="")`：列出 SciPy 物理常数。
-- `formula_categories()` / `formula_pk_models()` / `formula_kinetic_laws()`：按领域分类检索。
+- `formula_search(query, source="local", domain=None, limit=10)`：检索本地公式库（内置种子 + 用户覆盖层 + 会话派生公式）；`wikidata`、`scipy`、`biomodels`、`legacy`、`all` 等历史来源仍可用。
+- `formula_get(id, source="local")`：按 ID 获取单个公式，可选直接加载到当前会话。
+- `formula_add(id, name, sympy_str, latex, variables, ...)`：向本地库的可写覆盖层添加或更新公式。
+- `formula_remove(formula_id)`：移除用户添加或派生的公式；内置种子公式为只读，不可移除。
+- `formula_categories(source="local")`：列出公式分类。
 
 ### 8.5 假设工具（assumptions）
 
-- `assume(variables)`：设置全局/会话级假设（作用于 `MathContext`）。
+- `assume(variables)`：设置全局/会话级假设（作用于 `MathContext`），返回值会回显已应用的假设。
 - `show_assumptions()`：展示当前假设。
-- `assume_for_step(symbol, property)`：设置当前步骤的临时假设。
-- `list_assumptions(level)`：列出指定级别假设。
+- `unassume(variables)` / `clear_assumptions()`：移除指定符号的假设 / 清空当前上下文的所有假设。
+- `assume_for_step(args)`：设置当前步骤的临时假设。接受单串交替形式（`"x positive y real"`）或列表形式（`["x", "positive", ...]`）；标记数为奇数会响亮报错。
+- `list_assumptions(level=None)`：列出指定级别的假设，或不传级别时返回跨级别合并结果。
 - `check_assumption_conflicts()`：检测冲突。
+- `clear_step_assumptions()`：清空步骤级假设。
 
 ### 8.6 编排工具（orchestration）
 
@@ -563,7 +567,7 @@ _current_context: MathContext = MathContext()   # 当前数学上下文（假设
 | `test_math_transforms.py` | 经由 `math()` 的积分变换 |
 | `test_unified_math_coverage.py` | `math()` 统一工具覆盖 |
 
-当前测试状态：293 个测试全部通过，Ruff 与 MyPy 无错误。
+当前测试状态：398 个测试全部通过，Ruff 与 MyPy 无错误。
 
 ---
 
@@ -649,5 +653,5 @@ _current_context: MathContext = MathContext()   # 当前数学上下文（假设
 - `derive()` 在长推导或启用网络适配器时可能触发 MCP 客户端超时；复杂任务建议分步使用 `session_start` + `math(..., session=True)`。
 - 复合 LaTeX 等式 `"A = B, \\quad C = D"` 仅记录第一条等式，其余会生成 `parse_warnings`，请单独调用记录。
 - 含网络的外部适配器默认不启用，避免默认依赖网络。
-- 当前版本共 41 个 MCP 工具；`formula_pk_models` 和 `formula_kinetic_laws` 是历史遗留的领域分类工具，后续可能重命名为更通用的名称。
+- `E` 和 `I` 按普通符号解析（保留名），不再是欧拉数 / 虚数单位；需要这两个常数时请使用 `exp(1)` 和 `1j`。
 

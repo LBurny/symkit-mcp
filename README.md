@@ -98,7 +98,7 @@ User: Calculate and verify ∫(x² + 3x) dx.
 → Verify: d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 🛠️ 41 MCP tools, one coherent workflow
+## 🛠️ 44 MCP tools, one coherent workflow
 
 SymKit exposes **44 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
 
@@ -106,14 +106,14 @@ SymKit exposes **44 MCP tools** across 8 categories. Everything routes through a
 |---|---|---|
 | **Unified Math** | `math` | 1 |
 | **Session Management** | `session_start`, `session_show`, `session_rollback`, `session_complete`, ... | 17 |
-| **Assumptions** | `assume`, `show_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 6 |
-| **Formula Search** | `formula_search`, `formula_get`, `formula_add`, `formula_categories` | 4 |
+| **Assumptions** | `assume`, `show_assumptions`, `unassume`, `clear_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 8 |
+| **Formula Search** | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories` | 5 |
 | **Symbol Registry** | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 |
 | **Code Generation** | `generate_python_function`, `generate_latex_derivation`, `generate_derivation_report`, `generate_sympy_script` | 4 |
 | **Derivation & Orchestration** | `derive`, `intent_execute`, `list_patterns` | 3 |
 | **Tool Discovery** | `tool_categories`, `tool_recommend` | 2 |
 
-The `math()` tool alone covers ~26 symbolic operations — calculus, ODEs, matrices, vector analysis, integral transforms — and can write its result directly into a derivation session.
+The `math()` tool alone covers 32 symbolic operations — calculus, ODEs, matrices, vector analysis, integral transforms — and can write its result directly into a derivation session.
 
 ## 🔍 Formula search workflow
 
@@ -155,7 +155,7 @@ Expressions are never edited in place. If something goes wrong, roll back to the
 
 ## 🌍 Works with the MCP ecosystem
 
-SymKit is designed to extend, not replace, your scientific computing stack. It handles derivation, verification, and provenance; raw symbolic computation and base formulas are delegated to SymPy-MCP.
+SymKit is designed to extend, not replace, your scientific computing stack. Symbolic computation runs on its own SymPy engine, and base formulas come from the bundled seed library, Wikidata, or SciPy — SymKit adds derivation, verification, and provenance on top.
 
 **When to use SymKit:**
 
@@ -166,8 +166,6 @@ SymKit is designed to extend, not replace, your scientific computing stack. It h
 
 **When to use something else:**
 
-- ❌ Looking up basic physics formulas → use `sympy-mcp`
-- ❌ Fetching physical constants → use `sympy-mcp` or `SciPy`
 - ❌ Clinical scoring → use `medical-calc-mcp`
 - ❌ Reading textbook formulas → use the reference directly
 
@@ -369,14 +367,8 @@ uv run symkit-mcp
 
 SymKit is built on the foundation of [nsforge-mcp](https://github.com/u9401066/nsforge-mcp), which pioneered the neurosymbolic formula-derivation approach. The original Chinese README of nsforge-mcp can be found [here](https://github.com/u9401066/nsforge-mcp/blob/master/README.zh-TW.md).
 
-SymKit works alongside [sympy-mcp](https://github.com/sdiehl/sympy-mcp), which provides the underlying SymPy-based symbolic computation and base formula lookup that SymKit builds upon.
+SymKit can be used alongside [sympy-mcp](https://github.com/sdiehl/sympy-mcp), which exposes SymPy as a general-purpose MCP computation service.
 
 ## 📄 License
 
 Apache 2.0 — see [LICENSE](LICENSE).
-
----
-
-<p align="center">
-  <strong>Stop answering math questions. Start deriving new knowledge.</strong>
-</p>

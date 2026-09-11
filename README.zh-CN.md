@@ -98,22 +98,22 @@ SymKit：
 → 验证：d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 🛠️ 41 个 MCP 工具，一套连贯工作流
+## 🛠️ 44 个 MCP 工具，一套连贯工作流
 
-SymKit 提供 **41 个 MCP 工具**，分为 8 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
+SymKit 提供 **44 个 MCP 工具**，分为 8 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
 
 | 类别 | 工具 | 数量 |
 |---|---|---|
 | **统一数学** | `math` | 1 |
 | **会话管理** | `session_start`、`session_show`、`session_rollback`、`session_complete` 等 | 17 |
-| **假设管理** | `assume`、`show_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 6 |
-| **公式搜索** | `formula_search`、`formula_get`、`formula_add`、`formula_categories` | 4 |
+| **假设管理** | `assume`、`show_assumptions`、`unassume`、`clear_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 8 |
+| **公式搜索** | `formula_search`、`formula_get`、`formula_add`、`formula_remove`、`formula_categories` | 5 |
 | **符号注册** | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 |
 | **代码生成** | `generate_python_function`、`generate_latex_derivation`、`generate_derivation_report`、`generate_sympy_script` | 4 |
 | **推导与编排** | `derive`、`intent_execute`、`list_patterns` | 3 |
 | **工具发现** | `tool_categories`、`tool_recommend` | 2 |
 
-仅 `math()` 一个工具就覆盖约 26 种符号运算——微积分、ODE、矩阵、矢量分析、积分变换——并且可以直接把结果写入推导会话。
+仅 `math()` 一个工具就覆盖 32 种符号运算——微积分、ODE、矩阵、矢量分析、积分变换——并且可以直接把结果写入推导会话。
 
 ## 🔍 公式搜索工作流
 
@@ -155,7 +155,7 @@ SymKit 中的推导是一串不可变、可验证的步骤。你可以：
 
 ## 🌍 与 MCP 生态协同
 
-SymKit 的设计目标是扩展科学计算栈，而非取代它。它负责推导、验证和来源追溯；原始符号计算与基础公式查询由 SymPy-MCP 承担。
+SymKit 的设计目标是扩展科学计算栈，而非取代它。符号计算由自带的 SymPy 引擎执行，基础公式来自内置种子库、Wikidata 或 SciPy——SymKit 在此之上提供推导、验证和来源追溯。
 
 **适合使用 SymKit 的场景：**
 
@@ -166,8 +166,6 @@ SymKit 的设计目标是扩展科学计算栈，而非取代它。它负责推�
 
 **不适合使用 SymKit 的场景：**
 
-- ❌ 查询基础物理公式 → 使用 `sympy-mcp`
-- ❌ 查询物理常数 → 使用 `sympy-mcp` 或 `SciPy`
 - ❌ 临床评分 → 使用 `medical-calc-mcp`
 - ❌ 阅读教科书公式 → 直接查阅参考资料
 
@@ -331,7 +329,7 @@ symkit-mcp/
 │       ├── server.py
 │       └── tools/           # 44 个 MCP 工具
 ├── formulas/                # 推导成果仓库
-├── tests/                   398 个测试
+├── tests/                   # 398 个测试
 └── pyproject.toml
 ```
 
@@ -365,14 +363,8 @@ uv run symkit-mcp
 
 SymKit 基于 [nsforge-mcp](https://github.com/u9401066/nsforge-mcp) 的成果进一步发展而来。nsforge-mcp 开创了神经符号公式推导的探索方向，其原始中文 README 可参见[此处](https://github.com/u9401066/nsforge-mcp/blob/master/README.zh-TW.md)。
 
-SymKit 与 [sympy-mcp](https://github.com/sdiehl/sympy-mcp) 协同工作，后者提供了 SymKit 所依赖的底层 SymPy 符号计算和基础公式查询能力。
+SymKit 可与 [sympy-mcp](https://github.com/sdiehl/sympy-mcp) 搭配使用，后者把 SymPy 包装为通用的 MCP 计算服务。
 
 ## 📄 许可证
 
 Apache 2.0 — 详见 [LICENSE](LICENSE)。
-
----
-
-<p align="center">
-  <strong>停止只回答数学题。开始推导新知识。</strong>
-</p>

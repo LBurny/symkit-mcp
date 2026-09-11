@@ -1,6 +1,6 @@
 # Architecture
 
-SymKit MCP Architecture Document (v1.1.0)
+SymKit MCP Architecture Document (v1.5.0)
 
 ---
 
@@ -17,12 +17,12 @@ SymKit is a **general-purpose symbolic derivation engine** that provides AI agen
 │  │              symkit_mcp (44 Tools)                          ││
 │  │  ┌───────────┐ ┌───────────┐ ┌───────────────┐ ┌─────────┐ ││
 │  │  │  Session  │ │   Math    │ │ Tool Discovery│ │ Formula │ ││
-│  │  │ 17 tools  │ │  1 tool   │ │  2 tools      │ │ 4 tools │ ││
+│  │  │ 17 tools  │ │  1 tool   │ │  2 tools      │ │ 5 tools │ ││
 │  │  └─────┬─────┘ └─────┬─────┘ └───────┬───────┘ └────┬────┘ ││
 │  │        │             │             │              │         ││
 │  │  ┌─────┴─────┐ ┌─────┴─────┐ ┌─────┴─────┐ ┌──────┴──────┐ ││
 │  │  │  Symbol   │ │Assumption │ │  Codegen  │ │Derivation/  │ ││
-│  │  │  4 tools  │ │  6 tools  │ │  4 tools  │ │Orchestration│ ││
+│  │  │  4 tools  │ │  8 tools  │ │  4 tools  │ │Orchestration│ ││
 │  │  └───────────┘ └───────────┘ └───────────┘ │  3 tools    │ ││
 │  │                                            └─────────────┘ ││
 │  └─────────────────────────────────────────────────────────────┘│
@@ -86,9 +86,9 @@ MCP protocol interface, independent of the core library.
 | Category | Count | Description |
 |----------|-------|-------------|
 | **Session** | 17 | Derivation session management and step operations; graded overall verification (a chain is verified when nothing failed and at least one substantive step verified) |
-| **Math** | 1 | Unified math entry point (~26 operations: calculus, matrices, ODE, transforms, numeric `evalf`, etc.) |
-| **Assumption** | 6 | Symbolic assumption management |
-| **Formula** | 4 | Formula search and management; searchable corpus = bundled seeds + session-derived formulas (read-only) + writable user overlay |
+| **Math** | 1 | Unified math entry point (32 operations: calculus, matrices, ODE, transforms, numeric `evalf`, etc.) |
+| **Assumption** | 8 | Symbolic assumption management |
+| **Formula** | 5 | Formula search and management; searchable corpus = bundled seeds (read-only) + session-derived formulas + writable user overlay; non-seed entries are removable via `formula_remove` |
 | **Symbol** | 4 | Symbol registration, lookup, and conflict detection |
 | **Codegen** | 4 | Python / LaTeX / Markdown / SymPy generation |
 | **Derivation / Orchestration** | 3 | High-level derivation orchestration |
@@ -127,9 +127,9 @@ symkit-mcp/
 │   └── symkit_mcp/          # MCP Server
 │       ├── server.py        # Entry point
 │       └── tools/           # 44 tools
-├── formulas/                # Formula repository
-│   ├── derivations/         # Derivation examples (Markdown)
-│   └── fluid_dynamics/      # Saved formula examples
+├── formulas/                # Formula library
+│   ├── library/             # Seed formulas (YAML, by category)
+│   └── derived/             # Session-derived formulas (runtime output)
 ├── examples/                # Python examples
 ├── tests/                   # Tests
 └── pyproject.toml
