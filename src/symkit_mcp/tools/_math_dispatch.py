@@ -88,7 +88,6 @@ def _effective_context(assumption_context: MathContext | None) -> MathContext:
     return MathContext(assumptions=merged)
 
 
-
 def _preprocess(expr_str: str) -> str:
     """Convert Unicode math chars to SymPy-compatible ASCII."""
     return preprocess_unicode(expr_str)
