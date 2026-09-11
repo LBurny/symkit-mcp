@@ -98,16 +98,16 @@ User: Calculate and verify ∫(x² + 3x) dx.
 → Verify: d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 44 MCP tools, one coherent workflow
+## 47 MCP tools, one coherent workflow
 
-SymKit exposes **44 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
+SymKit exposes **47 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
 
 | Category | Tools | Count |
 |---|---|---|
 | **Unified Math** | `math` | 1 |
 | **Session Management** | `session_start`, `session_show`, `session_rollback`, `session_complete`, ... | 17 |
 | **Assumptions** | `assume`, `show_assumptions`, `unassume`, `clear_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 8 |
-| **Formula Search** | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories` | 5 |
+| **Formula Search** | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories`, `formula_promote`, `formula_reindex`, `formula_stats` | 8 |
 | **Symbol Registry** | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 |
 | **Code Generation** | `generate_python_function`, `generate_latex_derivation`, `generate_derivation_report`, `generate_sympy_script` | 4 |
 | **Derivation & Orchestration** | `derive`, `intent_execute`, `list_patterns` | 3 |
@@ -115,18 +115,25 @@ SymKit exposes **44 MCP tools** across 8 categories. Everything routes through a
 
 The `math()` tool alone covers 32 symbolic operations — calculus, ODEs, matrices, vector analysis, integral transforms — and can write its result directly into a derivation session.
 
-## Formula search workflow
+## Formula library
 
-SymKit can pull authoritative formulas from Wikidata and physical constants from SciPy, normalize LLM queries automatically, and load the chosen formula straight into a derivation session.
+Formulas live in editable YAML files, served through a persistent SQLite FTS5 index, so search is deterministic, offline, and instant. Session output no longer drowns the curated library — entries are ranked by tier:
+
+| Tier | Where it comes from | Ranking boost |
+|---|---|---|
+| `seed` | bundled read-only formulas (Reynolds number, Navier-Stokes, …) | +0.10 |
+| `curated` | `formula_add`, or a staging entry promoted via `formula_promote` | +0.15 |
+| `staging` | session-derived output written by `session_complete(auto_save=True)` | +0.00 |
 
 **Recommended workflow:**
 
 ```text
 1. Search
    formula_search("Navier-Stokes equations", domain="fluid_dynamics")
+   formula_search("drag", tier="curated")          # curated entries only
 
 2. Get and load
-   formula_get("Q201321", source="wikidata", load_into_session=True)
+   formula_get("ns_incompressible", load_into_session=True)
 
 3. Derive
    math("simplify", "...", session=True)
@@ -135,9 +142,15 @@ SymKit can pull authoritative formulas from Wikidata and physical constants from
    session_complete(description="Incompressible NS momentum equation")
 ```
 
-**Query normalization:** you can write queries naturally — `fluid_dynamics`, `fluid mechanics`, and `cfd` all resolve to the same domain; `Navier–Stokes` (en dash) and `Navier-Stokes` (hyphen) match the same Wikidata item.
+**What search matches:** names, aliases (including Chinese — `雷诺数` finds the Reynolds number), tags, domains, categories, descriptions, and the expression text itself (`sqrt` finds every formula whose expression contains it). Entries whose canonicalized expressions are identical — `a + b` and `b + a` — collapse into one result with a `duplicates` count. Generic words such as `equation` or `law` cannot carry a match on their own.
 
-**MathML handling:** Wikidata sometimes returns rendered MathML for search previews. Call `formula_get` on the result ID to retrieve the original LaTeX and a SymPy-ready string.
+**Curation:** `session_complete(auto_save=True)` writes to `staging` with a deterministic id (`pendulum-9f3a2c`); re-completing the same content updates that entry instead of piling up copies. Promote keepers with `formula_promote`, inspect per-tier counts and duplicate groups with `formula_stats`, and rebuild after hand-editing YAML with `formula_reindex`.
+
+**Index location:** `<user data dir>/formulas/index.sqlite3`. It is a cache over the YAML files — delete it at any time and it rebuilds on the next start.
+
+**External sources (optional):** `source="wikidata"`, `"scipy"`, or `"biomodels"` query external services instead, and degrade gracefully offline. Wikidata sometimes returns rendered MathML for search previews; call `formula_get` on the result ID to retrieve the original LaTeX and a SymPy-ready string.
+
+**Query normalization:** `fluid_dynamics`, `fluid mechanics`, and `cfd` all resolve to the same domain; `Navier–Stokes` (en dash) and `Navier-Stokes` (hyphen) are equivalent.
 
 **Function notation & results:** unknown calls like `v(t)` parse as undefined functions (Mathematica convention), never as implicit multiplication; `solve` returns a bare `solution` / `solution_latex` next to the `Eq(...)` expression; `evalf` accepts `substitution`; and `session_start` / `session_set_goal` accept explicit `target_variables` so goal tracking does not depend on heuristic text extraction.
 
@@ -331,7 +344,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # SymPy engine, adapters, persistence
 │   └── symkit_mcp/          # MCP server layer
 │       ├── server.py
-│       └── tools/           # 44 MCP tools
+│       └── tools/           # 47 MCP tools
 ├── formulas/                # Seed formula library (source tree)
 ├── tests/                   # 398 tests
 └── pyproject.toml

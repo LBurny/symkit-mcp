@@ -14,7 +14,7 @@ SymKit is a **general-purpose symbolic derivation engine** that provides AI agen
 ├─────────────────────────────────────────────────────────────────┤
 │                     MCP Protocol Layer                           │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │              symkit_mcp (44 Tools)                          ││
+│  │              symkit_mcp (47 Tools)                          ││
 │  │  ┌───────────┐ ┌───────────┐ ┌───────────────┐ ┌─────────┐ ││
 │  │  │  Session  │ │   Math    │ │ Tool Discovery│ │ Formula │ ││
 │  │  │ 17 tools  │ │  1 tool   │ │  2 tools      │ │ 5 tools │ ││
@@ -77,20 +77,20 @@ MCP protocol interface, independent of the core library.
 | Module | Description |
 |--------|-------------|
 | `server.py` | MCP Server entry point |
-| `tools/` | 44 MCP tool implementations |
+| `tools/` | 47 MCP tool implementations |
 | `tools/_math_dispatch.py` | `math()` internals: operation dispatch, expression parsing, per-operation parameter audit |
 | `tools/_state.py` | Process-global current session/context shared by all tool modules |
 
 ---
 
-## Tool Categories (44 Tools)
+## Tool Categories (47 Tools)
 
 | Category | Count | Description |
 |----------|-------|-------------|
 | **Session** | 17 | Derivation session management and step operations; graded overall verification (a chain is verified when nothing failed and at least one substantive step verified) |
 | **Math** | 1 | Unified math entry point (32 operations: calculus, matrices, ODE, transforms, numeric `evalf`, etc.) |
 | **Assumption** | 8 | Symbolic assumption management |
-| **Formula** | 5 | Formula search and management; searchable corpus = bundled seeds (read-only) + session-derived formulas + writable user overlay; non-seed entries are removable via `formula_remove` |
+| **Formula** | 8 | Formula search and curation over a persistent SQLite FTS5 index (trigram tokenizer, CJK-capable); three tiers — bundled seeds (read-only), staging (session-derived, demoted in ranking), curated (user-added / promoted via `formula_promote`); content-hash dedup collapses duplicate entries; `formula_reindex` rebuilds after hand edits; `formula_stats` reports tier counts |
 | **Symbol** | 4 | Symbol registration, lookup, and conflict detection |
 | **Codegen** | 4 | Python / LaTeX / Markdown / SymPy generation |
 | **Derivation / Orchestration** | 3 | High-level derivation orchestration |
@@ -128,7 +128,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # Persistence, external adapters
 │   └── symkit_mcp/          # MCP Server
 │       ├── server.py        # Entry point
-│       └── tools/           # 44 tools
+│       └── tools/           # 47 tools
 ├── formulas/                # Formula library
 │   ├── library/             # Seed formulas (YAML, by category)
 │   └── derived/             # Session-derived formulas (runtime output)

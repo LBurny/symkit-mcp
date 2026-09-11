@@ -107,3 +107,13 @@ def user_sessions_dir() -> Path:
     path = user_data_dir() / _SESSIONS_SUBDIR
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def user_index_path() -> Path:
+    """Path of the persistent formula index database (a rebuildable cache).
+
+    The index derives from the YAML layers; deleting it only costs one rebuild.
+    """
+    path = user_data_dir() / "formulas" / "index.sqlite3"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path

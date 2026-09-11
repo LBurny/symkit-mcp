@@ -41,13 +41,15 @@ register_all_tools(mcp)
 
 def main() -> None:
     """Entry point for the MCP server."""
-    # Eagerly initialize the shared SessionManager in a worker thread so
-    # that the first session_start() call does not block FastMCP's asyncio
-    # event loop (which runs synchronous tool handlers directly on the loop).
-    from symkit_mcp.tools._state import get_manager
+    # Eagerly initialize the shared SessionManager and formula catalog in a
+    # worker thread so that the first session_start() / formula_search() call
+    # does not block FastMCP's asyncio event loop (which runs synchronous tool
+    # handlers directly on the loop).
+    from symkit_mcp.tools._state import get_catalog, get_manager
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         executor.submit(get_manager).result()
+        executor.submit(get_catalog).result()
 
     mcp.run()
 

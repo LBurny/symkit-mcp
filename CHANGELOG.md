@@ -5,7 +5,54 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.0] - 2026-09-11
+
+### Added
+
+- **Persistent formula index.** The formula library is now served from a
+  rebuildable SQLite FTS5 index (trigram tokenizer) over the unchanged YAML
+  layers — bundled seeds, session-derived staging, and the curated user
+  overlay. Search matches Chinese aliases and expression content, and stays
+  deterministic and offline.
+- **Curation workflow.** Entries carry a `tier` (`seed` / `staging` /
+  `curated`); `formula_search` accepts a `tier` filter and ranks curated above
+  staging. New tools: `formula_promote` (staging → curated with metadata
+  overrides), `formula_reindex` (rebuild after hand edits), `formula_stats`
+  (per-tier counts, duplicate groups, last sync).
+- **Content-hash dedup.** Entries are hashed by canonicalized expression;
+  search collapses duplicates to one representative with a `duplicates`
+  count. `scripts/prune_staging.py` quarantines test-scaffolding residue from
+  the staging store (dry-run by default).
+
+### Changed
+
+- `session_complete(auto_save=True)` now assigns deterministic staging ids
+  (`<slug>-<hash6>`) instead of the random session hex id. Re-completing
+  identical content is an idempotent re-save that merges `session_ids`; the
+  `-v2` minting branch is gone.
+- Write paths (`formula_add`, `formula_remove`, `formula_promote`,
+  `session_complete`) update the index synchronously — new formulas are
+  searchable and recommendable in the same process, no restart needed.
+- `derive()` recommendations read the index, so `verified` status and
+  derivation provenance now reach the recommender.
+
+### Fixed
+
+- Session-derived formulas no longer require a server restart to appear in
+  `formula_search` results.
+- Startup eagerly reconciles the index in the worker thread alongside the
+  SessionManager warmup.
+- **`formula_search` no longer returns semantically unrelated results for
+  generic-word queries.** The index path had dropped the legacy
+  `FormulaLibrary._STOPWORDS` suppression, so FTS matched any single token:
+  `formula_search("Einstein field equations")` returned Euler and
+  Navier-Stokes equations. A hit now requires a discriminative token;
+  all-generic-noun queries keep the legacy low-relevance behaviour, and
+  function-word-only queries return nothing. Exact id/name/alias matches are
+  unaffected. Found by the black-box sandbox lab
+  (`I:\Formulation\example\symkit-mcp-test-index`), which also closed the
+  test gap: the existing stopword test exercised `FormulaLibrary.search`, not
+  the path the MCP tool uses.
 
 ## [1.5.2] - 2026-09-11
 

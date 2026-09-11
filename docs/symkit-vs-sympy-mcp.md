@@ -2,7 +2,7 @@
 
 > **Last Updated:** 2026-09-11  
 > **SymPy-MCP Version Analyzed:** Vendor snapshot  
-> **SymKit Version:** v1.5.1 (44 tools)
+> **SymKit Version:** v1.6.0 (47 tools)
 
 ## 🎯 Core Positioning
 
@@ -49,7 +49,7 @@
 
 ## Overview
 
-> 📊 **Tool Count**: SymPy-MCP provides base symbolic computation tools; SymKit adds 44 derivation, verification, and orchestration tools on top.
+> 📊 **Tool Count**: SymPy-MCP provides base symbolic computation tools; SymKit adds 47 derivation, verification, and orchestration tools on top.
 
 SymKit builds ON TOP of SymPy-MCP, but also provides **unique capabilities** by directly leveraging SymPy modules that SymPy-MCP hasn't exposed.
 

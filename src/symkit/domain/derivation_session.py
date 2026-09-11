@@ -50,32 +50,37 @@ from symkit.infrastructure.derivation_repository import get_repository
 
 
 def _library_candidates() -> list[dict[str, Any]]:
-    """Snapshot the live formula library as recommender candidate dicts.
+    """Snapshot the formula index as recommender candidate dicts.
 
-    Constructing ``FormulaLibrary`` re-reads the YAML store, so entries added
-    in this process are visible immediately.  Any failure (missing dirs,
-    malformed files) degrades to no candidates rather than blocking derive().
+    Reads the persistent index, which the write paths (formula_add,
+    session_complete, formula_promote) update synchronously, so entries
+    added in this process are visible immediately. Any failure (missing
+    index file, unreadable DB) degrades to no candidates rather than
+    blocking derive().
     """
     try:
-        from symkit.domain.formula_library import FormulaLibrary
+        from symkit.domain.paths import user_index_path
+        from symkit.infrastructure.formula_index_store import SqliteFormulaIndexStore
 
-        library = FormulaLibrary()
+        store = SqliteFormulaIndexStore(user_index_path())
+        store.open()
+        try:
+            formulas = store.all()
+        finally:
+            store.close()
         candidates: list[dict[str, Any]] = []
-        for formula_id in library.list_formula_ids():
-            entry = library.get(formula_id)
-            if entry is None:
-                continue
+        for f in formulas:
             candidates.append({
-                "formula_id": entry.id,
-                "name": entry.name,
-                "expression": entry.sympy_str or entry.latex,
-                "domain": entry.domain,
-                "verified": False,
-                "description": entry.description,
-                "application_context": "",
-                "tags": list(entry.tags),
-                "derivation_steps": [],
-                "variables": dict(entry.variables),
+                "formula_id": f.id,
+                "name": f.name,
+                "expression": f.sympy_str or f.latex,
+                "domain": f.domain,
+                "verified": f.verified,
+                "description": f.description,
+                "application_context": f.application_context,
+                "tags": list(f.tags),
+                "derivation_steps": list(f.derivation_steps),
+                "variables": dict(f.variables),
                 "source": "library",
             })
         return candidates

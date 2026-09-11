@@ -46,6 +46,7 @@ class DerivationResult:
     derived_from: list[str] = field(default_factory=list)  # Base formulas used
     derivation_steps: list[str] = field(default_factory=list)  # Step descriptions
     assumptions: list[str] = field(default_factory=list)
+    session_ids: list[str] = field(default_factory=list)  # Contributing sessions
 
     # Verification status
     verified: bool = False
@@ -87,6 +88,7 @@ class DerivationResult:
             "derived_from": self.derived_from,
             "derivation_steps": self.derivation_steps,
             "assumptions": self.assumptions,
+            "session_ids": self.session_ids,
             "verified": self.verified,
             "verification_method": self.verification_method,
             "verified_at": self.verified_at,

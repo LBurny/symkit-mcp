@@ -72,7 +72,7 @@ def test_session_complete_autosave_is_readable_by_library(fresh_session_manager,
     saved = Path(done["saved_to"])
     assert saved.exists()
     lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
-    entry = lib.get(done["session_id"])
+    entry = lib.get(done["saved_id"])
     assert entry is not None
     assert entry.sympy_str  # non-empty!
     assert "v_t" in entry.sympy_str
@@ -106,7 +106,7 @@ def test_session_complete_autosave_skips_numeric_closing_steps(
     assert done["success"], done
     saved = Path(done["saved_to"])
     lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
-    entry = lib.get(done["session_id"])
+    entry = lib.get(done["saved_id"])
     assert entry is not None
     # The stored formula is the symbolic solution, not the trailing float.
     assert "v_t" in entry.sympy_str
@@ -144,7 +144,7 @@ def test_session_complete_autosave_prefers_goal_target_steps(
     assert done["success"], done
     saved = Path(done["saved_to"])
     lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
-    entry = lib.get(done["session_id"])
+    entry = lib.get(done["saved_id"])
     assert entry is not None
     assert "v_rms" in entry.sympy_str
     assert "exp(x)" not in entry.sympy_str
@@ -181,7 +181,7 @@ def test_session_complete_autosave_matches_function_targets(
     assert done["success"], done
     saved = Path(done["saved_to"])
     lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
-    entry = lib.get(done["session_id"])
+    entry = lib.get(done["saved_id"])
     assert entry is not None
     assert "V(t)" in entry.sympy_str
     assert "omega" not in entry.sympy_str
@@ -227,7 +227,7 @@ def test_session_complete_autosave_skips_tangential_probes(
     assert done["success"], done
     saved = Path(done["saved_to"])
     lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
-    entry = lib.get(done["session_id"])
+    entry = lib.get(done["saved_id"])
     assert entry is not None
     assert "k_B" in entry.sympy_str
 
@@ -263,7 +263,7 @@ def test_session_complete_autosave_includes_recorded_binding_step(
     assert done["success"], done
     saved = Path(done["saved_to"])
     lib = FormulaLibrary(library_path=tmp_path / "lib", derived_path=saved.parent.parent)
-    entry = lib.get(done["session_id"])
+    entry = lib.get(done["saved_id"])
     assert entry is not None
     assert "v_rms" in entry.sympy_str
 

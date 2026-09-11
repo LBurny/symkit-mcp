@@ -20,29 +20,15 @@ from symkit.domain.formula_search_query import (
 )
 from symkit.infrastructure.adapters.local_formula import LocalFormulaAdapter
 from symkit.infrastructure.derivation_repository import get_repository
-from symkit_mcp.tools._state import get_session
+from symkit_mcp.tools._state import get_catalog, get_session
 
 if TYPE_CHECKING:
     from symkit.infrastructure.adapters.base import BaseAdapter
 
 
-# Singleton local adapter instance used by all tools. The adapter is lazily
-# initialized from the default ``formulas/library`` directory.
-_local_adapter: BaseAdapter | None = None
-
-
-def _get_local_adapter() -> BaseAdapter:
-    """Return the shared local adapter instance."""
-    global _local_adapter  # noqa: PLW0603
-    if _local_adapter is None:
-        _local_adapter = LocalFormulaAdapter()
-    return _local_adapter
-
-
-def _reset_local_adapter() -> None:
-    """Reset the shared adapter (useful after formula_add writes new files)."""
-    global _local_adapter  # noqa: PLW0603
-    _local_adapter = None
+def _get_local_adapter() -> LocalFormulaAdapter:
+    """Return a local adapter bound to the shared formula catalog."""
+    return LocalFormulaAdapter(catalog=get_catalog())
 
 
 # Legacy sources that still work on request. They are not searched by default.
@@ -82,22 +68,25 @@ def register_formula_tools(mcp: Any) -> None:
         query: str,
         source: str = "local",
         domain: str | None = None,
+        tier: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
         """Search the formula library.
 
-        The default ``source="local"`` searches the local editable YAML library:
-        deterministic, fast, no network. Other sources query external services
-        (Wikidata, SciPy constants, BioModels) and degrade gracefully when
-        offline.
+        The default ``source="local"`` searches the persistent index over the
+        local YAML layers: deterministic, fast, no network. Other sources query
+        external services (Wikidata, SciPy constants, BioModels) and degrade
+        gracefully when offline.
 
         Query and domain are normalized automatically, so free-form text such as
-        "Navier-Stokes equations" or "fluid_dynamics" works.
+        "Navier-Stokes equations", "fluid_dynamics", or Chinese aliases works.
 
         Args:
             query: Search keyword
                    - English name: "Reynolds number", "Arrhenius equation"
+                   - Chinese alias: "雷诺数" (when stored as an alias)
                    - Domain terms: "fluid dynamics", "quantum", "thermodynamics"
+                   - Expression content: "sqrt(2*G*M/R)"
             source: Data source
                    - "local": Local YAML library (default, recommended)
                    - "scipy": Physical constants only (no local search)
@@ -107,12 +96,17 @@ def register_formula_tools(mcp: Any) -> None:
             domain: Restrict domain (optional)
                    - "mechanics", "thermodynamics", "electromagnetism"
                    - "fluid_dynamics", "fluid_mechanics", "quantum_mechanics"
+            tier: Restrict curation tier (optional, local source only)
+                   - "curated": user-added / promoted formulas
+                   - "seed": bundled read-only formulas
+                   - "staging": session-derived formulas not yet curated
             limit: Maximum number of results to return
 
         Returns:
             {
                 "success": true,
-                "results": [...],
+                "results": [{"id", "name", ..., "tier", "verified",
+                             "duplicates"}],
                 "total": 1,
                 "query": "navier-stokes equations",
                 "domain": "fluid",
@@ -124,8 +118,8 @@ def register_formula_tools(mcp: Any) -> None:
             # Search the local library
             formula_search("Reynolds number")
 
-            # Search by domain
-            formula_search("diffusion", domain="thermodynamics")
+            # Search only curated formulas
+            formula_search("drag", tier="curated")
 
         Correct workflow for derivation:
             1. formula_search("<concept>", domain="<domain>")
@@ -151,14 +145,17 @@ def register_formula_tools(mcp: Any) -> None:
                 adapter = _get_local_adapter()
                 if normalized_domain:
                     local_results = adapter.search_by_category(
-                        normalized_domain, normalized_query, limit
+                        normalized_domain, normalized_query, limit, tier=tier
                     )
                 else:
-                    local_results = adapter.search(normalized_query, limit)
+                    local_results = adapter.search(normalized_query, limit, tier=tier)
 
                 for r in local_results:
                     info = r.to_dict()
                     info["source"] = "local"
+                    extra = info.get("extra", {})
+                    for key in ("tier", "verified", "duplicates", "duplicate_ids"):
+                        info[key] = extra.get(key)
                     results.append(info)
                 sources_searched.append("local")
             except Exception as e:
@@ -173,14 +170,14 @@ def register_formula_tools(mcp: Any) -> None:
 
             for legacy in legacy_sources:
                 try:
-                    adapter = _get_legacy_adapter(legacy)
+                    legacy_adapter = _get_legacy_adapter(legacy)
                     try:
-                        if normalized_domain and hasattr(adapter, "search_by_category"):
-                            legacy_results = adapter.search_by_category(
+                        if normalized_domain and hasattr(legacy_adapter, "search_by_category"):
+                            legacy_results = legacy_adapter.search_by_category(
                                 normalized_domain, normalized_query, limit
                             )
                         else:
-                            legacy_results = adapter.search(normalized_query, limit)
+                            legacy_results = legacy_adapter.search(normalized_query, limit)
 
                         for r in legacy_results:
                             info = r.to_dict()
@@ -283,12 +280,12 @@ def register_formula_tools(mcp: Any) -> None:
                 }
         elif source in _LEGACY_SOURCES:
             try:
-                adapter = _get_legacy_adapter(source)
+                legacy_adapter = _get_legacy_adapter(source)
                 try:
-                    result = adapter.get_formula(formula_id)
+                    result = legacy_adapter.get_formula(formula_id)
                 finally:
-                    if hasattr(adapter, "close"):
-                        adapter.close()
+                    if hasattr(legacy_adapter, "close"):
+                        legacy_adapter.close()
             except Exception as e:
                 return {
                     "success": False,
@@ -417,14 +414,6 @@ def register_formula_tools(mcp: Any) -> None:
                 "error": "variables must be provided (can be empty {}).",
             }
 
-        try:
-            library = FormulaLibrary(library_path) if library_path else FormulaLibrary()
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to open local library: {e}",
-            }
-
         entry = FormulaEntry(
             id=id,
             name=name,
@@ -440,22 +429,30 @@ def register_formula_tools(mcp: Any) -> None:
         )
 
         try:
-            library.add_or_update(entry)
+            if library_path:
+                # Custom directory: write the YAML only; it is not part of the
+                # default indexed library.
+                FormulaLibrary(library_path).add_or_update(entry)
+            else:
+                get_catalog().add_entry(entry)
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Failed to save formula: {e}",
             }
 
-        # Reset the shared adapter so the new entry is picked up immediately.
-        _reset_local_adapter()
-
-        return {
+        response: dict[str, Any] = {
             "success": True,
             "formula_id": id,
             "file_path": str(entry.source_path) if entry.source_path else None,
             "message": "Formula added to local library.",
         }
+        if library_path:
+            response["warning"] = (
+                "Saved to a custom library_path; not visible in the default "
+                "indexed library."
+            )
+        return response
 
     @mcp.tool(
         meta={
@@ -485,9 +482,12 @@ def register_formula_tools(mcp: Any) -> None:
         removed_from: list[str] = []
 
         try:
-            library = FormulaLibrary()
-            if library.delete(formula_id):
-                removed_from.append("library")
+            # Catalog removes the YAML file and the index row; map index tiers
+            # back to the store names this tool has always reported.
+            tier_names = {"curated": "library", "staging": "derived"}
+            removed_from.extend(
+                tier_names[t] for t in get_catalog().remove_entry(formula_id)
+            )
         except Exception as e:
             return {"success": False, "error": f"Failed to open local library: {e}"}
 
@@ -495,7 +495,8 @@ def register_formula_tools(mcp: Any) -> None:
             repo = get_repository()
             if repo.get(formula_id) is not None:
                 repo.delete(formula_id, delete_file=True)
-                removed_from.append("derived")
+                if "derived" not in removed_from:
+                    removed_from.append("derived")
         except Exception as e:
             return {"success": False, "error": f"Failed to remove derived entry: {e}"}
 
@@ -504,9 +505,6 @@ def register_formula_tools(mcp: Any) -> None:
                 "success": False,
                 "error": f"Formula '{formula_id}' not found (or is a read-only seed).",
             }
-
-        # Reset the shared adapter so the removal is visible immediately.
-        _reset_local_adapter()
 
         return {
             "success": True,
@@ -551,14 +549,127 @@ def register_formula_tools(mcp: Any) -> None:
             explicit = [source] if source in _LEGACY_SOURCES else list(_LEGACY_SOURCES)
             for legacy in explicit:
                 try:
-                    adapter = _get_legacy_adapter(legacy)
-                    categories[legacy] = adapter.list_categories()
-                    if hasattr(adapter, "close"):
-                        adapter.close()
+                    legacy_adapter = _get_legacy_adapter(legacy)
+                    categories[legacy] = legacy_adapter.list_categories()
+                    if hasattr(legacy_adapter, "close"):
+                        legacy_adapter.close()
                 except Exception:
                     categories[legacy] = []
 
         return {
             "success": True,
             "categories": categories,
+        }
+
+    @mcp.tool()
+    def formula_promote(
+        formula_id: str,
+        new_id: str | None = None,
+        name: str | None = None,
+        aliases: list[str] | None = None,
+        tags: list[str] | None = None,
+        description: str | None = None,
+        domain: str | None = None,
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        """Promote a staging (session-derived) formula into the curated tier.
+
+        Moves the YAML record from the derived store into the curated library,
+        applying any metadata overrides, so the entry ranks above staging copies
+        in search results. Seed entries are read-only and cannot be promoted.
+
+        Args:
+            formula_id: Id of the staging formula to promote.
+            new_id: Optional clean identifier (default: slug from the name).
+            name: Optional new display name.
+            aliases: Optional alias list (add Chinese aliases here).
+            tags: Optional tag list.
+            description: Optional description override.
+            domain: Optional domain override.
+            category: Optional category override.
+
+        Returns:
+            {"success": true, "formula_id": ..., "tier": "curated",
+             "file_path": ...}
+
+        Example:
+            formula_promote("pendulum-9f3a2c", new_id="pendulum_period",
+                            aliases=["单摆周期"])
+        """
+        try:
+            promoted = get_catalog().promote(
+                formula_id,
+                new_id=new_id,
+                name=name,
+                aliases=aliases,
+                tags=tags,
+                description=description,
+                domain=domain,
+                category=category,
+            )
+        except ValueError as e:
+            return {"success": False, "error": str(e), "formula_id": formula_id}
+        except Exception as e:
+            return {"success": False, "error": f"Promote failed: {e}"}
+
+        return {
+            "success": True,
+            "formula_id": promoted.id,
+            "tier": promoted.tier,
+            "file_path": promoted.source_path,
+            "message": f"Formula promoted to curated tier as '{promoted.id}'.",
+        }
+
+    @mcp.tool()
+    def formula_reindex() -> dict[str, Any]:
+        """Rebuild the formula index from the YAML layers.
+
+        The index normally stays in sync automatically (writes update it
+        immediately; startup reconciles changed files). Use this after editing
+        formula YAML files by hand to force a full rebuild without restarting
+        the server.
+
+        Returns:
+            {"success": true, "added": n, "updated": n, "removed": n,
+             "failed": n, "stats": {...}}
+        """
+        try:
+            report = get_catalog().reindex()
+        except Exception as e:
+            return {"success": False, "error": f"Reindex failed: {e}"}
+        return {
+            "success": True,
+            "added": report.added,
+            "updated": report.updated,
+            "removed": report.removed,
+            "failed": report.failed,
+            "failed_paths": report.failed_paths,
+            "stats": get_catalog().stats(),
+        }
+
+    @mcp.tool()
+    def formula_stats() -> dict[str, Any]:
+        """Report formula library statistics.
+
+        Returns per-tier entry counts (seed / staging / curated), duplicate
+        groups collapsed by content hash, the index file location, and the last
+        sync time.
+
+        Returns:
+            {"success": true, "total": n, "tiers": {"seed": n, ...},
+             "duplicate_groups": n, "duplicate_entries": n,
+             "index_path": "...", "last_sync": "..."}
+        """
+        try:
+            stats = get_catalog().stats()
+        except Exception as e:
+            return {"success": False, "error": f"Stats failed: {e}"}
+        return {
+            "success": True,
+            "total": stats["total"],
+            "tiers": stats["tiers"],
+            "duplicate_groups": stats["duplicate_groups"],
+            "duplicate_entries": stats["duplicate_entries"],
+            "index_path": stats["path"],
+            "last_sync": stats["last_sync"],
         }

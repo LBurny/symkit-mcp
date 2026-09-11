@@ -98,16 +98,16 @@ SymKit：
 → 验证：d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 44 个 MCP 工具，一套连贯工作流
+## 47 个 MCP 工具，一套连贯工作流
 
-SymKit 提供 **44 个 MCP 工具**，分为 8 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
+SymKit 提供 **47 个 MCP 工具**，分为 8 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
 
 | 类别 | 工具 | 数量 |
 |---|---|---|
 | **统一数学** | `math` | 1 |
 | **会话管理** | `session_start`、`session_show`、`session_rollback`、`session_complete` 等 | 17 |
 | **假设管理** | `assume`、`show_assumptions`、`unassume`、`clear_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 8 |
-| **公式搜索** | `formula_search`、`formula_get`、`formula_add`、`formula_remove`、`formula_categories` | 5 |
+| **公式搜索** | `formula_search`、`formula_get`、`formula_add`、`formula_remove`、`formula_categories`、`formula_promote`、`formula_reindex`、`formula_stats` | 8 |
 | **符号注册** | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 |
 | **代码生成** | `generate_python_function`、`generate_latex_derivation`、`generate_derivation_report`、`generate_sympy_script` | 4 |
 | **推导与编排** | `derive`、`intent_execute`、`list_patterns` | 3 |
@@ -115,18 +115,25 @@ SymKit 提供 **44 个 MCP 工具**，分为 8 个类别。日常通过少数高
 
 仅 `math()` 一个工具就覆盖 32 种符号运算——微积分、ODE、矩阵、矢量分析、积分变换——并且可以直接把结果写入推导会话。
 
-## 公式搜索工作流
+## 公式库
 
-SymKit 可以从 Wikidata 拉取权威公式，从 SciPy 拉取物理常数，自动规范化 LLM 的查询，并把选中的公式直接加载到推导会话。
+公式以可编辑 YAML 存储，检索由持久化 SQLite FTS5 索引提供——确定、离线、即时。会话产物不再淹没精选库，条目按 tier 分层排序：
+
+| tier | 来源 | 排序加成 |
+|---|---|---|
+| `seed` | 随包分发的只读内置公式（雷诺数、Navier-Stokes 等） | +0.10 |
+| `curated` | `formula_add`，或经 `formula_promote` 从暂存晋升 | +0.15 |
+| `staging` | `session_complete(auto_save=True)` 写入的会话产物 | +0.00 |
 
 **推荐工作流：**
 
 ```text
 1. 搜索
    formula_search("Navier-Stokes equations", domain="fluid_dynamics")
+   formula_search("drag", tier="curated")          # 只搜精选层
 
 2. 获取并加载
-   formula_get("Q201321", source="wikidata", load_into_session=True)
+   formula_get("ns_incompressible", load_into_session=True)
 
 3. 推导
    math("simplify", "...", session=True)
@@ -135,9 +142,15 @@ SymKit 可以从 Wikidata 拉取权威公式，从 SciPy 拉取物理常数，�
    session_complete(description="不可压 NS 动量方程")
 ```
 
-**查询规范化：** 你可以用自然写法查询——`fluid_dynamics`、`fluid mechanics`、`cfd` 都会解析到同一个领域；`Navier–Stokes`（en dash）和 `Navier-Stokes`（hyphen）会匹配同一个 Wikidata 条目。
+**检索范围：** 名称、别名（含中文——搜 `雷诺数` 能找到 Reynolds number）、标签、领域、分类、描述，以及表达式文本本身（搜 `sqrt` 能命中所有表达式中含它的公式）。规范化表达式相同的条目——`a + b` 与 `b + a`——折叠为一条并附带 `duplicates` 计数。`equation`、`law` 这类通用词不能单独撑起命中。
 
-**MathML 处理：** Wikidata 的搜索预览有时会返回渲染后的 MathML。调用 `formula_get` 获取结果 ID 对应的原版 LaTeX 和 SymPy 可用字符串。
+**策展：** `session_complete(auto_save=True)` 以确定性 id（`pendulum-9f3a2c`）写入 `staging` 层；同内容重复完成只更新该条目，不再堆积副本。用 `formula_promote` 把要留存的条目晋升到精选层，用 `formula_stats` 查看各层条目数与重复组，手工编辑 YAML 后用 `formula_reindex` 重建索引。
+
+**索引位置：** `<用户数据目录>/formulas/index.sqlite3`。它是 YAML 文件之上的缓存——随时可删，下次启动自动重建。
+
+**外部来源（可选）：** `source="wikidata"`、`"scipy"`、`"biomodels"` 改为查询外部服务，离线时优雅降级。Wikidata 的搜索预览有时返回渲染后的 MathML，调用 `formula_get` 获取结果 ID 对应的原版 LaTeX 和 SymPy 可用字符串。
+
+**查询规范化：** `fluid_dynamics`、`fluid mechanics`、`cfd` 都会解析到同一个领域；`Navier–Stokes`（en dash）与 `Navier-Stokes`（hyphen）等价。
 
 **函数记号与结果：** 未知调用如 `v(t)` 会解析为未定义函数（Mathematica 惯例），绝不会退化为隐式乘法；`solve` 在 `Eq(...)` 表达式之外另返回裸的 `solution` / `solution_latex`；`evalf` 支持 `substitution` 一次完成代入求值；`session_start` / `session_set_goal` 接受显式 `target_variables`，目标追踪不再依赖启发式文本抽取。
 
@@ -327,7 +340,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # SymPy 引擎、适配器、持久化
 │   └── symkit_mcp/          # MCP 服务器层
 │       ├── server.py
-│       └── tools/           # 44 个 MCP 工具
+│       └── tools/           # 47 个 MCP 工具
 ├── formulas/                # 推导成果仓库
 ├── tests/                   # 398 个测试
 └── pyproject.toml

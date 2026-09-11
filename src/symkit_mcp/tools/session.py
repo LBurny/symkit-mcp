@@ -27,7 +27,14 @@ from symkit.infrastructure.derivation_repository import (
     DerivationResult,
     get_repository,
 )
-from symkit_mcp.tools._state import get_context, get_manager, get_session, set_session
+from symkit.infrastructure.formula_identity import staging_id
+from symkit_mcp.tools._state import (
+    get_catalog,
+    get_context,
+    get_manager,
+    get_session,
+    set_session,
+)
 
 
 def _as_str_list(value: list[str] | str | None) -> list[str]:
@@ -657,21 +664,18 @@ def register_session_tools(mcp: Any) -> None:
                 if saved_expr is None:
                     raise ValueError("No expression available to save")
                 saved_expression_str = str(saved_expr)
-                # A resumed session that completes again must not silently
-                # overwrite the earlier record (run-021): mint a new id when
-                # the stored expression differs; identical content is an
-                # idempotent re-save and keeps the original id.
-                result_id = session.session_id
+                # Deterministic staging id: identical content re-completed by any
+                # session maps to the same id (idempotent re-save); different
+                # content yields a different hash suffix, so no -vN minting is
+                # needed and random session hex ids never enter the library.
+                fallback_name = session.goal.text if session.goal is not None else ""
+                result_id = staging_id(
+                    session.name or fallback_name, saved_expression_str
+                )
                 existing = repo.get(result_id)
-                if existing is not None and existing.expression != saved_expression_str:
-                    n = 2
-                    while repo.get(f"{result_id}-v{n}") is not None:
-                        n += 1
-                    result_id = f"{result_id}-v{n}"
-                    warnings.append(
-                        f"Session was already saved with a different expression; "
-                        f"saved as new id '{result_id}'."
-                    )
+                session_ids = list(existing.session_ids) if existing is not None else []
+                if session.session_id not in session_ids:
+                    session_ids.append(session.session_id)
                 derivation_result = DerivationResult(
                     id=result_id,
                     name=session.name,
@@ -684,6 +688,7 @@ def register_session_tools(mcp: Any) -> None:
                     derived_from=list(session.formulas.keys()),
                     derivation_steps=[step["description"] for step in result["steps"]],
                     assumptions=_as_str_list(assumptions),
+                    session_ids=session_ids,
                     verified=is_verified,
                     verification_method=verification_method,
                     verified_at=verified_at,
@@ -699,6 +704,10 @@ def register_session_tools(mcp: Any) -> None:
                 repo.register(derivation_result)
                 saved_path = repo.save(result_id)
                 saved_id = result_id
+                try:
+                    get_catalog().ensure_fresh()
+                except Exception as e:
+                    warnings.append(f"Saved but index update failed: {e}")
             except Exception as e:
                 warnings.append(f"Completed but save failed: {e}")
 

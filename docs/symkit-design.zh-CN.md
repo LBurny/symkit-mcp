@@ -48,17 +48,17 @@
 
 ## 1. 项目概述
 
-**SymKit MCP** 是一个面向 AI Agent 的符号推理 MCP（Model Context Protocol）服务器。它基于 SymPy 提供精确的符号计算、公式推导、步骤验证和外部公式检索能力，并把整个推导过程以可审计、可追溯、可复用的方式记录下来。
+**SymKit MCP** 是一个面向 AI Agent 的符号推理 MCP（Model Context Protocol）服务器。它基于 SymPy 提供精确的符号计算、公式推导、步骤验证，以及基于本地索引库（可选外部来源）的公式检索能力，并把整个推导过程以可审计、可追溯、可复用的方式记录下来。
 
 SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程、化学、生物、经济等任何需要数学公式的领域。它强调：
 
 - **可验证性**：每一步推导都会自动或半自动地做反向验证。
 - **可追溯性**：每个步骤记录输入、输出、SymPy 命令、假设、限制和人工注释。
-- **可复用性**：本地仓库和外部权威来源（Wikidata、BioModels、SciPy CODATA）共同为推导提供可引用公式。
+- **可复用性**：本地三层公式库（内置种子、精选条目、会话派生暂存）由持久化 SQLite FTS5 索引提供检索，外部权威来源（Wikidata、BioModels、SciPy CODATA）可按需启用。会话产物自动留存，并可策展为可复用公式。
 - **人机协同**：支持在推导中插入假设、限制、观察、修正建议等非计算性知识。
 - **LaTeX 友好**：原生支持 LaTeX 输入、下标符号、希腊字母和物理星号上标（如 `\beta^*`）。
 
-项目的对外主契约是 44 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
+项目的对外主契约是 47 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
 
 ---
 
@@ -69,7 +69,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | **精确计算** | 使用 SymPy 而不是自然语言近似，确保数学结果正确。 |
 | **步骤审计** | 每个推导步骤都是不可变记录，包含完整上下文。 |
 | **假设管理** | 支持全局/领域/会话/步骤四级假设，并能检测冲突。 |
-| **公式推荐** | 根据目标文本、领域、变量和外部来源推荐可用公式。 |
+| **公式推荐** | 根据目标文本、领域、变量和外部来源推荐可用公式，读取实时公式索引。 |
 | **可插拔引擎** | 通过 Protocol 抽象符号引擎、验证器、仓库，方便替换实现。 |
 | **工具分层** | 既有 `math()` 等快速工具，也有 `session_*` 会话工具和 `derive()` 编排工具。 |
 | **LaTeX 健壮性** | 复合 LaTeX 等式、星号上标、下标符号和 `\max`/`\min` 都能稳定解析。 |
@@ -123,6 +123,8 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | `src/symkit/domain/assumption_engine.py` | 多级假设存储与冲突检测。 |
 | `src/symkit/domain/formula.py` | `Formula` 值对象、解析器、来源枚举。支持复合 LaTeX 等式拆分、`\max`/`\min` 映射、`^*` 上标处理。 |
 | `src/symkit/domain/formula_recommender.py` | 本地+外部公式推荐与 `FormulaSourceAdapter` 协议。 |
+| `src/symkit/domain/formula_index.py` | 索引值对象（`IndexedFormula`、`SearchHit`、`RankedResult`、`SyncReport`、`ManifestEntry`）、`FormulaIndexStore` 端口、tier 常量与检索停用词集。 |
+| `src/symkit/domain/formula_ranker.py` | 索引命中的纯排序：匹配基础分、tier 与 verified 加成、同内容去重折叠。 |
 | `src/symkit/domain/derivation_goal.py` | 自然语言目标解析。 |
 | `src/symkit/domain/derivation_pattern.py` | 推导模式与模板。 |
 | `src/symkit/domain/derivation_planner.py` | 目标感知的下一步建议。 |
@@ -138,6 +140,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | 文件 | 主要职责 |
 |---|---|
 | `src/symkit/application/use_cases.py` | `CalculateUseCase`、`SimplifyUseCase`、`DeriveUseCase`、`VerifyUseCase`。 |
+| `src/symkit/application/formula_catalog.py` | `FormulaCatalog`：以 manifest 差量对账 YAML 各层与索引，并统一提供检索与策展操作。 |
 
 ### 4.3 Infrastructure 层
 
@@ -146,7 +149,11 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | 文件 | 主要职责 |
 |---|---|
 | `src/symkit/infrastructure/sympy_engine.py` | SymPy 实现的 `SymbolicEngine`。 |
-| `src/symkit/infrastructure/derivation_repository.py` | YAML 持久化的 `DerivationRepository`。 |
+| `src/symkit/infrastructure/derivation_repository.py` | YAML 持久化的 `DerivationRepository`（staging 存储层）。 |
+| `src/symkit/infrastructure/formula_index_store.py` | SQLite FTS5 索引存储（trigram 分词；YAML 各层之上的可重建缓存）。 |
+| `src/symkit/infrastructure/formula_files.py` | 公式目录的 YAML 各层扫描、加载与写盘。 |
+| `src/symkit/infrastructure/formula_identity.py` | 内容哈希标识（`content_hash`）与确定性 staging id。 |
+| `src/symkit/infrastructure/staging_prune.py` | 把暂存层垃圾条目（测试脚手架残留）移入 `_quarantine/`。 |
 | `src/symkit/infrastructure/adapters/scipy_constants.py` | SciPy CODATA 物理常数适配器。 |
 | `src/symkit/infrastructure/adapters/wikidata_formulas.py` | Wikidata SPARQL 公式检索适配器。 |
 | `src/symkit/infrastructure/adapters/biomodels.py` | BioModels SBML 模型适配器。 |
@@ -155,7 +162,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 
 ### 4.4 MCP Tool 层
 
-对外暴露 44 个 MCP 工具，每个模块聚焦一类能力：
+对外暴露 47 个 MCP 工具，每个模块聚焦一类能力：
 
 | 文件 | 主要职责 |
 |---|---|
@@ -163,12 +170,12 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | `src/symkit_mcp/tools/__init__.py` | 统一注册所有工具。 |
 | `src/symkit_mcp/tools/math.py` | `math()` 统一数学工具、`assume()`、`show_assumptions()`。 |
 | `src/symkit_mcp/tools/session.py` | 统一推导会话工作流工具。 |
-| `src/symkit_mcp/tools/formula.py` | 外部公式检索工具。 |
+| `src/symkit_mcp/tools/formula.py` | 公式库检索、策展与外部检索工具。 |
 | `src/symkit_mcp/tools/assumptions.py` | 假设工具。 |
 | `src/symkit_mcp/tools/orchestration.py` | 高层编排工具 `derive()`、`intent_execute()` 等。 |
 | `src/symkit_mcp/tools/symbols.py` | 符号注册工具。 |
 | `src/symkit_mcp/tools/codegen.py` | 代码/LaTeX/报告生成。 |
-| `src/symkit_mcp/tools/_state.py` | 全局状态（`SessionManager`、当前会话、`MathContext`）。 |
+| `src/symkit_mcp/tools/_state.py` | 全局状态（`SessionManager`、当前会话、`MathContext`）与公式目录组合根。 |
 | `src/symkit_mcp/tools/_expression_parser.py` | 统一解析器兼容 shim。 |
 
 ---
@@ -228,6 +235,7 @@ timestamp: str
 - `Formula`（`src/symkit/domain/formula.py`）是内部值对象，支持从 SymPy 字符串、LaTeX、Python 表达式或字典解析。
 - `FormulaInfo`（`src/symkit/infrastructure/adapters/base.py`）是外部适配器的统一输出格式，字段包括 `id`、`name`、`expression`、`latex`、`variables`、`source`、`category`、`description`、`tags` 等。
 - `Formula` 包含 `parse_warnings` 字段，用于提示复合输入中仅记录了第一条等式。
+- `FormulaEntry`（`src/symkit/domain/formula_library.py`）是 YAML 落盘的库记录；`IndexedFormula`（`src/symkit/domain/formula_index.py`）是其索引形态，额外携带 `tier`、`content_hash`、`verified` 与推导溯源信息。
 
 ### 5.4 DerivationGoal / DerivationPattern
 
@@ -334,14 +342,14 @@ timestamp: str
 
 ### 8.1 工具分类
 
-SymKit 共暴露 44 个 MCP 工具，按功能分为 8 类：
+SymKit 共暴露 47 个 MCP 工具，按功能分为 8 类：
 
 | 工具模块 | 代表工具 | 数量 | 定位 |
 |---|---|---|---|
 | `math` | `math()` | 1 | 统一计算入口 |
 | `session` | `session_start`、`session_show`、`session_complete` 等 | 17 | 统一推导会话工作流 |
 | `assumptions` | `assume`、`show_assumptions`、`unassume`、`clear_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 8 | 全局与步骤级假设管理 |
-| `formula` | `formula_search`、`formula_get`、`formula_add`、`formula_remove`、`formula_categories` | 5 | 本地公式库与外部公式检索 |
+| `formula` | `formula_search`、`formula_get`、`formula_add`、`formula_remove`、`formula_categories`、`formula_promote`、`formula_reindex`、`formula_stats` | 8 | 索引化公式库检索、策展与外部检索 |
 | `symbols` | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 | 符号语义管理 |
 | `codegen` | `generate_python_function`、`generate_latex_derivation`、`generate_derivation_report`、`generate_sympy_script` | 4 | 代码/报告生成 |
 | `orchestration` | `derive()`、`intent_execute()`、`list_patterns()` | 3 | 高层自动化编排 |
@@ -395,13 +403,35 @@ SymKit 共暴露 44 个 MCP 工具，按功能分为 8 类：
 - `session_verify_step(step_number)` / `session_verify_session()`：手动触发单步或全链验证。
 - `session_list()`：列出所有已保存会话。
 
-### 8.4 公式检索工具（formula）
+### 8.4 公式库工具（formula）
 
-- `formula_search(query, source="local", domain=None, limit=10)`：检索本地公式库（内置种子 + 用户覆盖层 + 会话派生公式）；`wikidata`、`scipy`、`biomodels`、`legacy`、`all` 等历史来源仍可用。
-- `formula_get(id, source="local")`：按 ID 获取单个公式，可选直接加载到当前会话。
-- `formula_add(id, name, sympy_str, latex, variables, ...)`：向本地库的可写覆盖层添加或更新公式。
-- `formula_remove(formula_id)`：移除用户添加或派生的公式；内置种子公式为只读，不可移除。
+公式库以可编辑 YAML 分三层存储，检索由持久化 SQLite FTS5 索引（用户数据目录下的
+`index.sqlite3`）提供。索引是 YAML 文件之上的可重建缓存：写路径同步更新索引，启动时
+通过 manifest 差量对账变化文件，索引缺失或损坏会自动重建。
+
+| tier | 来源 | 排序加成 |
+|---|---|---|
+| `seed` | 随 wheel 分发的只读内置 YAML | +0.10 |
+| `curated` | `formula_add`，或经 `formula_promote` 从暂存晋升 | +0.15 |
+| `staging` | `session_complete(auto_save=True)` 的会话产物 | +0.00 |
+
+检索会把规范化表达式完全相同的条目（如 `a + b` 与 `b + a`）折叠为一条，并附带
+`duplicates` 计数与被折叠的 id。匹配范围覆盖 id、名称、别名（含中文）、标签、领域、
+分类、描述以及表达式文本本身。非精确命中必须由判别性 token 支撑：通用名词
+（`equation`、`law`、`number`）不能单独撑起命中，纯功能词查询返回空。精确的
+id / 名称 / 别名命中不受该规则约束。
+
+- `formula_search(query, source="local", domain=None, tier=None, limit=10)`：检索索引化公式库；`tier` 可限定为 `seed`、`staging` 或 `curated`。`wikidata`、`scipy`、`biomodels`、`legacy`、`all` 等历史来源仍可用，离线时优雅降级。
+- `formula_get(id, source="local", load_into_session=False)`：按 ID 获取单个公式，可选直接加载到当前会话。
+- `formula_add(id, name, sympy_str, latex, variables, ...)`：向精选层（curated）添加或更新公式。
+- `formula_remove(formula_id)`：移除 curated 或 staging 层公式；内置种子公式为只读，不可移除。
+- `formula_promote(formula_id, new_id=None, aliases=None, ...)`：把暂存公式晋升到精选层，可覆盖元数据。
+- `formula_reindex()`：从 YAML 各层全量重建索引；手工编辑公式文件后使用。
+- `formula_stats()`：各层条目数、重复组、索引路径与上次同步时间。
 - `formula_categories(source="local")`：列出公式分类。
+
+暂存 id 是确定性的（`<slug>-<hash6>`），因此同内容重复完成是幂等重存而非新增副本，
+历史上的 `-vN` id 生成逻辑已移除。
 
 ### 8.5 假设工具（assumptions）
 

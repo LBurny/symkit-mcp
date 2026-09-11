@@ -49,17 +49,17 @@
 
 ## 1. Project Overview
 
-**SymKit MCP** is an MCP (Model Context Protocol) server for symbolic reasoning aimed at AI agents. Built on SymPy, it provides precise symbolic computation, formula derivation, step verification, and external formula search, while recording the entire derivation process in an auditable, traceable, and reusable manner.
+**SymKit MCP** is an MCP (Model Context Protocol) server for symbolic reasoning aimed at AI agents. Built on SymPy, it provides precise symbolic computation, formula derivation, step verification, and formula search over a local indexed library (with optional external sources), while recording the entire derivation process in an auditable, traceable, and reusable manner.
 
 SymKit is a **domain-agnostic** general-purpose formula derivation engine suitable for physics, engineering, chemistry, biology, economics, or any other domain that uses mathematical formulas. It emphasizes:
 
 - **Verifiability**: Every derivation step is automatically or semi-automatically reverse-verified.
 - **Traceability**: Each step records inputs, outputs, SymPy commands, assumptions, limitations, and human notes.
-- **Reusability**: Local repositories and external authoritative sources (Wikidata, BioModels, SciPy CODATA) together provide referenceable formulas for derivations.
+- **Reusability**: A local three-tier formula library (bundled seeds, curated entries, session-derived staging) is served through a persistent SQLite FTS5 index, with external authoritative sources (Wikidata, BioModels, SciPy CODATA) available on request. Session output is captured automatically and can be curated into reusable formulas.
 - **Human-AI Collaboration**: Supports inserting assumptions, limitations, observations, and correction suggestions into the derivation.
 - **LaTeX Friendly**: Natively supports LaTeX input, subscript symbols, Greek letters, and physical star superscripts (e.g., `\beta^*`).
 
-The external contract is a set of 44 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
+The external contract is a set of 47 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
 
 ---
 
@@ -70,7 +70,7 @@ The external contract is a set of 44 MCP tools, where `math()` handles fast stat
 | **Precise Computation** | Use SymPy rather than natural-language approximation to ensure mathematical correctness. |
 | **Step Audit** | Every derivation step is an immutable record containing full context. |
 | **Assumption Management** | Support four levels of assumptions (global/domain/session/step) and detect conflicts. |
-| **Formula Recommendation** | Recommend available formulas based on goal text, domain, variables, and external sources. |
+| **Formula Recommendation** | Recommend available formulas based on goal text, domain, variables, and external sources, reading the live formula index. |
 | **Pluggable Engine** | Abstract symbol engine, verifier, and repository via protocols for easy replacement. |
 | **Tool Layering** | Provide fast tools like `math()`, session tools like `session_*`, and orchestration tools like `derive()`. |
 | **LaTeX Robustness** | Compound LaTeX equations, star superscripts, subscript symbols, and `\max`/`\min` are parsed stably. |
@@ -124,6 +124,8 @@ Responsible for business rules, entities, and domain services. Key files:
 | `src/symkit/domain/assumption_engine.py` | Multi-level assumption storage and conflict detection. |
 | `src/symkit/domain/formula.py` | `Formula` value object, parser, and source enum. Supports compound LaTeX equation splitting, `\max`/`\min` mapping, and `^*` superscript handling. |
 | `src/symkit/domain/formula_recommender.py` | Local + external formula recommendation and `FormulaSourceAdapter` protocol. |
+| `src/symkit/domain/formula_index.py` | Index value objects (`IndexedFormula`, `SearchHit`, `RankedResult`, `SyncReport`, `ManifestEntry`), the `FormulaIndexStore` port, tier constants, and the search stopword sets. |
+| `src/symkit/domain/formula_ranker.py` | Pure ranking of index hits: match base scores, tier and verified boosts, duplicate-content collapse. |
 | `src/symkit/domain/derivation_goal.py` | Natural-language goal parsing. |
 | `src/symkit/domain/derivation_pattern.py` | Derivation patterns and templates. |
 | `src/symkit/domain/derivation_planner.py` | Goal-aware next-step suggestions. |
@@ -139,6 +141,7 @@ Coarse-grained use cases that coordinate Domain and Infrastructure without conta
 | File | Responsibility |
 |---|---|
 | `src/symkit/application/use_cases.py` | `CalculateUseCase`, `SimplifyUseCase`, `DeriveUseCase`, `VerifyUseCase`. |
+| `src/symkit/application/formula_catalog.py` | `FormulaCatalog`: reconciles the YAML layers with the index via a manifest diff and serves all search and curation operations. |
 
 ### 4.3 Infrastructure Layer
 
@@ -147,7 +150,11 @@ Technical implementation details:
 | File | Responsibility |
 |---|---|
 | `src/symkit/infrastructure/sympy_engine.py` | SymPy-based `SymbolicEngine` implementation. |
-| `src/symkit/infrastructure/derivation_repository.py` | YAML-persisted `DerivationRepository`. |
+| `src/symkit/infrastructure/derivation_repository.py` | YAML-persisted `DerivationRepository` (the staging store). |
+| `src/symkit/infrastructure/formula_index_store.py` | SQLite FTS5 index store (trigram tokenizer; a rebuildable cache over the YAML layers). |
+| `src/symkit/infrastructure/formula_files.py` | YAML layer scanning, loading, and writing for the formula catalog. |
+| `src/symkit/infrastructure/formula_identity.py` | Content-hash identity (`content_hash`) and deterministic staging ids. |
+| `src/symkit/infrastructure/staging_prune.py` | Quarantines junk staging entries (test scaffolding residue) into `_quarantine/`. |
 | `src/symkit/infrastructure/adapters/scipy_constants.py` | SciPy CODATA physical constants adapter. |
 | `src/symkit/infrastructure/adapters/wikidata_formulas.py` | Wikidata SPARQL formula search adapter. |
 | `src/symkit/infrastructure/adapters/biomodels.py` | BioModels SBML model adapter. |
@@ -156,7 +163,7 @@ Technical implementation details:
 
 ### 4.4 MCP Tool Layer
 
-Exposes 44 MCP tools; each module focuses on one capability area:
+Exposes 47 MCP tools; each module focuses on one capability area:
 
 | File | Responsibility |
 |---|---|
@@ -164,12 +171,12 @@ Exposes 44 MCP tools; each module focuses on one capability area:
 | `src/symkit_mcp/tools/__init__.py` | Registers all tools uniformly. |
 | `src/symkit_mcp/tools/math.py` | `math()` unified math tool, `assume()`, `show_assumptions()`. |
 | `src/symkit_mcp/tools/session.py` | Unified derivation session workflow tools. |
-| `src/symkit_mcp/tools/formula.py` | External formula search tools. |
+| `src/symkit_mcp/tools/formula.py` | Formula library search, curation, and external search tools. |
 | `src/symkit_mcp/tools/assumptions.py` | Assumption tools. |
 | `src/symkit_mcp/tools/orchestration.py` | High-level orchestration tools `derive()`, `intent_execute()`, etc. |
 | `src/symkit_mcp/tools/symbols.py` | Symbol registration tools. |
 | `src/symkit_mcp/tools/codegen.py` | Code/LaTeX/report generation. |
-| `src/symkit_mcp/tools/_state.py` | Global state (`SessionManager`, current session, `MathContext`). |
+| `src/symkit_mcp/tools/_state.py` | Global state (`SessionManager`, current session, `MathContext`) and the formula-catalog composition root. |
 | `src/symkit_mcp/tools/_expression_parser.py` | Unified parser compatibility shim. |
 
 ---
@@ -229,6 +236,7 @@ Each step is an immutable record for audit and academic traceability. `output_sr
 - `Formula` (`src/symkit/domain/formula.py`) is an internal value object supporting parsing from SymPy strings, LaTeX, Python expressions, or dictionaries.
 - `FormulaInfo` (`src/symkit/infrastructure/adapters/base.py`) is the unified output format for external adapters, with fields including `id`, `name`, `expression`, `latex`, `variables`, `source`, `category`, `description`, and `tags`.
 - `Formula` includes a `parse_warnings` field to indicate when only the first equation of a compound input was recorded.
+- `FormulaEntry` (`src/symkit/domain/formula_library.py`) is the YAML-backed library record; `IndexedFormula` (`src/symkit/domain/formula_index.py`) is its indexed form, adding `tier`, `content_hash`, `verified`, and derivation provenance.
 
 ### 5.4 DerivationGoal / DerivationPattern
 
@@ -335,14 +343,14 @@ When rolling back, deleting, or inserting notes, `DerivationSession` no longer d
 
 ### 8.1 Tool Categories
 
-SymKit exposes 44 MCP tools organized into 8 categories:
+SymKit exposes 47 MCP tools organized into 8 categories:
 
 | Tool Module | Representative Tools | Count | Purpose |
 |---|---|---|---|
 | `math` | `math()` | 1 | Unified computation entry |
 | `session` | `session_start`, `session_show`, `session_complete`, ... | 17 | Unified derivation session workflow |
 | `assumptions` | `assume`, `show_assumptions`, `unassume`, `clear_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 8 | Global and step-level assumption management |
-| `formula` | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories` | 5 | Local formula library and external formula search |
+| `formula` | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories`, `formula_promote`, `formula_reindex`, `formula_stats` | 8 | Indexed formula library search, curation, and external search |
 | `symbols` | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 | Symbol semantics management |
 | `codegen` | `generate_python_function`, `generate_latex_derivation`, `generate_derivation_report`, `generate_sympy_script` | 4 | Code/report generation |
 | `orchestration` | `derive()`, `intent_execute()`, `list_patterns()` | 3 | High-level automation orchestration |
@@ -396,13 +404,40 @@ Unified session tools include:
 - `session_verify_step(step_number)` / `session_verify_session()`: manually trigger single-step or full-chain verification.
 - `session_list()`: list all saved sessions.
 
-### 8.4 Formula Search Tools
+### 8.4 Formula Library Tools
 
-- `formula_search(query, source="local", domain=None, limit=10)`: search the local library (bundled seeds + user overlay + session-derived formulas); legacy sources (`wikidata`, `scipy`, `biomodels`, `legacy`, `all`) remain available.
-- `formula_get(id, source="local")`: get a single formula by ID, optionally loading it into the current session.
-- `formula_add(id, name, sympy_str, latex, variables, ...)`: add or update a formula in the writable overlay of the local library.
-- `formula_remove(formula_id)`: remove a user-added or derived formula; bundled seed formulas are read-only and cannot be removed.
+The library lives in editable YAML across three tiers and is served through a
+persistent SQLite FTS5 index (`index.sqlite3` under the user data directory).
+The index is a rebuildable cache over the YAML files: writes update it
+synchronously, startup reconciles changed files through a manifest diff, and a
+missing or corrupted index is rebuilt automatically.
+
+| Tier | Source | Ranking boost |
+|---|---|---|
+| `seed` | bundled read-only YAML shipped in the wheel | +0.10 |
+| `curated` | `formula_add`, or `formula_promote` from staging | +0.15 |
+| `staging` | `session_complete(auto_save=True)` output | +0.00 |
+
+Search collapses entries whose canonicalized expressions are identical (for
+example `a + b` and `b + a`) into a single result carrying a `duplicates` count
+and the collapsed ids. Matching covers id, name, aliases (including CJK), tags,
+domain, category, description, and the expression text itself. A non-exact hit
+must be justified by a discriminative token: generic domain nouns (`equation`,
+`law`, `number`) cannot carry a match on their own, and function-word-only
+queries return nothing. Exact id, name, and alias matches are unaffected.
+
+- `formula_search(query, source="local", domain=None, tier=None, limit=10)`: search the indexed library; `tier` restricts results to `seed`, `staging`, or `curated`. Legacy sources (`wikidata`, `scipy`, `biomodels`, `legacy`, `all`) remain available and degrade gracefully offline.
+- `formula_get(id, source="local", load_into_session=False)`: get a single formula by ID, optionally loading it into the current session.
+- `formula_add(id, name, sympy_str, latex, variables, ...)`: add or update a formula in the curated tier.
+- `formula_remove(formula_id)`: remove a curated or staging formula; bundled seed formulas are read-only and cannot be removed.
+- `formula_promote(formula_id, new_id=None, aliases=None, ...)`: promote a staging formula into the curated tier with optional metadata overrides.
+- `formula_reindex()`: rebuild the index from the YAML layers; use after hand-editing formula files.
+- `formula_stats()`: per-tier entry counts, duplicate groups, index path, and last sync time.
 - `formula_categories(source="local")`: list formula categories.
+
+Staging ids are deterministic (`<slug>-<hash6>`), so re-completing identical
+content is an idempotent re-save rather than a new copy, and the historical
+`-vN` id minting no longer occurs.
 
 ### 8.5 Assumption Tools
 
