@@ -66,6 +66,9 @@ binding, with the session's `AssumptionEngine` as the source of truth.
   solvable differential equation in u(t)"**, which reads as if the equation were
   unsolvable. It now names the dependent function actually present and suggests
   the right `variable=` value.
+- **A limit that needs sign information failed with a bare SymPy
+  "Result depends on the sign of ..."** — informative about the symbols, silent
+  about the remedy. It now points at `assumptions=[...]` / `assume_for_step()`.
 
 ### Changed
 
@@ -88,7 +91,7 @@ binding, with the session's `AssumptionEngine` as the source of truth.
 
 ### Verification
 
-- 472 tests (was 398).
+- 474 tests (was 398).
 - 405-cell sweep (45 inputs × 9 assumption sets across all 32 operations)
   against a pre-change worktree: exactly 16 cells changed, all of them the
   correctness fixes above; the `_parse_ode` parser-stack consolidation is

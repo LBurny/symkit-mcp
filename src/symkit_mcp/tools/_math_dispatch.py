@@ -33,6 +33,23 @@ from symkit_mcp.tools._state import get_context, get_session
 _engine = SymPyEngine()
 
 
+def _engine_failure(operation: str, error: str) -> str:
+    """Render an engine failure with an actionable hint where one applies.
+
+    SymPy's "Result depends on the sign of ..." names the symbols but not the
+    remedy, so an agent could not tell that the fix is to state the signs (P5).
+    """
+    message = f"Operation '{operation}' failed"
+    if error:
+        message += f": {error}"
+    if "depends on the sign of" in (error or ""):
+        message += (
+            " — pass the needed signs via assumptions=[...] (e.g. "
+            "\"A is positive\"), or assume_for_step(), to decide the sign."
+        )
+    return message
+
+
 def _effective_context(assumption_context: MathContext | None) -> MathContext:
     """Resolve the assumption set a math call actually runs under.
 
@@ -880,8 +897,7 @@ def _execute_operation_inner(
             return {"success": False, "error": f"Unknown operation: {operation}"}
 
         if not out.is_valid:
-            detail = f": {out.error}" if getattr(out, "error", "") else ""
-            return {"success": False, "error": f"Operation '{operation}' failed{detail}"}
+            return {"success": False, "error": _engine_failure(operation, out.error)}
         result = out.sympy_expr
 
     else:

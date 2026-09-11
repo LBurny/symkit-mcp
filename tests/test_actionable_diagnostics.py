@@ -172,6 +172,44 @@ def test_dsolve_variable_mismatch_names_the_function_in_the_input(
     assert "variable" in res["error"].lower(), res["error"]
 
 
+def test_sign_decision_failure_suggests_assumptions(fresh_session_manager):
+    """A limit that needs sign information must say how to supply it.
+
+    ``limit(terminal velocity, t -> oo)`` fails with SymPy's "Result depends on
+    the sign of ...", which names the symbols but not the remedy.
+    """
+    _ = fresh_session_manager
+    tools = _tools()
+
+    res = tools["math"](
+        operation="limit",
+        expression="sqrt(2*g*m/(A*C_d*rho))*tanh(t*sqrt(A*C_d*g*rho/(2*m)))",
+        variable="t",
+        point="oo",
+        session=False,
+    )
+    assert not res["success"], res
+    assert "assumptions=" in res["error"], res["error"]
+
+
+def test_sign_decision_failure_resolves_with_assumptions(fresh_session_manager):
+    """The suggested remedy must actually work."""
+    _ = fresh_session_manager
+    tools = _tools()
+
+    res = tools["math"](
+        operation="limit",
+        expression="sqrt(2*g*m/(A*C_d*rho))*tanh(t*sqrt(A*C_d*g*rho/(2*m)))",
+        variable="t",
+        point="oo",
+        assumptions=["A is positive", "C_d is positive", "g is positive",
+                     "m is positive", "rho is positive"],
+        session=False,
+    )
+    assert res["success"], res
+    assert "sqrt(2)" in res["expression"], res
+
+
 def test_dsolve_with_matching_variable_still_works(fresh_session_manager):
     _ = fresh_session_manager
     tools = _tools()
