@@ -49,12 +49,32 @@ def test_overall_failed_dominates(fresh_session_manager):
     tools["math"](operation="simplify", expression="x + x")
     sess = _state.get_session()
     assert sess is not None
-    # Corrupt the recorded output to force a FAILED verification.
+    # Corrupt the archived result to force a FAILED verification. Under
+    # invariant I2 the machine-readable srepr is authoritative, so both it and
+    # the display string must be changed to represent a genuinely wrong output.
     sess.steps[-1].output_expression = "3*x"
+    sess.steps[-1].output_srepr = sp.srepr(3 * sp.Symbol("x"))
     res = tools["session_verify_step"](1)
     assert res["verification_status"] == "failed"
     summary = tools["session_verify_session"]()
     assert summary["overall"] == "failed"
+
+
+def test_display_string_edit_does_not_change_verdict(fresh_session_manager):
+    """Invariant I2: the display string is presentation, not the record.
+
+    Editing only ``output_expression`` must not flip a verified step to failed;
+    the archived ``output_srepr`` is what verification replays.
+    """
+    _ = fresh_session_manager
+    tools = _tools()
+    tools["session_start"]("display_only_edit")
+    tools["math"](operation="simplify", expression="x + x")
+    sess = _state.get_session()
+    assert sess is not None
+    sess.steps[-1].output_expression = "3*x"
+    res = tools["session_verify_step"](1)
+    assert res["verification_status"] == "verified"
 
 
 def test_dsolve_step_auto_verified(fresh_session_manager):

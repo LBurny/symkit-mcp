@@ -129,7 +129,9 @@ class StepVerifier:
 
         parsed_input = self._parse_step_input(step, assumptions)
         input_expr = parsed_input if parsed_input is not None else prior_expr
-        output_expr = self._parse(step.output_expression, assumptions)
+        output_expr = self._parse_archived(
+            step.output_expression, step.output_srepr, assumptions
+        )
 
         if input_expr is None or output_expr is None:
             # When input cannot be reconstructed, give INCONCLUSIVE rather than FAILED
@@ -209,12 +211,74 @@ class StepVerifier:
         except Exception:
             return None
 
+    def _parse_archived(
+        self,
+        expression: str,
+        srepr_str: str,
+        assumptions: dict[str, dict[str, bool]] | None = None,
+    ) -> sp.Basic | None:
+        """Rebuild an archived expression, preferring the machine-readable srepr.
+
+        The display string does not always round-trip: ``str(E)``/``str(I)``
+        re-parse to plain Symbols because the parser protects those names as
+        user variables (run-020), and ``str(Symbol('mu_{t}'))`` is not valid
+        Python. Re-parsing the display string therefore produced false FAILED
+        verdicts (invariant I2). Records written before srepr archiving existed
+        have no ``srepr_str`` and fall back to the assumption-aware string
+        parse.
+        """
+        if srepr_str:
+            from symkit.domain.expr_io import safe_load_expression
+
+            loaded = safe_load_expression("", srepr_str)
+            if loaded is not None:
+                return self._apply_assumptions_to_loaded(loaded, assumptions or {})
+        return self._parse(expression, assumptions)
+
+    def _apply_assumptions_to_loaded(
+        self,
+        expr: sp.Basic,
+        assumptions: dict[str, dict[str, bool]],
+    ) -> sp.Basic:
+        """Bind assumptions onto the free symbols of an srepr-loaded object.
+
+        Symbols archived in a step may predate (or omit) the session's current
+        assumptions; without this the verifier would compare
+        ``Symbol('k', positive=True)`` against a plain ``Symbol('k')`` and
+        report a spurious mismatch. Only free symbols are touched, so constants
+        such as ``I``/``E`` are never rebound.
+        """
+        if not assumptions:
+            return expr
+        mapping: dict[sp.Symbol, sp.Symbol] = {}
+        for sym in expr.free_symbols:
+            name = str(sym)
+            if name not in assumptions:
+                continue
+            target = self._assumed_symbol(name, assumptions)
+            if target != sym:
+                mapping[sym] = target
+        return expr.xreplace(mapping) if mapping else expr
+
     def _parse_step_input(
         self,
         step: DerivationStep,
         assumptions: dict[str, dict[str, bool]],
     ) -> sp.Basic | None:
-        """Reconstruct the input SymPy object from the step's input expressions."""
+        """Reconstruct the input SymPy object from the step's input expressions.
+
+        The archived ``input_srepr`` is authoritative when present (it is the
+        live object the operation actually ran on); the string keys below are
+        the fallback for legacy records.
+        """
+        if step.input_srepr:
+            loaded = self._parse_archived(
+                self._representative_input_string(step),
+                step.input_srepr,
+                assumptions,
+            )
+            if loaded is not None:
+                return loaded
         # Prefer the "original" key (used by simplify/differentiate/integrate etc.)
         if "original" in step.input_expressions:
             return self._parse(step.input_expressions["original"], assumptions)
@@ -227,6 +291,16 @@ class StepVerifier:
             return self._parse(step.input_expressions[key], assumptions)
         # Return None when cannot be reconstructed; caller marks INCONCLUSIVE
         return None
+
+    @staticmethod
+    def _representative_input_string(step: DerivationStep) -> str:
+        """Display string matching :attr:`DerivationStep.input_srepr`."""
+        for key in ("original", "equation"):
+            if key in step.input_expressions:
+                return step.input_expressions[key]
+        if step.input_expressions:
+            return next(iter(step.input_expressions.values()))
+        return ""
 
     def _build_symbol_dict(
         self,

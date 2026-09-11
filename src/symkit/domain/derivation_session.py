@@ -133,6 +133,7 @@ class DerivationStep:
     # SymPy execution record
     sympy_command: str  # The actual SymPy command executed
     output_srepr: str = ""  # Machine-readable round-trip SymPy srepr representation
+    input_srepr: str = ""  # srepr of the step's representative input expression
 
     # 🆕 Human knowledge injection
     notes: str = ""  # Human insight, observation, explanation
@@ -155,6 +156,7 @@ class DerivationStep:
             "output_expression": self.output_expression,
             "output_latex": self.output_latex,
             "output_srepr": self.output_srepr,
+            "input_srepr": self.input_srepr,
             "sympy_command": self.sympy_command,
             # 🆕 Human knowledge
             "notes": self.notes,
@@ -176,6 +178,7 @@ class DerivationStep:
             output_expression=data["output_expression"],
             output_latex=data["output_latex"],
             output_srepr=data.get("output_srepr", ""),
+            input_srepr=data.get("input_srepr", ""),
             sympy_command=data["sympy_command"],
             # 🆕 Human knowledge
             notes=data.get("notes", ""),
@@ -307,8 +310,19 @@ class DerivationSession:
         assumptions: list[str] | None = None,
         limitations: list[str] | None = None,
         prior_expr: sp.Basic | None = None,
+        input_srepr: str = "",
     ) -> DerivationStep:
-        """Add a step record (with human knowledge and automatic verification)."""
+        """Add a step record (with human knowledge and automatic verification).
+
+        ``input_srepr`` defaults to the srepr of ``prior_expr`` when the caller
+        already holds the live input object.  The input is deliberately never
+        re-parsed from ``input_expressions`` here: re-parsing a display string
+        does not round-trip for ``E``/``I`` or LaTeX-derived symbols (invariant
+        I2, run-024 regression).
+        """
+        if not input_srepr and isinstance(prior_expr, sp.Basic):
+            input_srepr = sp.srepr(prior_expr)
+
         step = DerivationStep(
             step_number=len(self.steps) + 1,
             operation=operation,
@@ -317,6 +331,7 @@ class DerivationSession:
             output_expression=str(output_expr),
             output_latex=sp.latex(output_expr),
             output_srepr=sp.srepr(output_expr),
+            input_srepr=input_srepr,
             sympy_command=sympy_command,
             notes=notes,
             assumptions=assumptions or [],
@@ -405,6 +420,7 @@ class DerivationSession:
             input_expressions={formula_id: result.original_input},
             output_expr=result.expression,
             sympy_command=f"parse('{result.original_input}')",
+            input_srepr=sp.srepr(result.expression),
         )
 
         # Register symbol semantics and detect conflicts
@@ -832,38 +848,17 @@ class DerivationSession:
     ) -> sp.Basic | None:
         """Load a stored expression string back into a SymPy object.
 
-        Tries the round-trippable ``srepr`` representation first, then falls
-        back to ``sp.sympify`` and the unified user-expression parser. This
-        is necessary because ``str(expr)`` of LaTeX-derived symbols such as
-        ``Symbol('mu_{t}')`` is not valid Python input. Non-Basic results
-        (e.g. ``sympify("(1, 2)")`` → python tuple from legacy comma parses)
-        are rejected so callers never see an atom-less container.
+        Thin delegate to :func:`symkit.domain.expr_io.safe_load_expression`,
+        which tries the round-trippable ``srepr`` first, then ``sp.sympify``,
+        then the unified user-expression parser. This is necessary because
+        ``str(expr)`` of LaTeX-derived symbols such as ``Symbol('mu_{t}')`` is
+        not valid Python input, and ``str(E)``/``str(I)`` re-parse to plain
+        Symbols (invariant I2). Non-Basic results are rejected so callers never
+        see an atom-less container.
         """
+        from symkit.domain.expr_io import safe_load_expression
 
-        def _basic_or_none(candidate: Any) -> sp.Basic | None:
-            return candidate if isinstance(candidate, sp.Basic) else None
-
-        if srepr_str:
-            try:
-                return _basic_or_none(sp.sympify(srepr_str))
-            except Exception:
-                pass
-
-        try:
-            return _basic_or_none(sp.sympify(expr_str))
-        except Exception:
-            pass
-
-        try:
-            from symkit.domain.expression_parser import parse_user_expression
-
-            expr, _ = parse_user_expression(expr_str)
-            if expr is not None and isinstance(expr, sp.Basic):
-                return expr
-        except Exception:
-            pass
-
-        return None
+        return safe_load_expression(expr_str, srepr_str)
 
     def _resolve_prior_expr(self, step_number: int) -> sp.Basic | None:
         """Resolve the expression before the specified step (for re-verification)."""
@@ -1511,6 +1506,7 @@ class DerivationSession:
             output_expression=output_expr_str,
             output_latex=output_latex_str,
             output_srepr=output_srepr_str,
+            input_srepr=output_srepr_str,
             sympy_command="# Note (no computation)",
         )
 
