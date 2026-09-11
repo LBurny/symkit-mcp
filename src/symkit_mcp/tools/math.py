@@ -286,6 +286,12 @@ def register_math_tools(mcp: Any) -> None:
                             output_expr=result_obj,
                             sympy_command=sympy_cmd,
                             notes=notes,
+                            # The live input object, so the step archives an
+                            # input_srepr and verification never has to
+                            # re-parse a display string (invariant I2).  A
+                            # non-Basic input (comma-parsed tuple) is ignored
+                            # by _add_step.
+                            prior_expr=input_obj,
                         )
                         sess.current_expression = result_obj
                         result["step"] = sess.step_count
