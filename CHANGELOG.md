@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Tool descriptions rewritten** (the `@mcp.tool` docstrings, i.e. what an MCP
+  client renders in its tool list): emoji and decorative separator banners
+  removed, prose tightened, operation count corrected to 32. The codegen tools
+  no longer reference tools that do not exist in this project (`SymPy-MCP`,
+  `print_latex_expression()`) — they now name `math` and `session_verify_step` /
+  `session_verify_session`.
+
 ## [1.5.1] - 2026-09-11
 
 Generalization pass over the assumption subsystem, driven by the last black-box

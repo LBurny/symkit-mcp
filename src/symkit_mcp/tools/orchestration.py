@@ -168,7 +168,7 @@ def register_orchestration_tools(mcp: Any) -> None:
         external_sources: list[str] | None = None,
     ) -> dict[str, Any]:
         """
-        🚀 High-level derivation entry point — start a derivation from a goal.
+        High-level derivation entry point: start a derivation from a goal.
 
         Args:
             goal: Natural-language description of what to derive
@@ -312,10 +312,8 @@ def register_orchestration_tools(mcp: Any) -> None:
         session: bool = True,
     ) -> dict[str, Any]:
         """
-        🎯 Natural-language intent router — map a request to the right tool chain.
-
-        Understands common math/derivation intents and returns the recommended
-        tool(s) to call. The agent can then execute the recommended tool(s) directly.
+        Natural-language intent router: map a request to the tool chain that
+        handles it. Returns the tools to call; the caller executes them.
 
         Args:
             intent: Natural language request
@@ -457,7 +455,7 @@ def register_orchestration_tools(mcp: Any) -> None:
     )
     def list_patterns() -> dict[str, Any]:
         """
-        📋 List all available derivation patterns.
+        List the available derivation patterns.
 
         Returns:
             Descriptions, typical steps, and suggested operations for each pattern.
@@ -472,13 +470,8 @@ def register_orchestration_tools(mcp: Any) -> None:
     )
     def tool_categories() -> dict[str, Any]:
         """
-        🧰 List SymKit tools organized by category.
-
-        The index is built live from the server's tool registry (each tool
-        declares its category in its metadata), so it can never drift out of
-        sync with the actually exposed tools.  The previous static map had
-        silently rotted: twelve registered tools were missing and three
-        listed tools no longer existed (run-021).
+        List SymKit tools organized by category. The index is built live from
+        the server's tool registry, so it always matches the exposed tools.
 
         Returns:
             Categorized tool index with descriptions and examples.
@@ -544,7 +537,7 @@ def register_orchestration_tools(mcp: Any) -> None:
         domain: str = "general",
     ) -> dict[str, Any]:
         """
-        💡 Recommend the best tool(s) for a given task.
+        Recommend the best tool(s) for a given task.
 
         Args:
             task: Brief description of what you want to do

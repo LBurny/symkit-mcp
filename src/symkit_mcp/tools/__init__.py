@@ -1,7 +1,7 @@
 """SymKit MCP Tools — Unified Symbolic Math Derivation Engine
 
 Unified tool surface:
-- math.py:    ⭐ Unified math() tool — ~25 operations in one call
+- math.py:    Unified math() tool — 32 operations in one call
 - session.py: Session management + derivation workflow
 - formula.py: 🌐 Formula search (Wikidata, SciPy, BioModels)
 - codegen.py: Generate Python code and reports from derivations

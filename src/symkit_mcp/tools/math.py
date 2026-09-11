@@ -1,6 +1,6 @@
 """Unified Math Tool — SymKit's core computation tool
 
-A single `math()` tool supports ~25 mathematical operations,
+A single `math()` tool supports 32 mathematical operations,
 similar to Mathematica's function-call style.
 
 Design:
@@ -71,12 +71,10 @@ def register_math_tools(mcp: Any) -> None:
         notes: str = "",
     ) -> dict[str, Any]:
         """
-        Run mathematical operations (unified Mathematica-style tool)
+        Run mathematical operations (unified Mathematica-style tool).
 
-        ═══════════════════════════════════════════════════════════════════════
-        SymKit's core tool — supports ~25 mathematical operations.
-        One tool handles derivation, calculation, solving, and transformation.
-        ═══════════════════════════════════════════════════════════════════════
+        SymKit's core tool: one entry point for the 32 operations below,
+        covering derivation, calculation, solving, and transformation.
 
         **Supported operations (operation):**
 

@@ -342,9 +342,8 @@ def register_session_tools(mcp: Any) -> None:
     )
     def session_show(show_steps: bool = False) -> dict[str, Any]:
         """
-        Show the current derivation state and formula
-
-        ⚠️ Must be called after each derivation operation to show the user the result!
+        Show the current derivation state and formula. Call this after each
+        derivation operation to show the user the result.
 
         Args:
             show_steps: Whether to show all step history
@@ -482,14 +481,9 @@ def register_session_tools(mcp: Any) -> None:
         focus: str | None = None,
     ) -> dict[str, Any]:
         """
-        🗣️ Explain the current derivation in natural language.
-
-        Generates a human-readable summary of the derivation so far, including:
-        - The overall goal (session name/description)
-        - What formulas were loaded
-        - What operations were performed and why
-        - Key assumptions and limitations recorded
-        - The current result
+        Explain the current derivation in natural language: the goal, the
+        formulas loaded, the operations performed and why, the assumptions and
+        limitations recorded, and the current result.
 
         Args:
             level: Detail level — "short", "medium" (default), or "detailed"

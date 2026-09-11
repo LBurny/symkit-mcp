@@ -84,14 +84,15 @@ def register_formula_tools(mcp: Any) -> None:
         domain: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
-        """Search the local formula library.
+        """Search the formula library.
 
-        Retrieve accurate mathematical/physical formulas from the local, editable
-        YAML library. This is deterministic, fast, and does not require network
-        access.
+        The default ``source="local"`` searches the local editable YAML library:
+        deterministic, fast, no network. Other sources query external services
+        (Wikidata, SciPy constants, BioModels) and degrade gracefully when
+        offline.
 
-        The query and domain are normalized automatically, so you can pass
-        free-form text such as "Navier–Stokes equations" or "fluid_dynamics".
+        Query and domain are normalized automatically, so free-form text such as
+        "Navier-Stokes equations" or "fluid_dynamics" works.
 
         Args:
             query: Search keyword

@@ -5,7 +5,7 @@ FastMCP-based server providing symbolic reasoning tools to AI agents.
 Supports derivation across fluid dynamics, quantum mechanics, solid mechanics,
 electromagnetism, and any mathematical domain.
 
-Core tool: math() — a unified Mathematica-style interface for ~25 operations.
+Core tool: math() — a unified Mathematica-style interface for 32 operations.
 """
 
 from concurrent.futures import ThreadPoolExecutor

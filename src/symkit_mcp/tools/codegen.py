@@ -1,24 +1,12 @@
 """
 Code Generation Tools
 
-Tools for generating executable Python code from derivation steps.
+Tools for generating executable Python code and reports from derivation steps.
 
-═══════════════════════════════════════════════════════════════════════════════
-⚠️ CRITICAL WORKFLOW - READ BEFORE USING THESE TOOLS!
-═══════════════════════════════════════════════════════════════════════════════
-
-CORRECT order:
-1. Use SymPy-MCP for symbolic calculations (solve, simplify, diff, etc.)
-2. Use print_latex_expression() to show formulas to user
-3. User confirms the results
-4. THEN use these tools to generate code/reports
-
-❌ NEVER use these tools to generate code for UNVERIFIED calculations!
-❌ NEVER skip the SymPy-MCP verification step!
-
-The generated code assembles VERIFIED expressions into executable form.
-It does NOT perform new calculations.
-═══════════════════════════════════════════════════════════════════════════════
+These tools assemble already-verified expressions into executable form; they
+perform no new calculations. Verify the derivation first with the ``math``
+tool (``session=true``) plus ``session_verify_step`` / ``session_verify_session``,
+then generate code or a report from the verified steps.
 """
 
 import re
@@ -58,10 +46,10 @@ def _symbol_to_latex(sym: str) -> str:
 
 
 def register_codegen_tools(mcp: Any) -> None:
-    """Register code generation tools with MCP server.
+    """Register code generation tools.
 
-    ⚠️ These tools generate code from VERIFIED derivation steps.
-    Always use SymPy-MCP first to verify calculations!
+    These tools assemble already-verified derivation steps into code; verify
+    each expression with ``math`` + ``session_verify_step`` first.
     """
 
     @mcp.tool()
@@ -73,21 +61,13 @@ def register_codegen_tools(mcp: Any) -> None:
         return_vars: list[str],
     ) -> dict[str, Any]:
         """
-        Generate a Python function from VERIFIED derivation steps.
-
-        ═══════════════════════════════════════════════════════════════════════
-        ⚠️ PREREQUISITE: All expressions must be verified with SymPy-MCP first!
-        ═══════════════════════════════════════════════════════════════════════
-
-        Correct workflow:
-        1. Use SymPy-MCP to derive and verify each expression
-        2. Use print_latex_expression() to show results to user
-        3. User confirms the derivation is correct
-        4. Call this tool with the verified expressions
+        Generate a Python function from verified derivation steps.
 
         The generated code assembles the provided expressions into a Python
-        function; it does not perform new symbolic calculations. The expressions
-        must already be verified before calling this tool.
+        function; it performs no new symbolic calculations. Verify each
+        expression first (``math`` with ``session=true``, then
+        ``session_verify_step`` or ``session_verify_session``) before calling
+        this tool.
 
         Args:
             name: Function name (e.g., "calculate_seatbelt_tension")
@@ -231,7 +211,7 @@ def register_codegen_tools(mcp: Any) -> None:
             results: Final results {"symbol": "expression"}
             verification: Optional verification summary — counts as ints
                 (total/verified/failed/inconclusive), an optional "note" str,
-                and legacy bool fields rendered as ✅/❌
+                and legacy bool fields rendered as check/cross marks
 
         Returns:
             Markdown report

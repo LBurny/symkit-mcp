@@ -33,7 +33,7 @@ def register_assumption_tools(mcp: Any) -> None:
         args: list[str] | str,
     ) -> dict[str, Any]:
         """
-        📋 Set assumptions for the current derivation step only.
+        Set assumptions for the current derivation step only.
 
         Args:
             args: Alternating symbol/property pairs, either as a single
@@ -89,7 +89,7 @@ def register_assumption_tools(mcp: Any) -> None:
         level: str | None = None,
     ) -> dict[str, Any]:
         """
-        📐 List assumptions at a specific level or merged across all levels.
+        List assumptions at one level, or the merge across all levels.
 
         Args:
             level: "global", "domain", "session", "step", or None for merged
@@ -134,7 +134,7 @@ def register_assumption_tools(mcp: Any) -> None:
     )
     def check_assumption_conflicts() -> dict[str, Any]:
         """
-        ⚠️ Detect conflicts across all assumption levels.
+        Detect conflicts across all assumption levels.
 
         A conflict occurs when a symbol is assigned contradictory properties
         (e.g., both positive and negative).
@@ -165,9 +165,8 @@ def register_assumption_tools(mcp: Any) -> None:
     )
     def clear_step_assumptions() -> dict[str, Any]:
         """
-        🧹 Clear step-level assumptions.
-
-        Useful when moving to a new sub-derivation or branch.
+        Clear step-level assumptions. Useful when moving to a new
+        sub-derivation or branch.
 
         Returns:
             Operation result
@@ -194,14 +193,10 @@ def register_assumption_tools(mcp: Any) -> None:
     )
     def unassume(variables: list[str]) -> dict[str, Any]:
         """
-        🧹 Remove symbolic assumptions for named symbols.
-
-        Strips the symbols from the shared math context and from the active
-        session's assumption engine (global/session/step layers; domain
-        defaults are preserved).  Without a session only the shared context is
-        touched.  Previously `assume({"x": "positive"})` was irreversible
-        short of a server restart; assumptions could silently poison every
-        later parse (run-013).
+        Remove assumptions for named symbols, from the shared math context and
+        from the session's assumption engine (global/session/step; domain
+        defaults are preserved). Without a session only the shared context is
+        touched.
 
         Args:
             variables: Symbol names to strip, e.g. ["x", "y"]
@@ -237,13 +232,9 @@ def register_assumption_tools(mcp: Any) -> None:
     )
     def clear_assumptions() -> dict[str, Any]:
         """
-        🧹 Clear ALL symbolic assumptions in the current scope.
-
-        Resets the shared math context and the active session's assumption
-        engine (global/session/step layers).  Domain defaults (loaded from the
-        domain profile when a session starts) are preserved.  Useful when a
-        stray assumption is suspected of skewing results (run-013: per-call
-        assumptions used to leak permanently and could not be removed).
+        Clear all user assumptions in the current scope, in both the shared
+        math context and the session's assumption engine (global/session/step).
+        Domain defaults are preserved.
 
         Returns:
             Remaining assumptions (normally empty)

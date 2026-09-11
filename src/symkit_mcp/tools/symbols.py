@@ -34,7 +34,7 @@ def register_symbol_tools(mcp: Any) -> None:
         aliases: list[str] | None = None,
     ) -> dict[str, Any]:
         """
-        🏷️ Register the semantic meaning of a symbol in the current session.
+        Register the meaning of a symbol in the current session.
 
         Args:
             name: Symbol name (e.g., "R", "hbar", "k")
@@ -95,7 +95,7 @@ def register_symbol_tools(mcp: Any) -> None:
         domain: str | None = None,
     ) -> dict[str, Any]:
         """
-        🔍 Look up the semantic meaning of a symbol.
+        Look up the meaning of a symbol.
 
         Args:
             name: Symbol name
@@ -132,7 +132,7 @@ def register_symbol_tools(mcp: Any) -> None:
         domain: str = "general",
     ) -> dict[str, Any]:
         """
-        📋 List default symbols for a given domain.
+        List the default symbols for a domain.
 
         Args:
             domain: Domain name
@@ -164,10 +164,9 @@ def register_symbol_tools(mcp: Any) -> None:
     )
     def check_symbol_conflicts() -> dict[str, Any]:
         """
-        ⚠️ Check for ambiguous symbols in the current session.
-
-        A conflict occurs when the same symbol name has multiple meanings
-        or appears in multiple domains.
+        Check for ambiguous symbols in the current session. A conflict
+        occurs when the same symbol name has multiple meanings or appears in
+        multiple domains.
 
         Returns:
             Conflict report with suggested disambiguation
