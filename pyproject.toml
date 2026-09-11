@@ -1,6 +1,6 @@
 [project]
 name = "symkit-mcp"
-version = "1.5.0"
+version = "1.5.1"
 description = "SymKit MCP - Symbolic derivation and verification toolkit for AI agents via MCP."
 readme = "README.md"
 license = { text = "Apache-2.0" }

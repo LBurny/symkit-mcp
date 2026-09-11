@@ -49,6 +49,8 @@ Pure business logic with no external dependencies.
 | `value_objects/` | Expression, Assumption, Metadata |
 | `services/` | SymPyEngine, DerivationEngine |
 | `repositories/` | FormulaRepository (abstract interface) |
+| `assumption_binding.py` | Sole implementation of assumption → Symbol binding (`resolve_assumed_symbol`, `apply_assumptions`); owns the property whitelist and conflict table. Assumptions are applied *after* parsing, onto free symbols only (invariant I1/I3) |
+| `expr_io.py` | srepr-first reconstruction of archived expressions (`safe_load_expression`); verification replays the archived object instead of re-parsing a display string (invariant I2) |
 
 ### 2. Application Layer (`src/symkit/application/`)
 

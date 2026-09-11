@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-11
+
+Generalization pass over the assumption subsystem, driven by the last black-box
+round (run-024). Rather than patch the single reported bug, the three invariants
+that all five previous incarnations of the "assumption symbol mismatch" family
+had violated were restored as architecture, and guarded by tests that fail on
+the shape of the code.
+
+The invariants: **I1** assumptions never influence parsing; **I2** verification
+never re-parses a display string; **I3** one implementation of assumption
+binding, with the session's `AssumptionEngine` as the source of truth.
+
+### Fixed
+
+- **CRITICAL: assumptions rewrote function calls into products** (run-024).
+  An assumption on `k` made `k(x)` parse as `k*x` on the engine path, because
+  assumption symbols were injected into the parser's `local_dict` before
+  parsing and overrode the `Function` binding for the call site. `k(x)`,
+  `v(t)`, `p(T)` and every other call site now survive any assumption set, on
+  every entry point.
+- **Verification mis-reported reserved-name results as FAILED.** Solving
+  `x**2 + 1 = 0` gave `Eq(x, I)` and was flagged FAILED with residual
+  `I**2 + 1`: the verifier re-parsed the display string `"Eq(x, I)"`, which
+  yields `Symbol('I')` (the parser protects `E`/`I` as user variables, 1.5.0),
+  while the archived object holds the imaginary unit. The same class of bug hit
+  LaTeX-derived symbols such as `Symbol('mu_{t}')`, which are not valid Python
+  at all. Verification now replays the archived `srepr`; display strings are
+  only a fallback for records written before srepr archiving existed.
+- **`laplacian` returned a silently wrong value under assumptions.**
+  `laplacian(x**2 + y**2 + z**2)` returned 4 with `x` positive and 2 with
+  `x, y` positive instead of 6 — a bare `Symbol('x')` subs key never matched
+  the assumption-bearing coordinate.
+- **`laplace` / `fourier` transforms returned silently wrong results under
+  assumptions.** With `t` positive, `laplace(exp(-k*t))` returned
+  `exp(-k*t)/s` instead of `1/(k+s)`; with `x` positive, `fourier(exp(-x**2))`
+  returned `FourierTransform(1, x, k)*exp(-x**2)` instead of the Gaussian. The
+  transform variable was a plain Symbol while the integrand held the
+  assumption-bearing one, so SymPy treated the integrand as constant.
+- **`dsolve` failed outright when the independent variable carried an
+  assumption** (`t` positive → "is not a solvable differential equation in
+  v(t)").
+- **`assume_for_step` and domain defaults never reached `math()`.** They were
+  written to the session's `AssumptionEngine` and then ignored, because `math()`
+  read only `MathContext`: `assume_for_step("k positive")` followed by
+  `math("simplify", "sqrt(k**2)")` returned `sqrt(k**2)`, and a thermodynamics
+  session did not make `T` positive. The effective assumption set is now the
+  engine's merged view (domain < global < session < step) with the explicit
+  context on top, and a stronger layer replaces a symbol's property set instead
+  of unioning with it.
+- **A correct one-sided limit was reported INCONCLUSIVE**, and an infinite limit
+  could never verify at all. The verifier probed both sides of the point (so
+  the other side always disagreed), and the tolerance comparison degenerates for
+  infinities (`inf < inf` is False). The direction is now archived on the step
+  and only the requested side is probed; infinite limits are checked by
+  magnitude growth and sign.
+- **`dsolve` with a non-matching `variable` surfaced SymPy's raw "is not a
+  solvable differential equation in u(t)"**, which reads as if the equation were
+  unsolvable. It now names the dependent function actually present and suggests
+  the right `variable=` value.
+
+### Changed
+
+- `DerivationStep` gains `input_srepr`; legacy session JSON loads unchanged and
+  falls back to string parsing.
+
+### Added
+
+- `symkit.domain.assumption_binding` — the single implementation of
+  assumption-to-symbol binding (`resolve_assumed_symbol`, `apply_assumptions`),
+  owning the property whitelist and conflict table that were previously
+  duplicated in `step_verifier` and `assumption_engine`.
+- `symkit.domain.expr_io.safe_load_expression` — srepr-first reconstruction of
+  archived expressions, shared by the verifier and session replay.
+- Structural regression guards: an AST scan forbidding hand-built
+  assumption-bearing `Symbol(...)` outside the shared constructor, a
+  function-notation matrix across entry points, a sweep over every reserved name
+  asserting a call site is never rebound, and a reserved-name round-trip matrix
+  through save/load/replay.
+
+### Verification
+
+- 472 tests (was 398).
+- 405-cell sweep (45 inputs × 9 assumption sets across all 32 operations)
+  against a pre-change worktree: exactly 16 cells changed, all of them the
+  correctness fixes above; the `_parse_ode` parser-stack consolidation is
+  behaviour-neutral.
+- Session-mode sweeps (405 cells each): domain defaults changed 0 cells;
+  step assumptions changed 23 cells, every one a case where the per-call
+  assumption does not mention the affected symbol — the intended effect, with
+  no case where an explicit per-call assumption lost.
+- 20-case verification-verdict sweep: per-step status and verdict identical
+  before and after archiving `input_srepr` for engine operations.
+
 ## [1.5.0] - 2026-09-10
 
 Sixteen defects found by black-box rounds run-020/run-021 (deep-water tasks: Laplace-transform chains, series/limits, the simplification family, assumption toggles, cantilever beam, matrix ops; and meta-tools: symbol registry, assumption-engine layers, derive() recommender, formula-library ecology, rollback branches, error resilience). Two were CRITICAL: a *verified* but semantically wrong beam solution caused by E/I constant capture, and `assume_for_step` being entirely uncallable through the real MCP schema.
