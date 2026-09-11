@@ -14,6 +14,10 @@ from typing import TYPE_CHECKING, Any
 import sympy as sp
 from sympy.logic.boolalg import BooleanFalse, BooleanTrue
 
+from symkit.domain.assumption_binding import (
+    apply_assumptions,
+    resolve_assumed_symbol,
+)
 from symkit.domain.assumption_engine import AssumptionEngine
 from symkit.domain.expression_parser import (
     parse_expression_string,
@@ -24,44 +28,6 @@ from symkit.domain.value_objects import VerificationResult, VerificationStatus
 if TYPE_CHECKING:
     from symkit.domain.derivation_session import DerivationStep
 
-
-# Whitelist of symbol properties recognizable by SymPy (used for parse_expr local_dict)
-_ASSUMPTION_KEYWORDS: set[str] = {
-    "real",
-    "imaginary",
-    "complex",
-    "positive",
-    "negative",
-    "nonzero",
-    "nonpositive",
-    "nonnegative",
-    "integer",
-    "rational",
-    "irrational",
-    "finite",
-    "infinite",
-    "odd",
-    "even",
-    "prime",
-    "composite",
-    "extended_real",
-    "extended_positive",
-    "extended_negative",
-    "extended_nonpositive",
-    "extended_nonnegative",
-    "commutative",
-    "hermitian",
-    "antihermitian",
-}
-
-# Conflicting property pairs: cannot both be passed as symbol assumptions to SymPy
-_CONFLICT_PAIRS: set[tuple[str, str]] = {
-    ("positive", "negative"),
-    ("positive", "zero"),
-    ("negative", "zero"),
-    ("real", "imaginary"),
-    ("integer", "irrational"),
-}
 
 # Numeric residual tolerance for symbolic verification. Symbolic derivation
 # diffs are dimensionless algebraic residuals; machine-precision noise from
@@ -248,17 +214,7 @@ class StepVerifier:
         report a spurious mismatch. Only free symbols are touched, so constants
         such as ``I``/``E`` are never rebound.
         """
-        if not assumptions:
-            return expr
-        mapping: dict[sp.Symbol, sp.Symbol] = {}
-        for sym in expr.free_symbols:
-            name = str(sym)
-            if name not in assumptions:
-                continue
-            target = self._assumed_symbol(name, assumptions)
-            if target != sym:
-                mapping[sym] = target
-        return expr.xreplace(mapping) if mapping else expr
+        return apply_assumptions(expr, assumptions)
 
     def _parse_step_input(
         self,
@@ -307,10 +263,13 @@ class StepVerifier:
         expression: str,
         assumptions: dict[str, dict[str, bool]],
     ) -> dict[str, sp.Symbol]:
-        """Construct a SymPy Symbol mapping with assumptions for free symbols in the expression.
+        """Symbol table for parsing ``expression`` under ``assumptions``.
 
-        If active assumptions for a symbol conflict, ignore all assumptions for that symbol
-        to avoid SymPy raising contradictory-assumption errors when creating the Symbol.
+        Only names that are free symbols of the expression are bound, and each
+        binding goes through :func:`resolve_assumed_symbol` — the single
+        constructor shared with the engine and the math dispatcher (invariant
+        I3).  Conflicting assumption sets yield a plain Symbol rather than a
+        SymPy error.
         """
         # First pass: parse without assumptions, only to collect symbol names
         try:
@@ -322,24 +281,10 @@ class StepVerifier:
         except Exception:
             names = set()
 
-        local_dict: dict[str, sp.Symbol] = {}
-        for name in names:
-            props = assumptions.get(name, {})
-            active = {p for p, v in props.items() if v and p in _ASSUMPTION_KEYWORDS}
-            has_conflict = any(
-                a in active and b in active for a, b in _CONFLICT_PAIRS
-            )
-            kwargs = (
-                {}
-                if has_conflict
-                else {
-                    prop: True
-                    for prop in props
-                    if prop in _ASSUMPTION_KEYWORDS
-                }
-            )
-            local_dict[name] = sp.Symbol(name, **kwargs)
-        return local_dict
+        return {
+            name: resolve_assumed_symbol(name, assumptions.get(name, {}))
+            for name in names
+        }
 
     def _assumed_symbol(
         self, name: str, assumptions: dict[str, dict[str, bool]]
@@ -348,7 +293,7 @@ class StepVerifier:
         parse the step input, so ``subs`` actually matches the input symbols
         (a bare ``sp.Symbol(name)`` is a different object when assumptions
         apply and the substitution silently becomes a no-op)."""
-        return self._build_symbol_dict(name, assumptions).get(name, sp.Symbol(name))
+        return resolve_assumed_symbol(name, assumptions.get(name, {}))
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Operation-level verification

@@ -17,21 +17,11 @@ import re
 from typing import Any
 
 import sympy as sp
-from sympy.parsing.sympy_parser import (
-    convert_xor,
-    implicit_application,
-    implicit_multiplication,
-    parse_expr,
-    standard_transformations,
-)
 
+from symkit.domain.assumption_binding import apply_assumptions, resolve_assumed_symbol
 from symkit.domain.derivation_session import OperationType
 from symkit.domain.expression_parser import (
-    _build_undefined_function_local_dict,
-    _convert_equals_to_eq,
-    _rationalize_unevaluated_divisions,
-    _split_eq_args,
-    build_reserved_local_dict,
+    parse_expression_string,
     parse_user_expression,
     preprocess_unicode,
 )
@@ -50,23 +40,18 @@ def _preprocess(expr_str: str) -> str:
 def _apply_context_assumptions(
     expr: sp.Basic, context: MathContext | None
 ) -> sp.Basic:
-    """Replace bare symbols with assumption-bearing versions from context.
+    """Bind the context's assumptions onto the free symbols of ``expr``.
 
     This lets ``assume({"x": "positive"})`` followed by ``math("simplify", ...)``
-    produce assumption-aware results such as ``sqrt(x**2) -> x``.
-    Non-Basic inputs (python tuples/lists from comma parses) pass through
-    unchanged — running ``.has`` on them would crash (run-018).
+    produce assumption-aware results such as ``sqrt(x**2) -> x``.  Delegates to
+    :func:`symkit.domain.assumption_binding.apply_assumptions`, the single
+    implementation shared with the engine, the verifier and session replay
+    (invariant I3).  Non-Basic inputs (python tuples/lists from comma parses)
+    pass through unchanged — running ``.has`` on them would crash (run-018).
     """
-    if context is None or not context.assumptions:
+    if context is None:
         return expr
-    if not isinstance(expr, sp.Basic):
-        return expr
-    subs: dict[sp.Basic, sp.Symbol] = {}
-    for name, props in context.assumptions.items():
-        sym = sp.Symbol(name)
-        if expr.has(sym):
-            subs[sym] = sp.Symbol(name, **props)
-    return expr.xreplace(subs)
+    return apply_assumptions(expr, context.assumptions)
 
 
 def _resolve_variable_symbol(
@@ -86,7 +71,7 @@ def _resolve_variable_symbol(
         if sym.name == variable:
             return sym
     props = context.assumptions.get(variable, {}) if context else {}
-    return sp.Symbol(variable, **props)
+    return resolve_assumed_symbol(variable, props)
 
 
 def _parse_math_expression(expr_str: str) -> tuple[sp.Expr | None, str | None]:
@@ -235,12 +220,6 @@ def _parse_ode(
     ``R*C*dV/dt + V`` parsed ``dV``/``dt`` as plain symbols and dsolve returned
     an algebraic rearrangement disguised as an ODE solution (run-012).
     """
-    _TRANSFORMATIONS = standard_transformations + (
-        implicit_multiplication,
-        implicit_application,
-        convert_xor,
-    )
-
     _NOTATION_HINT = (
         f"Accepted notations: 'diff({func},{var})', 'diff({func},{var},N)', "
         f"'d{func}/d{var}', 'd^N{func}/d{var}^N' (any order N)."
@@ -287,41 +266,18 @@ def _parse_ode(
     # Replace any remaining bare dependent variable with the function call form.
     result_str = re.sub(rf"\b{func}\b(?!\s*\()", f"{func}({var})", result_str)
 
-    # Use a local dict that forces ``func`` to be a SymPy Function, protects
-    # reserved names (e.g. beta) from being interpreted as SymPy functions,
-    # and keeps other function call sites (e.g. a forcing term ``f(t)``) as
-    # undefined functions instead of implicit multiplication.
-    processed = _convert_equals_to_eq(preprocess_unicode(result_str))
-    local_dict: dict[str, Any] = {func: sp.Function(func)}
-    local_dict.update(build_reserved_local_dict(processed))
-    local_dict.update(
-        _build_undefined_function_local_dict(processed, exclude=set(local_dict))
+    # Delegate to the shared parser instead of rebuilding its local_dict stack
+    # here. ``parse_expression_string`` already protects reserved names, binds
+    # other call sites (e.g. a forcing term ``f(t)``) to undefined functions,
+    # splits ``=`` into ``Eq``, and folds unevaluated divisions; the only extra
+    # binding this operation needs is ``func`` itself as a Function.
+    expr, error = parse_expression_string(
+        result_str,
+        convert_equation=True,
+        preprocess=False,  # result_str is already unicode/Leibniz-processed
+        local_dict={func: sp.Function(func)},
     )
-
-    eq_args = _split_eq_args(processed)
-    try:
-        if eq_args is not None:
-            lhs_str, rhs_str = eq_args
-            lhs = parse_expr(
-                lhs_str,
-                local_dict=local_dict,
-                transformations=_TRANSFORMATIONS,
-            )
-            rhs = parse_expr(
-                rhs_str,
-                local_dict=local_dict,
-                transformations=_TRANSFORMATIONS,
-            )
-            expr = sp.Eq(lhs, rhs)
-        else:
-            expr = parse_expr(
-                processed,
-                local_dict=local_dict,
-                transformations=_TRANSFORMATIONS,
-                evaluate=False,
-            )
-            expr = _rationalize_unevaluated_divisions(expr)
-    except Exception:  # pragma: no cover - parser raises many types
+    if expr is None:
         return None, f"Cannot parse ODE. {_NOTATION_HINT}"
 
     # If the user gave an expression, turn it into an equation equal to 0.

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from symkit.domain.assumption_binding import CONFLICT_PAIRS as _CONFLICT_PAIRS
 from symkit.domain.math_domain import DOMAIN_ASSUMPTION_HINTS, MathDomain
 
 
@@ -37,16 +38,6 @@ class AssumptionLayer:
             "assumptions": self.assumptions,
             "source": self.source,
         }
-
-
-# Conflicting property pairs: cannot both hold
-_CONFLICT_PAIRS: list[tuple[str, str]] = [
-    ("positive", "negative"),
-    ("positive", "zero"),
-    ("negative", "zero"),
-    ("real", "imaginary"),
-    ("integer", "irrational"),
-]
 
 
 class AssumptionEngine:

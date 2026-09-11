@@ -22,6 +22,7 @@ from typing import Any
 
 import sympy as sp
 
+from symkit.domain.assumption_binding import apply_assumptions
 from symkit.domain.assumption_engine import AssumptionEngine
 from symkit.domain.derivation_goal import DerivationGoal, parse_target_expression
 from symkit.domain.derivation_pattern import DerivationPattern
@@ -1075,38 +1076,13 @@ class DerivationSession:
         expr: sp.Basic,
         assumptions: dict[str, dict[str, bool]] | None,
     ) -> sp.Basic:
-        """Replace symbols in *expr* with versions carrying the given assumptions."""
-        if not assumptions:
-            return expr
-        subs: dict[sp.Basic, sp.Symbol] = {}
-        for name, props in assumptions.items():
-            sym = sp.Symbol(name)
-            if expr.has(sym):
-                active_props = {p for p, v in props.items() if v}
-                # SymPy only accepts a known set of assumption flags; map common ones.
-                kw: dict[str, bool] = {}
-                if "positive" in active_props:
-                    kw["positive"] = True
-                if "negative" in active_props:
-                    kw["negative"] = True
-                if "real" in active_props:
-                    kw["real"] = True
-                if "integer" in active_props:
-                    kw["integer"] = True
-                if "nonnegative" in active_props:
-                    kw["nonnegative"] = True
-                if "nonpositive" in active_props:
-                    kw["nonpositive"] = True
-                if "nonzero" in active_props:
-                    kw["nonzero"] = True
-                if "complex" in active_props:
-                    kw["complex"] = True
-                if "finite" in active_props:
-                    kw["finite"] = True
-                if "infinite" in active_props:
-                    kw["infinite"] = True
-                subs[sym] = sp.Symbol(name, **kw)
-        return expr.xreplace(subs)
+        """Bind the given assumptions onto the free symbols of *expr*.
+
+        Delegates to :func:`symkit.domain.assumption_binding.apply_assumptions`
+        so session replay, the engine, the verifier and the math dispatcher all
+        agree on how assumptions become symbols (invariant I3).
+        """
+        return apply_assumptions(expr, assumptions)
 
     def _expressions_equivalent(
         self,

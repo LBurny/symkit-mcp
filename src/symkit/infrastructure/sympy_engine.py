@@ -8,10 +8,10 @@ from typing import Any
 
 import sympy as sp
 
+from symkit.domain.assumption_binding import apply_assumptions, resolve_assumed_symbol
 from symkit.domain.entities import Expression, ExpressionType
 from symkit.domain.expression_parser import (
     TRANSFORMATIONS,
-    name_used_as_function,
     parse_expression_string,
 )
 from symkit.domain.services import SymbolicEngine
@@ -84,21 +84,27 @@ class SymPyEngine(SymbolicEngine):
     TRANSFORMATIONS = TRANSFORMATIONS
 
     def parse(self, expr_str: str, context: MathContext | None = None) -> Expression:
-        """Parse a string into an Expression using SymPy."""
-        try:
-            # Get symbols with assumptions if provided
-            local_dict = self._get_local_dict(expr_str, context)
+        """Parse a string into an Expression using SymPy.
 
+        Parsing is pure syntax.  Assumptions are applied afterwards, onto the
+        free symbols of the parsed tree (invariant I1): injecting them into the
+        parser instead let implicit multiplication rewrite ``k(x)`` into
+        ``k*x`` (run-024).
+        """
+        try:
             # Parse through the shared parser: Unicode, Leibniz derivatives,
             # equation conversion and reserved-name protection are handled
             # consistently across all MCP entry points.
             sympy_expr, error = parse_expression_string(
                 expr_str,
                 convert_equation=True,
-                local_dict=local_dict,
             )
             if sympy_expr is None:
                 raise ValueError(error or "parse failed")
+
+            sympy_expr = apply_assumptions(
+                sympy_expr, context.assumptions if context else None
+            )
 
             # Determine expression type
             expr_type = self._classify_expression(sympy_expr)
@@ -159,7 +165,7 @@ class SymPyEngine(SymbolicEngine):
         if not expr.is_valid:
             return expr
 
-        var = sp.Symbol(variable, **self._get_assumptions(variable, context))
+        var = resolve_assumed_symbol(variable, self._get_assumptions(variable, context))
         result = sp.diff(expr.sympy_expr, var, order)
 
         return Expression(
@@ -181,7 +187,7 @@ class SymPyEngine(SymbolicEngine):
         if not expr.is_valid:
             return expr
 
-        var = sp.Symbol(variable, **self._get_assumptions(variable, context))
+        var = resolve_assumed_symbol(variable, self._get_assumptions(variable, context))
 
         if lower is not None and upper is not None:
             # Definite integral
@@ -209,7 +215,7 @@ class SymPyEngine(SymbolicEngine):
         if not equation.is_valid:
             return []
 
-        var = sp.Symbol(variable, **self._get_assumptions(variable, context))
+        var = resolve_assumed_symbol(variable, self._get_assumptions(variable, context))
 
         # Handle both equations and expressions (expr = 0)
         if isinstance(equation.sympy_expr, sp.Equality):
@@ -240,7 +246,7 @@ class SymPyEngine(SymbolicEngine):
         # Convert substitutions to SymPy format
         subs_dict = {}
         for var_name, value in substitutions.items():
-            var = sp.Symbol(var_name, **self._get_assumptions(var_name, context))
+            var = resolve_assumed_symbol(var_name, self._get_assumptions(var_name, context))
             subs_dict[var] = self._to_sympy(value)
 
         result = expr.sympy_expr.subs(subs_dict)
@@ -375,7 +381,12 @@ class SymPyEngine(SymbolicEngine):
                     coord_map[c] = coord_var
             s = scalar
             for c, cv in coord_map.items():
-                s = s.subs(sp.Symbol(c), cv)
+                # Substitute by name: under assumptions the coordinates in
+                # ``scalar`` are ``Symbol('x', positive=True)`` and a bare
+                # ``sp.Symbol('x')`` key would not match, silently dropping the
+                # x/y/z dependence — laplacian(x**2+y**2+z**2) returned 4 with
+                # ``x`` positive and 2 with ``x, y`` positive instead of 6.
+                s = _coord_sub_symbol(s, c, cv)
             grad_field = gradient(s, N)  # returns VectorAdd
             result = divergence(grad_field, N)
             return Expression(raw=str(result), latex=sp.latex(result),
@@ -484,7 +495,12 @@ class SymPyEngine(SymbolicEngine):
             return ode
         try:
             f = sp.Function(func)
-            v = sp.Symbol(var)
+            # The independent variable must match the symbol inside the parsed
+            # ODE.  With an assumption on ``t`` the ODE holds
+            # ``Symbol('t', positive=True)``; asking dsolve about a plain
+            # ``Symbol('t')`` failed with "is not a solvable differential
+            # equation in v(t)".
+            v = resolve_assumed_symbol(var, self._get_assumptions(var, context))
             if isinstance(ode.sympy_expr, sp.Equality):
                 result = sp.dsolve(ode.sympy_expr, f(v), ics=ics)
             else:
@@ -505,7 +521,7 @@ class SymPyEngine(SymbolicEngine):
         if not expr.is_valid:
             return expr
         try:
-            v = sp.Symbol(var, **self._get_assumptions(var, context))
+            v = resolve_assumed_symbol(var, self._get_assumptions(var, context))
             p, error = parse_expression_string(point, convert_equation=False)
             if p is None:
                 raise ValueError(error or f"cannot parse point '{point}'")
@@ -555,7 +571,7 @@ class SymPyEngine(SymbolicEngine):
         if not expr.is_valid:
             return expr
         try:
-            v = sp.Symbol(var, **self._get_assumptions(var, context))
+            v = resolve_assumed_symbol(var, self._get_assumptions(var, context))
             p, error = parse_expression_string(point, convert_equation=False)
             if p is None:
                 raise ValueError(error or f"cannot parse point '{point}'")
@@ -579,8 +595,14 @@ class SymPyEngine(SymbolicEngine):
         if not expr.is_valid:
             return expr
         try:
-            t = sp.Symbol(time_var)
-            s = sp.Symbol(freq_var)
+            # The transform variable must be the *same* symbol object that
+            # appears in the parsed expression.  When an assumption is active
+            # the expression holds ``Symbol('t', positive=True)``; a plain
+            # ``Symbol('t')`` would not match, SymPy would treat the integrand
+            # as constant in t, and the transform would silently return
+            # ``exp(-k*t)/s`` instead of ``1/(k+s)``.
+            t = resolve_assumed_symbol(time_var, self._get_assumptions(time_var, context))
+            s = resolve_assumed_symbol(freq_var, self._get_assumptions(freq_var, context))
             result = sp.laplace_transform(expr.sympy_expr, t, s, noconds=True)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
@@ -597,8 +619,8 @@ class SymPyEngine(SymbolicEngine):
         if not expr.is_valid:
             return expr
         try:
-            s = sp.Symbol(freq_var)
-            t = sp.Symbol(time_var)
+            s = resolve_assumed_symbol(freq_var, self._get_assumptions(freq_var, context))
+            t = resolve_assumed_symbol(time_var, self._get_assumptions(time_var, context))
             result = sp.inverse_laplace_transform(expr.sympy_expr, s, t)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
@@ -615,8 +637,8 @@ class SymPyEngine(SymbolicEngine):
         if not expr.is_valid:
             return expr
         try:
-            x = sp.Symbol(space_var)
-            k = sp.Symbol(freq_var)
+            x = resolve_assumed_symbol(space_var, self._get_assumptions(space_var, context))
+            k = resolve_assumed_symbol(freq_var, self._get_assumptions(freq_var, context))
             result = sp.fourier_transform(expr.sympy_expr, x, k)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
@@ -633,8 +655,8 @@ class SymPyEngine(SymbolicEngine):
         if not expr.is_valid:
             return expr
         try:
-            k = sp.Symbol(freq_var)
-            x = sp.Symbol(space_var)
+            k = resolve_assumed_symbol(freq_var, self._get_assumptions(freq_var, context))
+            x = resolve_assumed_symbol(space_var, self._get_assumptions(space_var, context))
             result = sp.inverse_fourier_transform(expr.sympy_expr, k, x)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
@@ -644,26 +666,6 @@ class SymPyEngine(SymbolicEngine):
                 expr_type=ExpressionType.UNKNOWN,
                 error=f"{type(e).__name__}: {e}",
             )
-
-    def _get_local_dict(
-        self, expr_str: str, context: MathContext | None
-    ) -> dict[str, Any]:
-        """Symbol bindings for parsing with symbol assumptions.
-
-        A name that appears as a call site in ``expr_str`` is skipped: binding
-        it to a plain ``Symbol`` lets implicit multiplication turn ``k(x)``
-        into ``k*x`` (run-024).  Function notation wins; the parser keeps its
-        ``Function`` binding for that name.
-        """
-        local_dict: dict[str, Any] = {}
-
-        if context and context.assumptions:
-            for var_name, assumptions in context.assumptions.items():
-                if name_used_as_function(expr_str, var_name):
-                    continue
-                local_dict[var_name] = sp.Symbol(var_name, **assumptions)
-
-        return local_dict
 
     def _get_assumptions(self, variable: str, context: MathContext | None) -> dict[str, bool]:
         """Get assumptions for a specific variable."""
