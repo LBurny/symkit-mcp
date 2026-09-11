@@ -27,9 +27,48 @@ from symkit.domain.expression_parser import (
 )
 from symkit.domain.value_objects import MathContext
 from symkit.infrastructure.sympy_engine import SymPyEngine
-from symkit_mcp.tools._state import get_context
+from symkit_mcp.tools._state import get_context, get_session
 
 _engine = SymPyEngine()
+
+
+def _effective_context(assumption_context: MathContext | None) -> MathContext:
+    """Resolve the assumption set a math call actually runs under.
+
+    The session's ``AssumptionEngine`` is the source of truth for step- and
+    domain-level assumptions (invariant I3).  Before this merge they were
+    written to the engine and then silently ignored by ``math()``, which read
+    only ``MathContext`` — ``assume_for_step("k positive")`` and the domain
+    defaults had no effect on the computed result.
+
+    Precedence, weakest to strongest: the engine's merged view (domain defaults
+    < global < session < step), then the explicit context.  A stronger layer
+    *replaces* a symbol's property set rather than unioning with it: unioning
+    let a step-level ``x positive`` linger under a per-call ``x is negative``,
+    which made the two conflict and silently dropped both — ``solve(x**2 - 4)``
+    returned ``x = 2`` for a per-call ``x is negative`` (the correct answer is
+    ``x = -2``).
+
+    The global context is never mutated; the merged view is local to the call.
+    """
+    context = (
+        assumption_context if assumption_context is not None else get_context()
+    )
+    session = get_session()
+    if session is None:
+        return context
+
+    engine_assumptions = session.assumption_engine.get_assumptions()
+    if not engine_assumptions:
+        return context
+
+    merged: dict[str, dict[str, bool]] = {
+        name: dict(props) for name, props in engine_assumptions.items()
+    }
+    for name, props in context.assumptions.items():
+        merged[name] = dict(props)
+    return MathContext(assumptions=merged)
+
 
 
 def _preprocess(expr_str: str) -> str:
@@ -464,11 +503,7 @@ def _execute_operation_inner(
     with the live SymPy objects; callers must pop them before responding.
     """
     preprocessed = _preprocess(expr_str)
-    context = (
-        assumption_context
-        if assumption_context is not None
-        else get_context()
-    )
+    context = _effective_context(assumption_context)
 
     # Helper to parse with consistent error handling
     def _parse(expr: str) -> tuple[sp.Expr | None, str | None]:
