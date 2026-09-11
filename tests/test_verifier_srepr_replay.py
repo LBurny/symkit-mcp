@@ -98,6 +98,38 @@ def test_verify_step_prefers_srepr_for_reserved_atoms():
     assert result.is_verified, result.message
 
 
+# ── Unevaluated operations in the input ─────────────────────────────────────
+
+
+def test_simplify_of_unevaluated_derivative_is_verified():
+    """A correct simplify step must not fail because its input was unevaluated.
+
+    ``simplify(Derivative(tanh(x**4), x))`` yields the evaluated derivative, but
+    ``simplify(Derivative(...) - <evaluated>)`` does not reduce to zero, so the
+    identically-zero residual was reported as a changed value and the chain
+    became `failed` (task-15 step 12).
+    """
+    from symkit.domain.derivation_session import DerivationStep, OperationType
+    from symkit.domain.step_verifier import StepVerifier
+
+    x = sp.Symbol("x")
+    unevaluated = sp.Derivative(sp.tanh(x**4), x)
+    evaluated = 4 * x**3 * (1 - sp.tanh(x**4) ** 2)
+    step = DerivationStep(
+        step_number=1,
+        operation=OperationType.SIMPLIFY,
+        description="simplify an unevaluated derivative",
+        input_expressions={"original": "Derivative(tanh(x**4), x)"},
+        output_expression=str(evaluated),
+        output_latex="",
+        output_srepr=sp.srepr(evaluated),
+        input_srepr=sp.srepr(unevaluated),
+        sympy_command="math('simplify', ...)",
+    )
+    result = StepVerifier().verify_step(step)
+    assert result.is_verified, f"{result.status.value}: {result.message}"
+
+
 # ── Persistence round-trip ──────────────────────────────────────────────────
 
 

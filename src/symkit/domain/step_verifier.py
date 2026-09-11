@@ -35,6 +35,22 @@ if TYPE_CHECKING:
 _NUM_ZERO_TOL = 1e-9
 
 
+def _evaluate_pending(expr: sp.Basic) -> sp.Basic:
+    """Evaluate unevaluated operations (``Derivative``/``Integral``/``Sum``).
+
+    A ``simplify`` step whose input is an unevaluated derivative is correct when
+    the output is that derivative's value, but ``simplify`` does not reduce the
+    difference to zero: SymPy evaluates the ``Derivative`` and then fails to
+    apply the trig identity to what is left, so an identically zero residual was
+    reported as a changed value and the whole chain became ``failed``
+    (task-15 step 12).  ``doit()`` first, and the difference collapses to 0.
+    """
+    try:
+        return expr.doit()
+    except Exception:  # pragma: no cover - doit may fail on exotic objects
+        return expr
+
+
 def is_numerically_zero(diff: sp.Basic) -> bool:
     """True if ``diff`` is exactly zero, or numerically zero within tolerance.
 
@@ -345,7 +361,11 @@ class StepVerifier:
                 message=f"{operation} returned boolean output; no automatic check",
             )
 
-        diff = sp.simplify(self._difference(input_expr, output_expr))
+        diff = sp.simplify(
+            self._difference(
+                _evaluate_pending(input_expr), _evaluate_pending(output_expr)
+            )
+        )
         if is_numerically_zero(diff):
             return VerificationResult.success(
                 f"{operation.capitalize()} verified: expressions are equal"

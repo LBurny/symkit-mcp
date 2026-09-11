@@ -69,6 +69,14 @@ binding, with the session's `AssumptionEngine` as the source of truth.
 - **A limit that needs sign information failed with a bare SymPy
   "Result depends on the sign of ..."** — informative about the symbols, silent
   about the remedy. It now points at `assumptions=[...]` / `assume_for_step()`.
+- **A correct `simplify` step was reported FAILED when its input was an
+  unevaluated derivative**, and the whole chain then read `overall: failed`.
+  `simplify(Derivative(tanh(x**4), x))` yields the evaluated derivative, but
+  `simplify(Derivative(...) - <evaluated>)` does not reduce to zero — SymPy
+  evaluates the `Derivative` and then fails to apply the trig identity to what
+  is left, so an identically zero residual looked like a changed value. The
+  equality check now evaluates pending operations first. (Found by the 1.5.1
+  black-box acceptance run; pre-existing, not a 1.5.1 regression.)
 
 ### Changed
 
@@ -91,7 +99,7 @@ binding, with the session's `AssumptionEngine` as the source of truth.
 
 ### Verification
 
-- 474 tests (was 398).
+- 475 tests (was 398).
 - 405-cell sweep (45 inputs × 9 assumption sets across all 32 operations)
   against a pre-change worktree: exactly 16 cells changed, all of them the
   correctness fixes above; the `_parse_ode` parser-stack consolidation is
