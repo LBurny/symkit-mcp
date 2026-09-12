@@ -27,6 +27,7 @@ from symkit.domain.assumption_engine import AssumptionEngine
 from symkit.domain.derivation_goal import DerivationGoal, parse_target_expression
 from symkit.domain.derivation_pattern import DerivationPattern
 from symkit.domain.derivation_planner import DerivationPlanner
+from symkit.domain.expr_io import safe_load_expression
 from symkit.domain.formula import Formula, FormulaParser, FormulaSource, ParseError
 from symkit.domain.formula_recommender import (
     FormulaRecommender,
@@ -438,7 +439,6 @@ class DerivationSession:
                 domain=self.domain,
             )
         conflicts = self.symbol_registry.detect_conflicts(symbol_names)
-
         return {
             "success": True,
             "formula_id": formula_id,
@@ -446,6 +446,7 @@ class DerivationSession:
             "latex": result.latex,
             "variables": symbol_names,
             "source": source.value,
+            "source_detail": source_detail,
             "step_number": self.step_count,
             "symbol_conflicts": conflicts,
             "symbol_warnings": [
@@ -847,31 +848,38 @@ class DerivationSession:
     # Step verification
     # ═══════════════════════════════════════════════════════════════════════
 
-    @staticmethod
-    def _safe_load_expression(
-        expr_str: str,
-        srepr_str: str = "",
-    ) -> sp.Basic | None:
-        """Load a stored expression string back into a SymPy object.
+    def _last_computed_expression(self) -> sp.Basic | None:
+        """The most recent step output, walking past steps that have none.
 
-        Thin delegate to :func:`symkit.domain.expr_io.safe_load_expression`,
-        which tries the round-trippable ``srepr`` first, then ``sp.sympify``,
-        then the unified user-expression parser. This is necessary because
-        ``str(expr)`` of LaTeX-derived symbols such as ``Symbol('mu_{t}')`` is
-        not valid Python input, and ``str(E)``/``str(I)`` re-parse to plain
-        Symbols (invariant I2). Non-Basic results are rejected so callers never
-        see an atom-less container.
+        A note computes nothing and carries no output, so restoring the session
+        cursor after a delete or rollback must skip it rather than clear the
+        expression (2026-09-12 black-box round).
         """
-        from symkit.domain.expr_io import safe_load_expression
+        for step in reversed(self.steps):
+            expr = safe_load_expression(
+                step.output_expression, step.output_srepr
+            )
+            if expr is not None:
+                return expr
+        return None
 
-        return safe_load_expression(expr_str, srepr_str)
+    def _outcome_expression(self) -> sp.Basic | None:
+        """What the derivation produced, as opposed to what ran last.
+
+        ``current_expression`` legitimately follows every step, so a trailing
+        evalf probe (a numeric residual, a constant) would be handed back as the
+        answer. An explicit None check, not ``or``: a SymPy Equality has no
+        truth value.
+        """
+        outcome = self.representative_expression()
+        return self.current_expression if outcome is None else outcome
 
     def _resolve_prior_expr(self, step_number: int) -> sp.Basic | None:
         """Resolve the expression before the specified step (for re-verification)."""
         if step_number <= 1:
             return None
         prev_step = self.steps[step_number - 2]
-        return self._safe_load_expression(
+        return safe_load_expression(
             prev_step.output_expression,
             prev_step.output_srepr,
         )
@@ -909,7 +917,7 @@ class DerivationSession:
         candidates: list[tuple[sp.Basic, set[str], bool]] = []
         for step in self.steps:
             is_custom = step.operation == OperationType.CUSTOM
-            out = self._safe_load_expression(
+            out = safe_load_expression(
                 step.output_expression, step.output_srepr
             )
             if out is None or not out.free_symbols:
@@ -1167,7 +1175,7 @@ class DerivationSession:
             solved = isinstance(current, sp.Equality) and str(current.lhs) == var
             if not solved:
                 for step in self.steps:
-                    out = self._safe_load_expression(
+                    out = safe_load_expression(
                         step.output_expression, step.output_srepr
                     )
                     if isinstance(out, sp.Equality) and str(out.lhs) == var:
@@ -1183,7 +1191,7 @@ class DerivationSession:
         if self.goal.target_form == "reduce_symbols":
             current_symbols = len(current.free_symbols)
             if self.steps:
-                initial = self._safe_load_expression(
+                initial = safe_load_expression(
                     self.steps[0].output_expression,
                     self.steps[0].output_srepr,
                 )
@@ -1207,7 +1215,7 @@ class DerivationSession:
         if self.goal.target_variables:
             step_vars: set[str] = {str(s) for s in current.free_symbols}
             for step in self.steps:
-                out = self._safe_load_expression(step.output_expression, step.output_srepr)
+                out = safe_load_expression(step.output_expression, step.output_srepr)
                 if out is not None:
                     step_vars |= {str(s) for s in out.free_symbols}
             missing = set(self.goal.target_variables) - step_vars
@@ -1349,14 +1357,7 @@ class DerivationSession:
         self._update_timestamp()
 
         # Restore previous step's expression
-        if self.steps:
-            last_step = self.steps[-1]
-            self.current_expression = self._safe_load_expression(
-                last_step.output_expression,
-                last_step.output_srepr,
-            )
-        else:
-            self.current_expression = None
+        self.current_expression = self._last_computed_expression()
 
         # Automatic persistence
         if self._persist_path:
@@ -1401,15 +1402,7 @@ class DerivationSession:
         self.steps = self.steps[:step_number]
 
         # Restore current expression
-        if self.steps:
-            last_step = self.steps[-1]
-            self.current_expression = self._safe_load_expression(
-                last_step.output_expression,
-                last_step.output_srepr,
-            )
-        else:
-            # Roll back to 0, clear everything
-            self.current_expression = None
+        self.current_expression = self._last_computed_expression()
 
         self._update_timestamp()
 
@@ -1453,18 +1446,10 @@ class DerivationSession:
                 "error": f"Invalid position. Valid range: 0-{len(self.steps)}",
             }
 
-        # Get the expression at the insertion point (reuse stored strings to avoid re-sympifying LaTeX-subscript symbols)
-        if after_step == 0:
-            output_expr_str = str(self.current_expression) if self.current_expression is not None else "0"
-            output_latex_str = sp.latex(self.current_expression) if self.current_expression is not None else "0"
-            output_srepr_str = sp.srepr(self.current_expression) if self.current_expression is not None else sp.srepr(sp.Integer(0))
-        else:
-            prev_step = self.steps[after_step - 1]
-            output_expr_str = prev_step.output_expression
-            output_latex_str = prev_step.output_latex
-            output_srepr_str = prev_step.output_srepr
-
-        # Create new step
+        # A note computes nothing, so it must not carry an output: copying the
+        # neighbouring step's expression made a pure-text note look like it had
+        # produced that value (2026-09-12 black-box round), and let target
+        # matching select a note as the derivation's outcome.
         note_emoji = {
             "assumption": "📋",
             "limitation": "⚠️",
@@ -1484,10 +1469,10 @@ class DerivationSession:
                 "note_type": note_type,
                 "related_variables": str(related_variables or []),
             },
-            output_expression=output_expr_str,
-            output_latex=output_latex_str,
-            output_srepr=output_srepr_str,
-            input_srepr=output_srepr_str,
+            output_expression="",
+            output_latex="",
+            output_srepr="",
+            input_srepr="",
             sympy_command="# Note (no computation)",
         )
 
@@ -1538,7 +1523,7 @@ class DerivationSession:
                 "error": "No result expression. Perform some derivation steps first.",
             }
 
-        # Generate verification summary and goal progress before finalizing status
+        outcome = self._outcome_expression()
         verification_summary = self.verify_derivation()
         progress = self.compute_progress()
         target_reached = bool(progress.get("matches_target"))
@@ -1561,8 +1546,8 @@ class DerivationSession:
                 "session_id": self.session_id,
                 "name": self.name,
                 "status": self.status.value,
-                "final_expression": str(self.current_expression),
-                "final_latex": sp.latex(self.current_expression),
+                "final_expression": str(outcome),
+                "final_latex": sp.latex(outcome),
                 "total_steps": self.step_count,
                 "verification_summary": verification_summary,
                 "goal": self.goal.to_dict() if self.goal else None,
@@ -1580,8 +1565,8 @@ class DerivationSession:
             "session_id": self.session_id,
             "name": self.name,
             "status": self.status.value,
-            "final_expression": str(self.current_expression),
-            "final_latex": sp.latex(self.current_expression),
+            "final_expression": str(outcome),
+            "final_latex": sp.latex(outcome),
             "total_steps": self.step_count,
             "steps": self.get_steps(),
             "formulas_used": {fid: f.to_dict() for fid, f in self.formulas.items()},
@@ -1699,7 +1684,7 @@ class DerivationSession:
 
         # Restore current expression
         if data.get("current_expression"):
-            session.current_expression = cls._safe_load_expression(
+            session.current_expression = safe_load_expression(
                 data["current_expression"],
                 data.get("current_expression_srepr", ""),
             )
