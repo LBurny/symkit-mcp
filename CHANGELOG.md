@@ -5,6 +5,58 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Engineering baseline: the rules the project already declared are now enforced
+instead of assumed.
+
+### Added
+
+- **CI quality gate** (`.github/workflows/ci.yml`): ruff, mypy, pytest on Python
+  3.10 and 3.12, and the modularity ratchet. The release pipeline runs the same
+  checks as a `quality` job that `build` depends on, so a tag can no longer
+  publish untested code. (Not yet exercised on a runner.)
+- **Modularity ratchet** (`scripts/check_modularity.py`, `modularity-baseline.json`):
+  files and functions over the hard limit are frozen at their current size and may
+  only shrink; new code must respect the limit. `--update` lowers the baseline and
+  refuses to raise it.
+- Tests for the public library API: `tests/application/test_use_cases.py` and
+  `tests/infrastructure/test_basic_verifier.py` (27 cases). `use_cases.py` and
+  `BasicVerifier` previously had no direct coverage despite being exported from
+  `symkit/__init__.py`.
+
+### Changed
+
+- **Bylaw §5.1** thresholds raised and made honest: files 300 soft / 600 hard,
+  functions 40 / 60, classes 200 / 400, modules 12 / 20. File and function lengths
+  are machine-enforced; class, module, and complexity limits are review triggers.
+  New §5.1.1 defines the ratchet baseline.
+- Dropped unused dev dependencies (`black`, `pylint`, `bandit`, `safety`); ruff
+  covers formatting and linting. All four remain runnable on demand via `uvx`.
+- `ROADMAP.md` refreshed from 1.1.0 to 1.6.1 reality; `ARCHITECTURE.md` layer
+  inventories corrected (they listed directories that no longer exist).
+- `server.py`'s version-override comment translated to English, per the code-comment
+  convention.
+
+### Fixed
+
+- `tests/formulas/test_formula_index_store.py` performance budgets were tight
+  wall-clock assertions (5s build / 100ms search) that failed under full-suite load
+  while passing in isolation. Loosened to order-of-magnitude guardrails that still
+  catch accidental quadratic indexing.
+- `BasicVerifier` picked the integration/differentiation variable with
+  `list(free_symbols)[0]`, so the same correct step could be verified in one
+  process and failed in another (set order follows `PYTHONHASHSEED`); constant
+  results like d/dx(5x) = 5 were always failed. Both checks now try every free
+  symbol in sorted order and succeed if any variable proves the step.
+- `BasicVerifier.verify_derivation` counted inconclusive steps (unknown
+  operations, unprovable checks) as failures. They are now reported separately
+  as `inconclusive_steps`, and a derivation with only inconclusive steps returns
+  INCONCLUSIVE instead of FAILED.
+- `tools/_state.reset_catalog` dropped the shared formula catalog without
+  closing its SQLite connection, leaking the index file lock (an `os error 32`
+  source on Windows). It now closes the store first.
+
 ## [1.6.1] - 2026-09-11
 
 Hardening release for the formula index, from a second black-box test pass

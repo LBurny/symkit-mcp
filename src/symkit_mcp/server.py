@@ -27,8 +27,9 @@ mcp = FastMCP(
 )
 
 try:
-    # mcp 1.x 的低层 Server 未设 version 时在 initialize 回退报告 SDK 版本；
-    # 覆盖为 symkit 包版本，避免 serverInfo.version 误导客户端。
+    # mcp 1.x reports the SDK version in serverInfo when the low-level Server has
+    # no version set; override it with the symkit package version so clients are
+    # not misled about which server they are talking to.
     from symkit_mcp import __version__ as _symkit_version
 
     mcp._mcp_server.version = _symkit_version

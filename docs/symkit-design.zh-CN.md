@@ -158,7 +158,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | `src/symkit/infrastructure/adapters/wikidata_formulas.py` | Wikidata SPARQL 公式检索适配器。 |
 | `src/symkit/infrastructure/adapters/biomodels.py` | BioModels SBML 模型适配器。 |
 | `src/symkit/infrastructure/adapters/base.py` | `BaseAdapter`、`FormulaInfo` 统一格式。 |
-| `src/symkit/infrastructure/verifier.py` | 基础 `Verifier` 实现。 |
+| `src/symkit/infrastructure/verifier.py` | 基础 `Verifier` 实现（`Verifier` 抽象接口唯一的适配器）。 |
 
 ### 4.4 MCP Tool 层
 
@@ -599,7 +599,7 @@ _current_context: MathContext = MathContext()   # 当前数学上下文（假设
 | `test_formula_search.py` | 公式搜索框架 |
 | `test_unified_math_coverage.py` | `math()` 统一工具覆盖（含积分变换） |
 
-当前测试状态：585 个测试全部通过，Ruff 与 MyPy 无错误。
+当前测试状态：612 个测试全部通过，Ruff 与 MyPy 无错误。
 
 ---
 

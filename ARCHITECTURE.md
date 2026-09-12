@@ -54,12 +54,14 @@ Pure business logic with no external dependencies.
 
 ### 2. Application Layer (`src/symkit/application/`)
 
-Coordinates Domain and Infrastructure.
+Coordinates Domain and Infrastructure. Re-exported from `symkit/__init__.py` as the
+programmatic library API; the MCP layer calls domain services directly and does not route
+through these classes.
 
 | Module | Description |
 |--------|-------------|
-| `use_cases/` | Derivation, verification, and formula management use cases |
-| `dto/` | Data transfer objects |
+| `use_cases.py` | `CalculateUseCase`, `SimplifyUseCase`, `DeriveUseCase`, `VerifyUseCase` — public library entry points |
+| `formula_catalog.py` | Formula catalog over the SQLite FTS5 index; composition root for the formula layers |
 
 ### 3. Infrastructure Layer (`src/symkit/infrastructure/`)
 
@@ -67,8 +69,11 @@ Interfaces to external systems.
 
 | Module | Description |
 |--------|-------------|
-| `persistence/` | YAML/JSON file storage |
-| `formula_repository_impl.py` | FormulaRepository implementation |
+| `sympy_engine.py` | `SymbolicEngine` implementation over SymPy (calculus, matrix, ODE, transforms, vector calculus) |
+| `formula_files.py` / `formula_index_store.py` | YAML layer reader and the SQLite FTS5 index store |
+| `derivation_repository.py` | Session JSON persistence |
+| `verifier.py` | `BasicVerifier` — the `Verifier` abstract interface's only concrete adapter, consumed by `application/use_cases.py` |
+| `adapters/` | External formula/constant sources (Wikidata, SciPy CODATA, BioModels) |
 
 ### 4. MCP Layer (`src/symkit_mcp/`)
 

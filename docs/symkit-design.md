@@ -159,7 +159,7 @@ Technical implementation details:
 | `src/symkit/infrastructure/adapters/wikidata_formulas.py` | Wikidata SPARQL formula search adapter. |
 | `src/symkit/infrastructure/adapters/biomodels.py` | BioModels SBML model adapter. |
 | `src/symkit/infrastructure/adapters/base.py` | `BaseAdapter` and `FormulaInfo` unified format. |
-| `src/symkit/infrastructure/verifier.py` | Basic `Verifier` implementation. |
+| `src/symkit/infrastructure/verifier.py` | Basic `Verifier` implementation (the `Verifier` ABC's only concrete adapter). |
 
 ### 4.4 MCP Tool Layer
 
@@ -607,7 +607,7 @@ Tests are organized by functional layer in `tests/`, with shared fixtures
 | `test_formula_search.py` | Formula search framework |
 | `test_unified_math_coverage.py` | `math()` unified tool coverage, incl. integral transforms |
 
-Current status: 585 tests pass; Ruff and MyPy report no errors.
+Current status: 612 tests pass; Ruff and MyPy report no errors.
 
 ---
 

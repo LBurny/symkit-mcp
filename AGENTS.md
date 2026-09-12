@@ -21,25 +21,28 @@ Entry point: `src/symkit_mcp/server.py` → `symkit-mcp` console script. The sin
   - `tools/_state.py` — **Process-global shared state**: single `_current_session` and `_current_context`. All tool modules read/write through `get_session()`/`set_session()`/`get_context()`/`set_context()`.
 - `formulas/` — YAML formula library (`library/<category>/*.yaml`) and `derived/` outputs (gitignored).
 - `derivation_sessions/` — Persisted session JSON (gitignored runtime artifacts).
-- `tests/` — pytest suite grouped by concern into subdirectories: `domain/` (pure domain units: entities, parser, derivation goal/planner, step verifier), `infrastructure/` (SymPy engine, external adapters), `math/` (unified `math()` tool surface), `assumptions/` (assumption contracts + invariants), `derivation/` (end-to-end derivation examples), `sessions/` (session/step tools + verification), `formulas/` (library, catalog, FTS5 index, pruning), `regression/` (black-box-driven fix suites), `tools/` (codegen, orchestration), `e2e/` (stdio MCP smoke tests spawning the real server via the MCP client SDK). Shared fixtures live in the root `conftest.py`, which also inserts `src/` into `sys.path` — test modules must not add their own path bootstrap.
+- `tests/` — pytest suite grouped by concern into subdirectories: `domain/` (pure domain units: entities, parser, derivation goal/planner, step verifier), `application/` (public library use cases), `infrastructure/` (SymPy engine, verifier, external adapters), `math/` (unified `math()` tool surface), `assumptions/` (assumption contracts + invariants), `derivation/` (end-to-end derivation examples), `sessions/` (session/step tools + verification), `formulas/` (library, catalog, FTS5 index, pruning), `regression/` (black-box-driven fix suites), `tools/` (codegen, orchestration), `e2e/` (stdio MCP smoke tests spawning the real server via the MCP client SDK). Shared fixtures live in the root `conftest.py`, which also inserts `src/` into `sys.path` — test modules must not add their own path bootstrap.
+- `scripts/` — Repo tooling: `check_modularity.py` (bylaw §5.1 ratchet), `prune_staging.py` (formula staging quarantine).
+- `modularity-baseline.json` — Frozen sizes of existing oversized files/functions (bylaw §5.1.1). Update only via `check_modularity.py --update`.
 - `docs/` — Design docs (`symkit-design.md`, `composable-formula-modification-engine.md`, etc.).
 - `.github/bylaws/` — Binding sub-laws: `ddd-architecture.md`, `git-workflow.md`, `python-environment.md`.
 
 ## Build / Test / Lint Commands
 
-Package manager is **uv** (preferred over pip). Python 3.12+ required (`.python-version` pins 3.12).
+Package manager is **uv** (preferred over pip). Python 3.12+ required (`.python-version` pins 3.12). CI runs the same commands plus a 3.10 matrix leg (`.github/workflows/ci.yml`).
 
 ```bash
 uv venv && uv sync --all-extras          # setup
 uv run pytest                            # run tests (asyncio_mode=auto, --cov=src)
 uv run pytest tests/sessions/test_session_verify_tools.py # focused test file
-uv run ruff check src/ tests/            # lint (line-length 100, py312 target)
-uv run mypy src/                         # typecheck (strict)
+uv run ruff check src/ tests/ scripts/   # lint (line-length 100, py312 target)
+uv run mypy src/ scripts/                # typecheck (strict)
+uv run python scripts/check_modularity.py --report # bylaw §5.1 ratchet + advisory metrics
 uv run python -m symkit_mcp.server       # run the MCP server (stdio)
 uv run pytest tests/e2e/test_mcp_e2e.py  # end-to-end MCP smoke test
 ```
 
-Pre-commit checklist (from `.github/bylaws/git-workflow.md`): pytest → ruff → mypy are **non-skippable**; update README/CHANGELOG/ROADMAP if user-visible behavior changed.
+Pre-commit checklist (from `.github/bylaws/git-workflow.md`): pytest → ruff → mypy are **non-skippable**; run `check_modularity.py` after any refactor that moves code between files; update README/CHANGELOG/ROADMAP if user-visible behavior changed.
 
 ## Architecture Boundaries (DDD)
 
@@ -50,7 +53,7 @@ Enforced by convention; respect them on every edit:
 3. The MCP layer (`symkit_mcp/`) is the only place that knows about FastMCP / MCP protocol. `symkit/` core must remain reusable without MCP.
 4. Tool modules must not hold business logic — delegate to domain services / use cases.
 
-Modularity limits (bylaw §5): files ≤200 lines soft / 400 hard; functions ≤30 / 50; classes ≤150 / 300. Cyclomatic complexity ≤10 soft / 15 hard. Propose refactor when exceeded.
+Modularity limits (bylaw §5.1): files ≤300 lines soft / 600 hard; functions ≤40 / 60; classes ≤200 / 400; modules ≤12 files / 20. Cyclomatic complexity ≤10 soft / 15 hard. File and function lengths are enforced by `scripts/check_modularity.py` against `modularity-baseline.json` — a 600/60 limit applies to **new** code, while existing oversized files and functions are frozen at their recorded size and may only shrink. Run `uv run python scripts/check_modularity.py --report` after a refactor; use `--update` to lower the baseline (it refuses to raise). Class, module, and complexity limits are review triggers, not CI failures.
 
 ## Coding Conventions
 
@@ -67,9 +70,11 @@ Modularity limits (bylaw §5): files ≤200 lines soft / 400 hard; functions ≤
 - **Global session state is process-wide.** `tools/_state.py` keeps one `_current_session` / `_current_context`. The MCP server is single-process; do not assume per-request isolation. Always go through the `get_*/set_*` accessors, never mutate the module globals directly.
 - **Blocking init on startup.** `server.main()` eagerly constructs the `SessionManager` in a `ThreadPoolExecutor` so the first `session_start()` doesn't stall FastMCP's asyncio loop (synchronous tool handlers run on the loop). Preserve this if you touch startup.
 - **antlr4 runtime is pinned**: `antlr4-python3-runtime>=4.11,<4.12` — required by `sympy.parsing.latex`. Don't let a newer antlr4 sneak in via uv.
+- **The uv default index is an Aliyun mirror** (`pyproject.toml`) for the maintainer's network, and `uv.lock` records mirror artifact URLs. CI overrides this with `UV_DEFAULT_INDEX=https://pypi.org/simple` rather than re-resolving the lock; do the same locally if the mirror is unreachable. Re-locking against upstream PyPI is a separate, network-dependent change.
 - **Gitignored runtime dirs** (do not commit): `derivation_sessions/`, `formulas/derived/`, `.coverage`, `.mypy_cache/`, `.pytest_cache/`, `.ruff_cache/`.
 - **External adapters are network-optional**: Wikidata/SciPy/BioModels searches should degrade gracefully when offline; legacy search paths must not hard-fail the server.
 - **Windows platform**: repo lives under `I:\Formulation\...`; use forward-slash paths in tooling and `uv run` rather than relying on shell activation. `.venv\Scripts\` layout on Windows.
+- **`uv run` re-sync fails while an MCP server is running.** A live `symkit-mcp` server from `.venv\Scripts\` locks `symkit-mcp.exe`, and plain `uv run pytest` then dies with `os error 32` during environment sync. Use `uv run --no-sync ...` for local commands; run plain `uv sync` once the server is stopped.
 
 ## Docs to Read Before Sensitive Edits
 
