@@ -203,7 +203,7 @@ CMD ["python", "-m", "src.main"]
 ```bash
 # 临时运行工具（不安装）
 uvx ruff check .
-uvx black --check .
+uvx ruff format --check .
 uvx mypy src/
 
 # 运行特定版本

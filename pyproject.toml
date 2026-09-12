@@ -67,6 +67,9 @@ Documentation = "https://github.com/LBurny/symkit-mcp/tree/master/docs"
 Repository = "https://github.com/LBurny/symkit-mcp"
 Issues = "https://github.com/LBurny/symkit-mcp/issues"
 
+# Upstream index is configured explicitly because the maintainer's network uses
+# this mirror. uv.lock records mirror artifact URLs, so CI overrides the index
+# with UV_DEFAULT_INDEX=https://pypi.org/simple instead of re-resolving the lock.
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple/"
 default = true
@@ -135,12 +138,4 @@ testpaths = ["tests"]
 addopts = "-v --cov=src --cov-report=term-missing"
 markers = [
     "e2e: End-to-end MCP smoke tests",
-]
-
-[dependency-groups]
-dev = [
-    "bandit>=1.9.3",
-    "black>=26.1.0",
-    "pylint>=4.0.4",
-    "safety>=3.7.0",
 ]
