@@ -345,7 +345,10 @@ def test_parse_error_message_is_sanitized():
     assert expr is None
     assert err is not None
     assert not err.startswith("(")
-    assert "unexpected EOF" in err
+    # CPython words an unterminated-bracket tokenizer error differently across
+    # versions ("unexpected EOF" on 3.11+, "EOF in multi-line statement" on
+    # 3.10), so assert the reason survives rather than the exact phrasing.
+    assert "EOF" in err
 
 
 # ── F11: true bidirectional limits ────────────────────────────────────
