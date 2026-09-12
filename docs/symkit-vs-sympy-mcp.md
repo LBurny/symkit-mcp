@@ -2,7 +2,7 @@
 
 > **Last Updated:** 2026-09-11  
 > **SymPy-MCP Version Analyzed:** Vendor snapshot  
-> **SymKit Version:** v1.6.1 (47 tools)
+> **SymKit Version:** v1.6.2 (47 tools)
 
 ## 🎯 Core Positioning
 

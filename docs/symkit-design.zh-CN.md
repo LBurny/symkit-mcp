@@ -599,7 +599,7 @@ _current_context: MathContext = MathContext()   # 当前数学上下文（假设
 | `test_formula_search.py` | 公式搜索框架 |
 | `test_unified_math_coverage.py` | `math()` 统一工具覆盖（含积分变换） |
 
-当前测试状态：612 个测试全部通过，Ruff 与 MyPy 无错误。
+当前测试状态：643 个测试全部通过，Ruff 与 MyPy 无错误。
 
 ---
 
