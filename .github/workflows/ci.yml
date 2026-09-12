@@ -50,6 +50,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Keep this matrix in step with `.github/workflows/release.yml`, whose
+        # quality gate must cover the same interpreters before it can publish.
         python-version: ["3.10", "3.12"]
     steps:
       - name: Checkout repository
