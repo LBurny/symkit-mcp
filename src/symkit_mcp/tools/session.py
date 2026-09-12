@@ -394,9 +394,7 @@ def register_session_tools(mcp: Any) -> None:
                 "display_text": base_display,
             }
 
-        latex_str = sp.latex(expr)
-        display_text = render_session_header(session, goal, progress, latex_str)
-
+        display_text = render_session_header(session, goal, progress, sp.latex(expr))
         result = {
             "success": True,
             "session_name": session.name,
@@ -404,8 +402,11 @@ def register_session_tools(mcp: Any) -> None:
             "domain": session.domain,
             "step_count": len(session.steps),
             "status": session.status.value,
-            "latex": latex_str,
+            "latex": sp.latex(expr),
             "sympy": str(expr),
+            # `result_*` is the outcome session_complete reports as `final_*`.
+            "result_expression": str(session.outcome_expression()),
+            "result_latex": sp.latex(session.outcome_expression()),
             "goal": goal,
             "progress": progress,
             "recommended_formulas": recommended_formulas,

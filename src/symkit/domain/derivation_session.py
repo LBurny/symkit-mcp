@@ -863,7 +863,7 @@ class DerivationSession:
                 return expr
         return None
 
-    def _outcome_expression(self) -> sp.Basic | None:
+    def outcome_expression(self) -> sp.Basic | None:
         """What the derivation produced, as opposed to what ran last.
 
         ``current_expression`` legitimately follows every step, so a trailing
@@ -1523,7 +1523,7 @@ class DerivationSession:
                 "error": "No result expression. Perform some derivation steps first.",
             }
 
-        outcome = self._outcome_expression()
+        outcome = self.outcome_expression()
         verification_summary = self.verify_derivation()
         progress = self.compute_progress()
         target_reached = bool(progress.get("matches_target"))
