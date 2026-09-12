@@ -55,10 +55,18 @@ def _evaluate_pending(expr: sp.Basic) -> sp.Basic:
 def is_numerically_zero(diff: sp.Basic) -> bool:
     """True if ``diff`` is exactly zero, or numerically zero within tolerance.
 
-    Symbolic (free-symbol) differences must simplify to exact zero; purely
-    numeric differences are compared in floating point with an absolute
-    tolerance of 1e-9.
+    Symbolic differences must simplify to exact zero; purely numeric ones are
+    compared in floating point with an absolute tolerance of 1e-9.  Matrix-valued
+    differences are checked entrywise: ``Matrix == 0`` is not a Python truth
+    value and ``complex(matrix.evalf())`` raises, so a zero-matrix difference was
+    reported as changing the expression (2026-09-12 black-box round).  Symbolic
+    matrix expressions are expanded first, which also absorbs a stray
+    ``Identity`` term.
     """
+    if isinstance(diff, sp.MatrixExpr) and not isinstance(diff, sp.MatrixBase):
+        diff = diff.as_explicit()
+    if isinstance(diff, sp.MatrixBase):
+        return all(is_numerically_zero(entry) for entry in diff)
     if diff == 0:
         return True
     if diff.free_symbols:
@@ -402,14 +410,17 @@ class StepVerifier:
             )
 
         var_sym = sp.Symbol(var)
-        # If the output has no free symbols, it should be 0
-        if not output_expr.free_symbols:
-            if output_expr == 0:
-                return VerificationResult.success("Derivative of constant is 0")
-            return VerificationResult.failure("Non-zero derivative of constant")
+        # No free-symbol shortcut here: `diff(2*x, x) = 2` has a constant
+        # output and is correct. Reverse integration below handles both that
+        # and `diff(5, x) = 0` — integrating 2 gives 2*x, integrating 0 gives a
+        # constant — so deciding from "output has no free symbols" was simply
+        # wrong and rejected correct steps (2026-09-12 black-box round).
 
-        # Reverse integration
-        integral = sp.integrate(output_expr, var_sym)
+        # Reverse integration, repeated for each differentiation order:
+        # integrating `2` once recovers `2*x`, twice recovers `x**2`.
+        integral = output_expr
+        for _ in range(self._extract_order_from_command(step.sympy_command)):
+            integral = sp.integrate(integral, var_sym)
         diff = sp.simplify(integral - input_expr)
         if diff.free_symbols <= {var_sym} and is_numerically_zero(
             sp.diff(diff, var_sym)
@@ -800,6 +811,12 @@ class StepVerifier:
             match = re.search(r"integrate\(expr,\s*(?:\(\s*)?(\w+)", command)
             return match.group(1) if match else None
         return None
+
+    @staticmethod
+    def _extract_order_from_command(command: str) -> int:
+        """The differentiation order in ``diff(expr, x, 2)``; 1 when omitted."""
+        match = re.search(r"diff\(expr,\s*\w+\s*,\s*(\d+)\s*\)", command)
+        return int(match.group(1)) if match else 1
 
     def _collect_warnings(
         self,
