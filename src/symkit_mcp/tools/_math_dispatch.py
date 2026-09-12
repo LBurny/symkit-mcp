@@ -21,6 +21,7 @@ from sympy.core.function import AppliedUndef
 
 from symkit.domain.assumption_binding import apply_assumptions, resolve_assumed_symbol
 from symkit.domain.derivation_session import OperationType
+from symkit.domain.expr_io import dense_matrix_form
 from symkit.domain.expression_parser import (
     parse_expression_string,
     parse_user_expression,
@@ -629,7 +630,7 @@ def _execute_operation_inner(
                 return subs_error
             assert subs is not None
             parsed = parsed.subs(_rekey_subs_to_expression(parsed, subs)).doit()
-        result = parsed.evalf()
+        result = dense_matrix_form(parsed).evalf()
 
     # ── SOLVE ──
     elif operation == "solve":
@@ -785,9 +786,8 @@ def _execute_operation_inner(
             if ode_expr is None:
                 return {"success": False,
                         "error": ode_error or "Cannot parse ODE"}
-            # Context assumptions (k, m positive) shape the solution form:
-            # without them sympy returns complex-root exponentials instead of
-            # the expected trig form (run-018).
+            # Context assumptions (k, m positive) shape the solution form; without
+            # them sympy returns complex-root exponentials, not the trig form.
             ode_expr = _apply_context_assumptions(ode_expr, context)
             # Fail with an actionable message when the requested dependent
             # variable is not the one in the input.  Otherwise SymPy reports

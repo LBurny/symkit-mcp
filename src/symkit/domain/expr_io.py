@@ -87,6 +87,24 @@ def evaluated_form(expr: sp.Basic) -> sp.Basic:
         return expr
 
 
+def dense_matrix_form(expr: sp.Basic) -> sp.Basic:
+    """Collapse a symbolic matrix expression into a dense matrix.
+
+    ``Matrix(A)*Matrix(A) - c*Matrix(A) + k*Identity(n)`` stays a ``MatAdd``
+    with the ``Identity`` term unabsorbed, and ``.evalf()`` then recurses until
+    Python raises ``RecursionError`` -- an uncaught crash at the tool boundary
+    (2026-09-12 pure-formula black-box round).  ``as_explicit()`` adds the term
+    into the matrix, which both evaluates and makes a true Cayley-Hamilton
+    residual come out as the zero matrix.  Non-matrix input is returned as-is.
+    """
+    if isinstance(expr, sp.MatrixExpr) and not isinstance(expr, sp.MatrixBase):
+        try:
+            return expr.as_explicit()
+        except Exception:
+            return expr
+    return expr
+
+
 def substitution_pairs(
     input_expressions: dict[str, str],
 ) -> list[tuple[str, str]] | None:
