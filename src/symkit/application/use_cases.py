@@ -4,6 +4,18 @@ SymKit Application Use Cases
 Use cases implement application-specific business rules.
 They orchestrate the flow of data to and from entities,
 and direct those entities to use their domain logic.
+
+These are the programmatic entry points for embedding `symkit` as a library:
+
+    from symkit.infrastructure.sympy_engine import SymPyEngine
+    from symkit.application.use_cases import CalculateUseCase
+
+    result = CalculateUseCase(SymPyEngine()).execute("x**2 + 2*x + 1", "simplify")
+
+The MCP presentation layer does not route through these classes today; the MCP
+tools call domain services directly. They are still a public surface of the
+library, not dead code — keep them in sync with the domain API when it changes,
+and prefer them over re-implementing orchestration for library consumers.
 """
 
 from dataclasses import dataclass

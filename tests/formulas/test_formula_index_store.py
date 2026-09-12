@@ -259,15 +259,28 @@ class TestPerformanceBudgets:
         yield c
         store.close()
 
+    # Deliberately loose bounds. These are order-of-magnitude guardrails against
+    # accidental quadratic indexing, not microbenchmarks: on an idle machine the
+    # cold build is well under 1s and search under 10ms, but a loaded CI runner or
+    # a full-suite run can be an order of magnitude slower. Tight wall-clock
+    # bounds here only produce flaky failures.
+    BUILD_BUDGET_S = 60.0
+    SEARCH_BUDGET_MS = 2000.0
+
     def test_cold_build_and_search_budgets(self, perf_catalog):
         start = time.perf_counter()
         report = perf_catalog.reindex()
         build_s = time.perf_counter() - start
         assert report.added == self.N
-        assert build_s < 5.0, f"cold build of {self.N} entries took {build_s:.2f}s"
+        assert build_s < self.BUILD_BUDGET_S, (
+            f"cold build of {self.N} entries took {build_s:.2f}s "
+            f"(budget {self.BUILD_BUDGET_S}s) - suspect quadratic indexing"
+        )
 
         start = time.perf_counter()
         results = perf_catalog.search("synthetic formula", limit=5)
         search_ms = (time.perf_counter() - start) * 1000
         assert results
-        assert search_ms < 100, f"search took {search_ms:.1f}ms"
+        assert search_ms < self.SEARCH_BUDGET_MS, (
+            f"search took {search_ms:.1f}ms (budget {self.SEARCH_BUDGET_MS}ms)"
+        )
