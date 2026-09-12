@@ -40,6 +40,31 @@ instead of assumed.
 
 ### Fixed
 
+- **The step verifier reported a correct substitution as FAILED, and a no-op
+  substitution as verified.** A substitution key whose spelling needs evaluation
+  (`/2` arrives from the user parser as `Pow(2, -1)`) never matched the archived
+  expression, which holds `Rational(1, 2)`; `subs` matches structurally, so the
+  reconstructed expectation kept the un-substituted term and the step was
+  reported FAILED — dragging `session_verify_session` to `overall: failed` on a
+  mathematically correct chain. Keys are now re-evaluated structurally
+  (`expr_io.evaluated_form`). Conversely, a substitution whose keys were all
+  absent from the expression still said "Substitution verified"; it is now
+  INCONCLUSIVE, which also stops it inflating the verified count.
+- **`session_complete` reported the last step as the answer.** `final_expression`
+  was `str(current_expression)`, so a trailing `evalf` probe — a numeric
+  residual, `-1.0`, a constant — became the delivered result. It now reports the
+  derivation's outcome (`representative_expression`), falling back to the
+  current expression.
+- **A note inherited the previous step's output.** `session_add_note` recorded
+  the neighbouring step's expression as its own output, so a pure-text note
+  looked like it had produced that value (and could be picked up by target
+  matching). Notes now carry no output, and rollback/delete walk past
+  output-less steps instead of clearing the session's current expression.
+- `session_load_formula` silently coerced an unknown `source` label to
+  `user_input`, and `session_start` silently swapped an unrecognized `pattern`
+  for `direct-manipulation`. Both now warn and echo what was used.
+- Matrix steps recorded their operation as the bucket `matrix_op` with no trace
+  of the actual call; `input_expressions["operation"]` now keeps the call name.
 - `tests/formulas/test_formula_index_store.py` performance budgets were tight
   wall-clock assertions (5s build / 100ms search) that failed under full-suite load
   while passing in isolation. Loosened to order-of-magnitude guardrails that still
