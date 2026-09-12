@@ -28,6 +28,11 @@ from symkit.infrastructure.derivation_repository import (
     get_repository,
 )
 from symkit.infrastructure.formula_identity import staging_id
+from symkit_mcp.tools._session_views import (
+    render_empty_session,
+    render_session_header,
+    unknown_pattern_warning,
+)
 from symkit_mcp.tools._state import (
     get_catalog,
     get_context,
@@ -268,12 +273,13 @@ def register_session_tools(mcp: Any) -> None:
         Returns:
             Session information
         """
+        resolved_pattern = DerivationPattern.try_from_string(pattern)
         manager = get_manager()
         session = manager.create(
             name=name,
             description=description,
             domain=domain,
-            pattern=DerivationPattern.from_string(pattern),
+            pattern=resolved_pattern or DerivationPattern.DIRECT_MANIPULATION,
             author=author,
             auto_persist=True,
         )
@@ -284,7 +290,7 @@ def register_session_tools(mcp: Any) -> None:
             session.set_goal(parsed_goal)
         set_session(session)
 
-        return {
+        result: dict[str, Any] = {
             "success": True,
             "session_id": session.session_id,
             "name": session.name,
@@ -294,6 +300,9 @@ def register_session_tools(mcp: Any) -> None:
             "status": session.status.value,
             "message": f"Session '{name}' started. Use math(session=True) for derivation steps.",
         }
+        if resolved_pattern is None:
+            result["warnings"] = [unknown_pattern_warning(pattern, session.pattern.value)]
+        return result
 
     @mcp.tool()
     def session_resume(session_id: str) -> dict[str, Any]:
@@ -372,14 +381,7 @@ def register_session_tools(mcp: Any) -> None:
 
         expr = session.current_expression
         if expr is None:
-            base_display = f"📊 **{session.name}** (Step {len(session.steps)})\n\n_No formula loaded yet_"
-            if goal:
-                base_display += (
-                    f"\n\n🎯 **Goal:** {goal['text']}\n"
-                    f"**Target form:** {goal['target_form'] or 'derive_expression'}"
-                )
-                if goal.get('assumptions'):
-                    base_display += f"\n**Assumptions:** {', '.join(goal['assumptions'])}"
+            base_display = render_empty_session(session, goal)
             return {
                 "success": True,
                 "session_name": session.name,
@@ -393,17 +395,7 @@ def register_session_tools(mcp: Any) -> None:
             }
 
         latex_str = sp.latex(expr)
-        display_lines = [
-            f"📊 **{session.name}** (Step {len(session.steps)}, {session.status.value})",
-            f"🏷️ Domain: {session.domain or 'general'}",
-        ]
-        if goal:
-            display_lines.append(f"🎯 Goal: {goal['text']}")
-            display_lines.append(f"📈 Progress: {progress['progress_score']:.0%}")
-            if goal.get('assumptions'):
-                display_lines.append(f"📝 Assumptions: {', '.join(goal['assumptions'])}")
-        display_lines.extend(["", "$$", f"{latex_str}", "$$"])
-        display_text = "\n".join(display_lines)
+        display_text = render_session_header(session, goal, progress, latex_str)
 
         result = {
             "success": True,
@@ -836,14 +828,21 @@ def register_session_tools(mcp: Any) -> None:
             }
         try:
             formula_source = FormulaSource(source)
+            unknown_source = None
         except ValueError:
             formula_source = FormulaSource.USER_INPUT
-        return session.load_formula(
+            unknown_source = source
+        result = session.load_formula(
             expression,
             formula_id=formula_id,
             source=formula_source,
             source_detail=source,
         )
+        if unknown_source is not None:
+            result.setdefault("warnings", []).append(
+                f"Unknown source '{unknown_source}'; recorded as '{formula_source.value}'."
+            )
+        return result
 
     @mcp.tool(
         meta={

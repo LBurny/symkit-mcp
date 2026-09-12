@@ -239,8 +239,7 @@ def register_math_tools(mcp: Any) -> None:
                     try:
                         op_type = _OP_TYPE_MAP.get(operation, OperationType.CUSTOM)
                         desc = description or f"{operation}: {expression[:50]}"
-                        # Build a sympy_command that the step verifier can parse
-                        # (e.g. diff(expr, x), integrate(expr, x)).
+                        # A sympy_command the step verifier can parse.
                         if operation == "diff":
                             if order == 1:
                                 sympy_cmd = f"diff(expr, {variable})"
@@ -261,6 +260,8 @@ def register_math_tools(mcp: Any) -> None:
                         # str() of the same live object the operation consumed, so
                         # the archive cannot diverge from the response.
                         input_expressions: dict[str, str] = {
+                            # A coarse bucket records matrix ops as matrix_op.
+                            "operation": operation,
                             "original": (
                                 str(input_obj) if input_obj is not None else preprocessed
                             ),
@@ -286,7 +287,6 @@ def register_math_tools(mcp: Any) -> None:
                             # was reported INCONCLUSIVE because the other side
                             # disagrees (P5).
                             input_expressions["limit_direction"] = direction
-
                         sess._add_step(
                             operation=op_type,
                             description=desc,

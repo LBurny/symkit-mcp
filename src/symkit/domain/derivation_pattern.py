@@ -25,12 +25,17 @@ class DerivationPattern(str, Enum):
     DIRECT_MANIPULATION = "direct-manipulation"
 
     @classmethod
-    def from_string(cls, value: str) -> DerivationPattern:
-        """Parse pattern from string; fallback to direct-manipulation when unrecognized."""
+    def try_from_string(cls, value: str) -> DerivationPattern | None:
+        """Parse a pattern name, or return ``None`` when it is not recognized."""
         try:
             return cls(value.lower().replace(" ", "-").replace("_", "-"))
         except ValueError:
-            return cls.DIRECT_MANIPULATION
+            return None
+
+    @classmethod
+    def from_string(cls, value: str) -> DerivationPattern:
+        """Parse pattern from string; fallback to direct-manipulation when unrecognized."""
+        return cls.try_from_string(value) or cls.DIRECT_MANIPULATION
 
     @classmethod
     def from_goal(cls, goal: DerivationGoal) -> DerivationPattern:
