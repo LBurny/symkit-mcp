@@ -40,6 +40,31 @@ instead of assumed.
 
 ### Fixed
 
+- **The step verifier rejected a correct derivative that lands on a non-zero
+  constant.** `_verify_differentiation` decided from "the output has no free
+  symbols" and returned `Non-zero derivative of constant` before reverse
+  integration ran, so `diff(2*x, x) = 2` — and any higher-order derivative
+  reaching a constant — was reported FAILED; five such steps turned a whole
+  chain into `overall: failed`. Reverse integration now runs always, repeated
+  once per differentiation order, so the check covers both `diff(2*x, x) = 2`
+  and `diff(x**2, x, 2) = 2`.
+- **Matrix-valued steps could never verify.** `is_numerically_zero` only
+  understood scalars: `Matrix == 0` is not a Python truth value and
+  `complex(matrix.evalf())` raises, so an `expand`/`simplify` whose difference
+  *was* the zero matrix was reported as changing the expression. Matrix
+  differences are now checked entrywise, expanding a symbolic matrix expression
+  first.
+- **`evalf` crashed with a `RecursionError` on `Identity`-bearing matrix
+  expressions.** `A*A - c*A + k*Identity(n)` stays a `MatAdd` with the identity
+  term unabsorbed and `.evalf()` recurses on it; the uncaught error escaped to
+  the tool boundary. Such expressions are now made explicit first, which also
+  collapses the term — a true Cayley-Hamilton residual now comes out as the zero
+  matrix instead of a crash.
+- `session_show` and `session_complete` answered "what did this produce"
+  differently: `complete` reports the derivation outcome, `show` still reported
+  the raw current expression. `show` now carries `result_expression` /
+  `result_latex` with the same value as `final_*`, keeping `latex` / `sympy` for
+  the current expression.
 - **The step verifier reported a correct substitution as FAILED, and a no-op
   substitution as verified.** A substitution key whose spelling needs evaluation
   (`/2` arrives from the user parser as `Pow(2, -1)`) never matched the archived
