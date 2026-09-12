@@ -90,6 +90,9 @@ def set_catalog(catalog: FormulaCatalog | None) -> None:
 
 
 def reset_catalog() -> None:
-    """Drop the shared catalog (tests); does not delete the index file."""
+    """Drop the shared catalog (tests); closes the index connection so the
+    SQLite file lock is released (Windows). Does not delete the index file."""
     global _catalog
+    if _catalog is not None:
+        _catalog.store.close()
     _catalog = None
