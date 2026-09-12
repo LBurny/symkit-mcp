@@ -69,3 +69,54 @@ def safe_load_expression(
         pass
 
     return None
+
+
+def evaluated_form(expr: sp.Basic) -> sp.Basic:
+    """Re-evaluate structurally-unevaluated nodes.
+
+    The user parser leaves some arithmetic unevaluated, so ``/2`` arrives as
+    ``Pow(2, -1)`` while an expression that has already been through the engine
+    holds ``Rational(1, 2)``.  ``subs`` matches structurally, so a substitution
+    key in the first form silently fails to apply to the second, and a correct
+    step is reported FAILED (2026-09-12 black-box round).  Round-tripping
+    through ``srepr`` forces evaluation without changing the value.
+    """
+    try:
+        return sp.sympify(sp.srepr(expr))
+    except Exception:
+        return expr
+
+
+def substitution_pairs(
+    input_expressions: dict[str, str],
+) -> list[tuple[str, str]] | None:
+    """The ``key = value`` substitution pairs of a recorded step, losslessly.
+
+    Prefers the archived JSON map.  The human-readable ``replacement`` string is
+    comma-joined, so a value containing a comma — ``Rational(1,6)``,
+    ``Eq(a, b)``, any multi-argument call — splits into fragments and the
+    verifier reported a false "Could not parse replacement expression".  The
+    string form is only a fallback for records written before the map was
+    archived.
+    """
+    import json
+
+    raw_map = input_expressions.get("replacement_map")
+    if raw_map:
+        try:
+            mapping = json.loads(raw_map)
+        except (TypeError, ValueError):
+            mapping = None
+        if isinstance(mapping, dict) and mapping:
+            return [(str(k), str(v)) for k, v in mapping.items()]
+
+    replacement_str = input_expressions.get("replacement", "")
+    if not replacement_str:
+        return None
+    pairs: list[tuple[str, str]] = []
+    for part in replacement_str.split(","):
+        left, sep, right = part.strip().partition("=")
+        if not sep or not left.strip() or not right.strip():
+            return None
+        pairs.append((left.strip(), right.strip()))
+    return pairs or None

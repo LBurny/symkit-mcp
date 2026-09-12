@@ -19,6 +19,7 @@ from symkit.domain.assumption_binding import (
     resolve_assumed_symbol,
 )
 from symkit.domain.assumption_engine import AssumptionEngine
+from symkit.domain.expr_io import evaluated_form, substitution_pairs
 from symkit.domain.expression_parser import (
     parse_expression_string,
 )
@@ -530,7 +531,7 @@ class StepVerifier:
         assumptions: dict[str, dict[str, bool]],
     ) -> VerificationResult:
         """Verify substitution operation."""
-        pairs = self._substitution_pairs(step)
+        pairs = substitution_pairs(step.input_expressions)
         if pairs is None:
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
@@ -538,24 +539,37 @@ class StepVerifier:
             )
 
         expected = input_expr
+        applied = False
         for key_str, value_str in pairs:
             if re.fullmatch(r"\w+", key_str):
                 target_sym: sp.Basic = self._assumed_symbol(key_str, assumptions)
             else:
                 # Non-identifier keys (e.g. ``x**2`` or ``Derivative(f(x), x)``)
-                target_sym = self._parse(key_str, assumptions)
-                if target_sym is None:
+                parsed_key = self._parse(key_str, assumptions)
+                if parsed_key is None:
                     return VerificationResult(
                         status=VerificationStatus.INCONCLUSIVE,
                         message="Could not parse substitution key",
                     )
+                target_sym = evaluated_form(parsed_key)
             replacement_expr = self._parse(value_str, assumptions)
             if replacement_expr is None:
                 return VerificationResult(
                     status=VerificationStatus.INCONCLUSIVE,
                     message="Could not parse replacement expression",
                 )
+            before = expected
             expected = expected.subs(target_sym, replacement_expr)
+            applied = applied or expected != before
+
+        if not applied:
+            # Every key is absent from the input, so nothing was substituted and
+            # there is nothing to compare. Saying "verified" here inflated the
+            # verified count with steps that did no work.
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message="Substitution keys do not occur in the input expression",
+            )
 
         diff = sp.simplify(self._difference(expected, output_expr))
         if is_numerically_zero(diff):
@@ -566,37 +580,6 @@ class StepVerifier:
             expected=str(expected),
             actual=str(output_expr),
         )
-
-    @staticmethod
-    def _substitution_pairs(step: DerivationStep) -> list[tuple[str, str]] | None:
-        """The step's ``key = value`` substitution pairs, losslessly.
-
-        Prefers the archived JSON map.  The human-readable ``replacement``
-        string is comma-joined, so a value containing a comma —
-        ``Rational(1,6)``, ``Eq(a, b)``, any multi-argument call — splits into
-        fragments and the verifier reported a false "Could not parse
-        replacement expression" (task-02 step 23).  The string form is only a
-        fallback for records written before the map was archived.
-        """
-        raw_map = step.input_expressions.get("replacement_map")
-        if raw_map:
-            try:
-                mapping = json.loads(raw_map)
-            except (TypeError, ValueError):
-                mapping = None
-            if isinstance(mapping, dict) and mapping:
-                return [(str(k), str(v)) for k, v in mapping.items()]
-
-        replacement_str = step.input_expressions.get("replacement", "")
-        if not replacement_str:
-            return None
-        pairs: list[tuple[str, str]] = []
-        for part in replacement_str.split(","):
-            left, sep, right = part.strip().partition("=")
-            if not sep or not left.strip() or not right.strip():
-                return None
-            pairs.append((left.strip(), right.strip()))
-        return pairs or None
 
     def _verify_solution(
         self,
