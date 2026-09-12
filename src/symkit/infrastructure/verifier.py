@@ -54,11 +54,17 @@ class BasicVerifier(Verifier):
         derivation: Derivation,
         context: MathContext | None = None,
     ) -> VerificationResult:
-        """Verify an entire derivation by checking each step."""
+        """Verify an entire derivation by checking each step.
+
+        Inconclusive steps (unknown operations, unprovable checks) are
+        reported separately from failed ones instead of failing the whole
+        derivation.
+        """
         if not derivation.steps:
             return VerificationResult.failure("Empty derivation")
 
         failed_steps: list[int] = []
+        inconclusive_steps: list[int] = []
 
         for step in derivation.steps:
             result = self.verify_step(
@@ -67,13 +73,23 @@ class BasicVerifier(Verifier):
                 step.operation,
                 context,
             )
-            if not result.is_verified:
+            if result.status == VerificationStatus.INCONCLUSIVE:
+                inconclusive_steps.append(step.step_number)
+            elif not result.is_verified:
                 failed_steps.append(step.step_number)
 
         if failed_steps:
             return VerificationResult.failure(
                 f"Steps {failed_steps} failed verification",
                 failed_steps=failed_steps,
+                inconclusive_steps=inconclusive_steps,
+            )
+
+        if inconclusive_steps:
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message=f"Steps {inconclusive_steps} could not be verified",
+                details={"inconclusive_steps": inconclusive_steps},
             )
 
         return VerificationResult.success(f"All {len(derivation.steps)} steps verified")
@@ -120,6 +136,19 @@ class BasicVerifier(Verifier):
             difference=str(diff),
         )
 
+    @staticmethod
+    def _candidate_variables(*exprs: Expression) -> list[sp.Symbol]:
+        """Candidate variables: every free symbol, sorted by name.
+
+        Sorting matters: set iteration order varies with PYTHONHASHSEED, and
+        picking `list(free_symbols)[0]` made verdicts differ between processes.
+        The fallback symbol lets constant-only checks still run.
+        """
+        symbols: set[sp.Symbol] = set()
+        for expr in exprs:
+            symbols |= expr.sympy_expr.free_symbols
+        return sorted(symbols, key=lambda s: s.name) or [sp.Symbol("x")]
+
     def _verify_differentiation(
         self,
         input_expr: Expression,
@@ -128,31 +157,20 @@ class BasicVerifier(Verifier):
         """
         Verify differentiation by integrating the result.
 
-        Note: This is reverse verification - if ∫output = input (up to constant),
-        then differentiation is correct.
+        Reverse check: if ∫output dvar equals input up to a constant for some
+        candidate variable, the differentiation is correct.
         """
-        # Find free symbols to determine variable
-        free_symbols = output_expr.sympy_expr.free_symbols
-        if not free_symbols:
-            # Constant - derivative should be 0
-            if output_expr.sympy_expr == 0:
-                return VerificationResult.success("Derivative of constant is 0")
-            return VerificationResult.failure("Non-zero derivative of constant")
+        for var in self._candidate_variables(input_expr, output_expr):
+            integral = sp.integrate(output_expr.sympy_expr, var)
+            diff = sp.simplify(integral - input_expr.sympy_expr)
 
-        # Take the first symbol as variable (heuristic)
-        var = list(free_symbols)[0]
-
-        # Integrate output and compare with input
-        integral = sp.integrate(output_expr.sympy_expr, var)
-        diff = sp.simplify(integral - input_expr.sympy_expr)
-
-        # The difference should be a constant (no free_symbols except integration constant)
-        if diff.free_symbols <= {var} and sp.diff(diff, var) == 0:
-            return VerificationResult(
-                status=VerificationStatus.VERIFIED,
-                message="Differentiation verified by reverse integration",
-                reverse_check=True,
-            )
+            # diff must be constant w.r.t. var and carry no other free symbols
+            if diff.free_symbols <= {var} and sp.diff(diff, var) == 0:
+                return VerificationResult(
+                    status=VerificationStatus.VERIFIED,
+                    message=f"Differentiation verified by reverse integration over {var}",
+                    reverse_check=True,
+                )
 
         return VerificationResult(
             status=VerificationStatus.INCONCLUSIVE,
@@ -168,24 +186,18 @@ class BasicVerifier(Verifier):
         """
         Verify integration by differentiating the result.
 
-        If d/dx(output) = input, then integration is correct.
+        If d/dvar(output) = input for some candidate variable, the integration
+        is correct.
         """
-        # Find variable
-        free_symbols = input_expr.sympy_expr.free_symbols
-        var = sp.Symbol("x") if not free_symbols else list(free_symbols)[0]
-
-        # Differentiate output
-        derivative = sp.diff(output_expr.sympy_expr, var)
-
-        # Compare with input
-        diff = sp.simplify(derivative - input_expr.sympy_expr)
-
-        if diff == 0:
-            return VerificationResult(
-                status=VerificationStatus.VERIFIED,
-                message="Integration verified by differentiation",
-                reverse_check=True,
-            )
+        derivative: sp.Expr | None = None
+        for var in self._candidate_variables(input_expr, output_expr):
+            derivative = sp.diff(output_expr.sympy_expr, var)
+            if sp.simplify(derivative - input_expr.sympy_expr) == 0:
+                return VerificationResult(
+                    status=VerificationStatus.VERIFIED,
+                    message=f"Integration verified by differentiation over {var}",
+                    reverse_check=True,
+                )
 
         return VerificationResult.failure(
             "Differentiation of integral does not match original",
