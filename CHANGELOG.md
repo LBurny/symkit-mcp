@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`lean_status()` — a read-only Lean environment probe.** Agents kept guessing
+  whether the optional Lean backend was installed (listing directories, running
+  `lake --version`) and read a missing `Mathlib` top-level directory as "Mathlib
+  is not installed", even though Mathlib lives under
+  `<data dir>/lean-workspace/.lake/packages/mathlib`. The new tool answers in one
+  call: the resolved toolchain / Mathlib / workspace paths, where each was
+  resolved from (`ELAN_HOME`, `PATH`, `~/.elan`, `SYMKIT_DATA_DIR`), which layer
+  is missing, and the exact next command — named for the running interpreter, so
+  it works even when the console script is not on `PATH`. It never runs Lean and
+  never downloads. `session_certify`'s unavailable response now points at it.
+- Readiness is now judged from the files on disk. `detect_status` additionally
+  verifies that Mathlib is fetched and built (manifest entry, package sources,
+  and the compiled oleans), so a workspace whose Mathlib was deleted no longer
+  reports ready from a leftover stamp. The stamp is advisory only, so a
+  workspace copied from another machine stays usable when its stamp is lost.
+
 ## [1.8.0] - 2026-09-14
 
 A Lean-certification sandbox round (`symkit-mcp-test-lean`) verified the four
@@ -53,6 +73,15 @@ domain assumption presets) or SymPy usage traps. Test suite grew 1031 → 1041.
   (`{"cp": {"nonzero": True}}`), a string (`"cp nonzero x positive"`) or a list
   of alternating pairs, and binds them as Lean hypotheses. Steps that recorded
   their own assumptions keep them.
+
+### Changed
+
+- **Tool descriptions cleaned up.** The `formula_remove` description no longer
+  carries an internal run-history note, `show_assumptions` now states that it
+  only covers the shared math context (the assumption engine's levels are
+  listed by `list_assumptions`), and `formula_search` documents the `scipy`
+  source once instead of twice. Stale module docstrings now say `math()`
+  covers 33 operations and that `formula.py` is local-library-first.
 
 ### Fixed
 

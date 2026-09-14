@@ -6,12 +6,23 @@ SymKit project roadmap and feature planning.
 
 ## Current
 
-**v1.8.0** (2026-09-14) — 45 MCP tools, 33 `math()` operations, 1055 tests.
+**v1.9.0** (2026-09-14) — 46 MCP tools, 33 `math()` operations, 1065 tests.
 See [CHANGELOG.md](CHANGELOG.md) for the release-by-release history.
 
 ---
 
 ## Completed
+
+### 1.9.0 — Lean environment probe (2026-09-14)
+
+- `lean_status()`: a read-only tool that reports whether the optional Lean
+  backend is ready — resolved toolchain / Mathlib / workspace paths, where each
+  was resolved from, the missing layer, and the exact next command. It never
+  runs Lean and never downloads, so agents can check the environment instead of
+  guessing from directory listings.
+- Readiness is judged from files on disk: Mathlib must be fetched and built,
+  and the readiness stamp is advisory, so a workspace copied from another
+  machine stays usable when its stamp is lost (45 → 46 tools).
 
 ### 1.8.0 — Lean lane hardening (2026-09-14)
 

@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from symkit.application.lean_certification import certify_session
 from symkit.infrastructure.lean_batch import LeanBatchChecker
-from symkit.infrastructure.lean_toolchain import detect_status
+from symkit.infrastructure.lean_toolchain import describe_environment, detect_status
 from symkit_mcp.tools._state import get_session
 
 
@@ -44,6 +44,28 @@ def _normalize_assumptions(
 
 def register_certification_tools(mcp: Any) -> None:
     """Register Lean certification tools."""
+
+    @mcp.tool(
+        meta={
+            "category": "Verification",
+            "example": "lean_status()",
+        }
+    )
+    def lean_status() -> dict[str, Any]:
+        """Check whether the optional Lean 4 kernel backend is ready, without changing anything.
+
+        Read-only and side-effect free: it never runs Lean and never downloads, so
+        it is safe to call before deciding whether to certify. Reports the resolved
+        toolchain, Mathlib, and workspace paths, where each was resolved from,
+        which layer is missing, and the exact command to fix it. Use this instead
+        of listing directories or running `lake --version` yourself.
+
+        Returns:
+            Environment report: availability, per-layer status (toolchain/Mathlib/
+            workspace), `resolved_from` (ELAN_HOME, SYMKIT_DATA_DIR, lake source),
+            `missing` layer names, and `next_step` guidance.
+        """
+        return describe_environment()
 
     @mcp.tool(
         meta={
@@ -96,6 +118,10 @@ def register_certification_tools(mcp: Any) -> None:
                     "prebuilt Mathlib cache (one-time, ~1-2 GB, requires network). "
                     "Re-run session_certify() afterwards; lean_available flips to "
                     "true when the toolchain is ready."
+                ),
+                "diagnose": (
+                    "Call lean_status() for the resolved paths, the missing layer, "
+                    "and the exact next command."
                 ),
             }
         checker = LeanBatchChecker(Path(status.lake_path), Path(status.workspace))

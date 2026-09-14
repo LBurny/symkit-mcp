@@ -5,7 +5,7 @@ Step-by-step symbolic math for AI agents: derive, verify, and certify formulas o
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-1055%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1065%20passed-brightgreen.svg)]()
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -42,13 +42,13 @@ Example — deriving the angular frequency of a simple harmonic oscillator from 
 
 ## Tools
 
-45 MCP tools across 9 categories. Most work flows through a few high-level tools; power users can drive each step individually.
+46 MCP tools across 9 categories. Most work flows through a few high-level tools; power users can drive each step individually.
 
 | Category | Count | Highlights |
 |---|---|---|
 | Unified Math | 1 | `math` — 33 symbolic operations: calculus, ODEs, matrices, vector analysis, integral transforms, dimensional analysis |
 | Session Management | 15 | `session_start`, `session_record_step`, `session_rollback`, `session_complete` |
-| Verification | 4 | `session_verify_step`, `session_verify_session`, `session_certify` |
+| Verification | 5 | `session_verify_step`, `session_verify_session`, `session_certify`, `lean_status` |
 | Assumptions | 7 | `assume`, `unassume`, `check_assumption_conflicts` |
 | Formula Library | 8 | `formula_search`, `formula_get`, `formula_add`, `formula_promote` |
 | Symbol Semantics | 4 | `register_symbol`, `lookup_symbol`, `check_symbol_conflicts` |
@@ -82,6 +82,8 @@ Search covers names, aliases (Chinese works: `雷诺数` → Reynolds number), t
 ## Lean 4 kernel certification (optional)
 
 `session_certify()` re-proves eligible algebraic-equality steps of the current session (`simplify` / `expand` / `factor` / `combine` in the rational fragment) with the Lean 4 + Mathlib kernel, using `ring` / `field_simp`. Results are attached under each step's `details.lean`; existing verification verdicts are never modified, and `unproven` only means the automation could not close the goal — not that the step is wrong. A step whose input and output are identical (`x = x`, `0 = 0`) is reported as `trivial` and excluded from the `proven` count: the kernel discharges it instantly but validates no algebra. No extra Python packages are required.
+
+Call `lean_status()` first if you are unsure whether the backend is installed — it is read-only (never runs Lean, never downloads) and reports the resolved toolchain, Mathlib, and workspace paths, where each was resolved from, which layer is missing, and the exact next command. Do not probe the filesystem or run `lake --version` yourself: a missing directory is not evidence, and Mathlib lives under `<data dir>/lean-workspace/.lake/packages/mathlib`.
 
 ### Setup
 
@@ -176,9 +178,9 @@ src/
 │   ├── domain/           # Entities, derivation engine, verifier contracts
 │   ├── application/      # Use cases
 │   └── infrastructure/   # SymPy engine, Lean checker, persistence, adapters
-└── symkit_mcp/           # MCP server layer (FastMCP) + 45 tools
+└── symkit_mcp/           # MCP server layer (FastMCP) + 46 tools
 formulas/                 # Seed formula library (source tree)
-tests/                    # 1055 tests
+tests/                    # 1065 tests
 ```
 
 Domain-driven design: the core is independent of MCP and SymPy, engines are pluggable via protocols, and formulas/sessions persist as readable YAML/JSON.

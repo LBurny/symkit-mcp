@@ -100,7 +100,7 @@ MCP protocol interface, independent of the core library.
 | `tools/_unit_context.py` | MCP 层单位接线：聚合会话单位（公式变量 + 符号注册表）、`dimension` 操作、验证链的量纲后置检查 |
 | `tools/_formula_governance.py` | 公式写入治理：变量单位必填（`"-"` 为显式无量纲哨兵）、`similar_to` 近重复提示（结构指纹优先、FTS 兜底）、单位回填 |
 | `tools/_system_solve.py` | 列表输入的系统 `solve`：逐解假设过滤（`filtered_by_assumptions`）、多解头条告警 |
-| `tools/certification.py` | `session_certify` 工具：Verification 类别，委托 `application/lean_certification.py`；可选 `assumptions` 参数（映射 / `"cp nonzero"` 字符串 / 交替对列表）在认证时补充分母非零等前提；无 Lean 工具链时返回 `lean_available: false` 与安装指引 |
+| `tools/certification.py` | Verification 类别：`lean_status` 只读环境探针（委托 `lean_toolchain.describe_environment`，报告解析到的 toolchain/Mathlib/工作区路径、来源变量、缺失层与下一步命令，绝不跑 Lean、不下载）；`session_certify` 委托 `application/lean_certification.py`，可选 `assumptions` 参数在认证时补前提，不可用时指向 `lean_status()` |
 
 ---
 
@@ -110,7 +110,7 @@ MCP protocol interface, independent of the core library.
 |----------|-------|-------------|
 | **Unified Math** | 1 | Unified math entry point (33 operations: calculus, matrices, ODE, transforms, numeric `evalf`, dimensional consistency `dimension`, etc.) |
 | **Assumptions** | 7 | Multi-level assumption engine: `assume` / `show_assumptions` (global context) plus step/session-level `assume_for_step`, `list_assumptions`, `clear_step_assumptions`, `unassume`, `clear_assumptions` |
-| **Verification** | 4 | Step/session verification and assumption-conflict detection: `session_verify_step`, `session_verify_session`, `session_certify`, `check_assumption_conflicts`. 会话存在单位信息时，验证链自动附加量纲一致性检查（不一致的步标为 `failed`）；`session_certify` 可选地用 Lean 4 + Mathlib 内核复核代数等式步骤，结果写入 `details.lean`，永不改动既有判定 |
+| **Verification** | 5 | Step/session verification and assumption-conflict detection: `session_verify_step`, `session_verify_session`, `session_certify`, `check_assumption_conflicts`, `lean_status`. 会话存在单位信息时，验证链自动附加量纲一致性检查（不一致的步标为 `failed`）；`session_certify` 可选地用 Lean 4 + Mathlib 内核复核代数等式步骤，结果写入 `details.lean`，永不改动既有判定 |
 | **Symbol Semantics** | 4 | Symbol registration, lookup, and conflict detection |
 | **Formula Library** | 8 | Formula search and curation over a persistent SQLite FTS5 index (trigram tokenizer, CJK-capable); three tiers — bundled seeds (read-only), staging (session-derived, demoted in ranking), curated (user-added / promoted via `formula_promote`); content-hash dedup collapses duplicate entries; `formula_reindex` rebuilds after hand edits; `formula_stats` reports tier counts。写入路径要求每个变量携带非空 `unit`（`"-"` 表示未知/无量纲），成功时返回 `similar_to` 近重复提示（α-不变结构指纹优先，FTS 文本兜底）；`formula_promote` 落盘 `curated: true`，`formula_get` 透出 `curated`，`formula_stats` 另报结构重复组 `structural_duplicate_groups`。`verified` 表示验证器跑过，`curated` 表示人工晋升，二者语义独立 |
 | **Session Management** | 15 | Derivation session management and step operations; graded overall verification (a chain is verified when nothing failed and at least one substantive step verified) |
@@ -150,7 +150,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # Persistence, external adapters
 │   └── symkit_mcp/          # MCP Server
 │       ├── server.py        # Entry point
-│       └── tools/           # 45 tools
+│       └── tools/           # 46 tools
 ├── formulas/                # Formula library
 │   ├── library/             # Seed formulas (YAML, by category)
 │   └── derived/             # Session-derived formulas (runtime output)

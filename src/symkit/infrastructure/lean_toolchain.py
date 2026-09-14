@@ -68,7 +68,15 @@ _SMOKE_SOURCE = (
 
 @dataclass(frozen=True)
 class LeanStatus:
-    """Availability of the Lean certification backend and its metadata."""
+    """Availability of the Lean certification backend and its metadata.
+
+    ``available`` means "usable for certification": the workspace exists, the
+    selected ``lake`` owns the pinned toolchain, and Mathlib is built. The
+    per-layer flags stay separate so a caller can report *which* layer is
+    missing instead of a single opaque reason. The readiness stamp is advisory
+    only — readiness is judged from the files on disk, so a workspace copied
+    from another machine stays usable when its stamp is lost.
+    """
 
     available: bool
     reason: str = ""
@@ -76,11 +84,31 @@ class LeanStatus:
     workspace: str | None = None
     toolchain: str | None = None
     mathlib_rev: str | None = None
+    mathlib_found: bool = False
+    mathlib_ready: bool = False
+    workspace_ready: bool = False
+    stamp_present: bool = False
 
 
 def lean_workspace_dir() -> Path:
     """Return the hidden Lean workspace directory under the user data dir."""
     return user_data_dir() / "lean-workspace"
+
+
+def _find_lake_with_source() -> tuple[Path | None, str | None]:
+    """Return ``(lake, source)``; the source names where the path came from."""
+    elan_home = os.environ.get("ELAN_HOME")
+    if elan_home:
+        redirected = Path(elan_home) / "bin" / _ELAN_EXE
+        if redirected.exists():
+            return redirected, "ELAN_HOME"
+    found = shutil.which("lake")
+    if found:
+        return Path(found), "PATH"
+    fallback = Path.home() / ".elan" / "bin" / _ELAN_EXE
+    if fallback.exists():
+        return fallback, "~/.elan"
+    return None, None
 
 
 def find_lake() -> Path | None:
@@ -92,16 +120,7 @@ def find_lake() -> Path | None:
     resolves toolchains against *its own* elan home, the first certified step
     triggered a fresh multi-GB toolchain download elsewhere (round-17 A3).
     """
-    elan_home = os.environ.get("ELAN_HOME")
-    if elan_home:
-        redirected = Path(elan_home) / "bin" / _ELAN_EXE
-        if redirected.exists():
-            return redirected
-    found = shutil.which("lake")
-    if found:
-        return Path(found)
-    fallback = Path.home() / ".elan" / "bin" / _ELAN_EXE
-    return fallback if fallback.exists() else None
+    return _find_lake_with_source()[0]
 
 
 def _read_stamp(stamp: Path) -> dict[str, Any] | None:
@@ -132,6 +151,41 @@ def _pinned_toolchain_version(workspace: Path) -> str | None:
     return name or None
 
 
+def _mathlib_package_dir(workspace: Path) -> Path:
+    return workspace / ".lake" / "packages" / "mathlib"
+
+
+def _mathlib_found(workspace: Path) -> bool:
+    """True when ``lake`` resolved Mathlib (manifest entry + fetched sources).
+
+    Either marker alone is misleading: a manifest can list Mathlib before
+    ``lake update`` fetched it, and a leftover package directory can outlive the
+    manifest. Requiring both keeps the report honest.
+    """
+    manifest = workspace / "lake-manifest.json"
+    listed = False
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        listed = False
+    else:
+        listed = isinstance(data, dict) and any(
+            isinstance(p, dict) and p.get("name") == "mathlib"
+            for p in data.get("packages", [])
+        )
+    return listed and (_mathlib_package_dir(workspace) / "Mathlib.lean").exists()
+
+
+def _mathlib_ready(workspace: Path) -> bool:
+    """True when Mathlib is compiled and importable (built oleans present).
+
+    ``lake exe cache get`` is what actually makes ``import Mathlib.*`` usable;
+    without the build output the toolchain is present yet every certification
+    goal fails, so readiness has to look here, not at a stamp (round-lean).
+    """
+    return (_mathlib_package_dir(workspace) / ".lake" / "build" / "lib" / "lean").is_dir()
+
+
 def _toolchain_installed(lake: Path, workspace: Path) -> bool | None:
     """Whether ``lake``'s elan home already holds the pinned toolchain.
 
@@ -156,21 +210,17 @@ def detect_status(workspace: Path | None = None) -> LeanStatus:
         return LeanStatus(False, f"lake not found (PATH, ELAN_HOME, ~/.elan); {_SETUP_HINT}")
     ws = Path(workspace) if workspace is not None else lean_workspace_dir()
     stamp = ws / _STAMP
-    if not (ws / "lakefile.toml").exists() or not stamp.exists():
+    workspace_ready = (ws / "lakefile.toml").exists()
+    stamp_present = stamp.exists()
+    if not workspace_ready:
         return LeanStatus(
             False,
             f"Lean workspace not initialized; {_SETUP_HINT}",
             lake_path=str(lake),
             workspace=str(ws),
         )
-    data = _read_stamp(stamp)
-    if data is None:
-        return LeanStatus(
-            False,
-            f"Lean readiness stamp is unreadable; {_SETUP_HINT}",
-            lake_path=str(lake),
-            workspace=str(ws),
-        )
+    mathlib_found = _mathlib_found(ws)
+    mathlib_ready = mathlib_found and _mathlib_ready(ws)
     if _toolchain_installed(lake, ws) is False:
         # Running `lake` here would make elan download this toolchain into the
         # wrong elan home (A3). Tell the user instead of stalling for minutes.
@@ -181,11 +231,125 @@ def detect_status(workspace: Path | None = None) -> LeanStatus:
             f"it so `lake` resolves the pinned version ({_SETUP_HINT})",
             lake_path=str(lake),
             workspace=str(ws),
+            mathlib_found=mathlib_found,
+            mathlib_ready=mathlib_ready,
+            workspace_ready=workspace_ready,
+            stamp_present=stamp_present,
+        )
+    data = _read_stamp(stamp) or {}
+    if not mathlib_ready:
+        missing = "dependencies are not fetched" if not mathlib_found else "cache is not built"
+        return LeanStatus(
+            False,
+            f"Mathlib {missing} in the Lean workspace; re-run `symkit-lean-setup` "
+            f"to fetch and build it ({_SETUP_HINT})",
+            toolchain=data.get("toolchain"),
+            mathlib_rev=data.get("mathlib_rev"),
+            lake_path=str(lake),
+            workspace=str(ws),
+            mathlib_found=mathlib_found,
+            mathlib_ready=mathlib_ready,
+            workspace_ready=workspace_ready,
+            stamp_present=stamp_present,
         )
     return LeanStatus(
-        True, "", lake_path=str(lake), workspace=str(ws),
-        toolchain=data.get("toolchain"), mathlib_rev=data.get("mathlib_rev"),
+        True,
+        "",
+        toolchain=data.get("toolchain"),
+        mathlib_rev=data.get("mathlib_rev"),
+        lake_path=str(lake),
+        workspace=str(ws),
+        mathlib_found=mathlib_found,
+        mathlib_ready=mathlib_ready,
+        workspace_ready=workspace_ready,
+        stamp_present=stamp_present,
     )
+
+
+def _missing_layers(status: LeanStatus) -> list[str]:
+    """Names of the layers that keep ``status`` from being certification-ready."""
+    if status.available:
+        return []
+    missing: list[str] = []
+    if status.lake_path is None:
+        missing.append("lake")
+    if not status.workspace_ready:
+        missing.append("workspace")
+        return missing
+    _check_toolchain_ownership(status, missing)
+    if not status.mathlib_found:
+        missing.append("mathlib_sources")
+    elif not status.mathlib_ready:
+        missing.append("mathlib_build")
+    return missing
+
+
+def _check_toolchain_ownership(status: LeanStatus, missing: list[str]) -> None:
+    """Append ``toolchain`` when the selected lake lacks the pinned version."""
+    if status.lake_path is None or status.workspace is None:
+        return
+    if _toolchain_installed(Path(status.lake_path), Path(status.workspace)) is False:
+        missing.append("toolchain")
+
+
+def _setup_command() -> str:
+    """Platform-neutral setup command that does not assume the script is on PATH."""
+    return f"{sys.executable} -m symkit.infrastructure.lean_toolchain --yes"
+
+
+def _next_step(status: LeanStatus) -> str | None:
+    """A single actionable instruction, or ``None`` when nothing is missing."""
+    missing = _missing_layers(status)
+    if not missing:
+        return None
+    if "lake" in missing:
+        return f"Install Lean first: {_setup_command()}"
+    return f"Run the one-time Lean setup: {_setup_command()}"
+
+
+def describe_environment(status: LeanStatus | None = None) -> dict[str, Any]:
+    """Report the resolved Lean environment without touching the network.
+
+    Read-only and side-effect free: it never runs ``lake`` and never downloads,
+    so it is safe to call from an exploring agent. The point is to give the
+    caller one authoritative answer (resolved paths, where each came from, which
+    layer is missing, and the exact next command) instead of having it guess by
+    listing directories or running ``lake --version`` (round-lean: an operator
+    read a missing "Mathlib" top-level directory as "Mathlib is not installed").
+    """
+    lake, source = _find_lake_with_source()
+    resolved = {
+        "ELAN_HOME": os.environ.get("ELAN_HOME"),
+        "SYMKIT_DATA_DIR": os.environ.get("SYMKIT_DATA_DIR"),
+        "lake_source": source,
+    }
+    if status is None:
+        status = detect_status()
+    return {
+        "available": status.available,
+        "reason": status.reason,
+        "ready_for_certification": status.available,
+        "toolchain": {
+            "found": lake is not None,
+            "version": status.toolchain,
+            "lake": status.lake_path,
+            "owned_by_selected_lake": _toolchain_installed(
+                Path(status.lake_path), Path(status.workspace or "")
+            )
+            if status.lake_path and status.workspace
+            else None,
+        },
+        "mathlib": {
+            "dependency": status.mathlib_found,
+            "built": status.mathlib_ready,
+            "rev": status.mathlib_rev,
+        },
+        "workspace": status.workspace,
+        "stamp": {"present": status.stamp_present, "advisory": True},
+        "resolved_from": resolved,
+        "missing": _missing_layers(status),
+        "next_step": _next_step(status),
+    }
 
 
 def _elan_asset() -> tuple[str, str]:
@@ -396,3 +560,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     print(f"Setup failed: {status.reason}")
     return 1
+
+
+if __name__ == "__main__":  # pyproject.toml console script also targets main()
+    raise SystemExit(main())

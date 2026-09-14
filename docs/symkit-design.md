@@ -59,7 +59,7 @@ SymKit is a **domain-agnostic** general-purpose formula derivation engine suitab
 - **Human-AI Collaboration**: Supports inserting assumptions, limitations, observations, and correction suggestions into the derivation.
 - **LaTeX Friendly**: Natively supports LaTeX input, subscript symbols, Greek letters, and physical star superscripts (e.g., `\beta^*`).
 
-The external contract is a set of 45 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
+The external contract is a set of 46 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
 
 ---
 
@@ -170,7 +170,7 @@ Technical implementation details:
 
 ### 4.4 MCP Tool Layer
 
-Exposes 45 MCP tools; each module focuses on one capability area:
+Exposes 46 MCP tools; each module focuses on one capability area:
 
 | File | Responsibility |
 |---|---|
@@ -351,7 +351,7 @@ When rolling back, deleting, or inserting notes, `DerivationSession` no longer d
 
 ### 8.1 Tool Categories
 
-SymKit exposes 45 MCP tools organized into 9 categories:
+SymKit exposes 46 MCP tools organized into 9 categories:
 
 | Category | Representative Tools | Count | Purpose |
 |---|---|---|---|
@@ -617,7 +617,7 @@ Tests are organized by functional layer in `tests/`, with shared fixtures
 | `test_formula_search.py` | Formula search framework |
 | `test_unified_math_coverage.py` | `math()` unified tool coverage, incl. integral transforms |
 
-Current status: 1055 tests pass; Ruff and MyPy report no errors.
+Current status: 1065 tests pass; Ruff and MyPy report no errors.
 
 ---
 

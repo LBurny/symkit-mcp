@@ -56,22 +56,127 @@ def test_lake_present_but_workspace_missing(monkeypatch, tmp_path):
     assert "symkit-lean-setup" in status.reason
 
 
+def _install_mathlib(workspace, version: str = "4.24.0", *, built: bool = True) -> None:
+    """Lay down the on-disk markers ``detect_status`` reads for readiness."""
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "lakefile.toml").write_text('name = "ws"\n', encoding="utf-8")
+    (workspace / "lean-toolchain").write_text(
+        f"leanprover/lean4:v{version}", encoding="utf-8"
+    )
+    (workspace / lean_toolchain._STAMP).write_text(
+        json.dumps({"toolchain": version, "mathlib_rev": f"v{version}"}), encoding="utf-8"
+    )
+    (workspace / "lake-manifest.json").write_text(
+        json.dumps({"packages": [{"name": "mathlib", "rev": "deadbeef"}]}), encoding="utf-8"
+    )
+    package = workspace / ".lake" / "packages" / "mathlib"
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "Mathlib.lean").write_text("-- mathlib\n", encoding="utf-8")
+    if built:
+        (package / ".lake" / "build" / "lib" / "lean").mkdir(parents=True, exist_ok=True)
+
+
+def _fake_lake(monkeypatch, tmp_path, *, with_toolchain: bool = True):
+    """A lake under a fake elan home; returns ``(lake, elan_home)``."""
+    elan_home = tmp_path / "elan"
+    lake = elan_home / "bin" / lean_toolchain._ELAN_EXE
+    lake.parent.mkdir(parents=True, exist_ok=True)
+    lake.write_text("", encoding="utf-8")
+    (elan_home / "toolchains").mkdir(parents=True, exist_ok=True)
+    if with_toolchain:
+        (elan_home / "toolchains" / "leanprover--lean4---v4.24.0").mkdir()
+    monkeypatch.setattr(lean_toolchain.shutil, "which", lambda _name: str(lake))
+    return lake, elan_home
+
+
+def test_unavailable_when_mathlib_is_not_built(monkeypatch, tmp_path):
+    """Toolchain + stamp alone are not enough: a stamp left over from a bootstrap
+    whose Mathlib was deleted must not report ready (round-lean)."""
+    _, elan_home = _fake_lake(monkeypatch, tmp_path)
+    monkeypatch.setenv("ELAN_HOME", str(elan_home))
+    workspace = tmp_path / "ws_ready"
+    _install_mathlib(workspace, built=False)
+
+    status = lean_toolchain.detect_status(workspace=workspace)
+
+    assert status.available is False
+    assert status.mathlib_found is True and status.mathlib_ready is False
+    assert "Mathlib" in status.reason and "cache is not built" in status.reason
+
+
+def test_ready_without_stamp_when_files_are_present(monkeypatch, tmp_path):
+    """Readiness is judged from disk, so a workspace copied from another machine
+    stays usable after its advisory stamp is lost."""
+    _, elan_home = _fake_lake(monkeypatch, tmp_path)
+    monkeypatch.setenv("ELAN_HOME", str(elan_home))
+    workspace = tmp_path / "ws_copied"
+    _install_mathlib(workspace)
+    (workspace / lean_toolchain._STAMP).unlink()
+
+    status = lean_toolchain.detect_status(workspace=workspace)
+
+    assert status.available is True
+    assert status.stamp_present is False
+    assert status.mathlib_ready is True
+
+
 def test_available_with_stamp(monkeypatch, tmp_path):
     fake_lake = tmp_path / "lake"
     fake_lake.write_text("", encoding="utf-8")
     monkeypatch.setattr(lean_toolchain.shutil, "which", lambda _name: str(fake_lake))
     workspace = tmp_path / "ws_ready"
-    workspace.mkdir()
-    (workspace / "lakefile.toml").write_text('name = "ws"\n', encoding="utf-8")
-    (workspace / lean_toolchain._STAMP).write_text(
-        json.dumps({"toolchain": "4.24.0", "mathlib_rev": "v4.24.0"}), encoding="utf-8"
-    )
+    _install_mathlib(workspace)
     status = lean_toolchain.detect_status(workspace=workspace)
     assert status.available is True
     assert status.lake_path == str(fake_lake)
     assert status.workspace == str(workspace)
     assert status.toolchain == "4.24.0"
     assert status.mathlib_rev == "v4.24.0"
+
+
+# --- structured environment report (lean_status) ---
+
+
+def test_describe_environment_reports_resolved_paths_and_next_step(monkeypatch, tmp_path):
+    _, elan_home = _fake_lake(monkeypatch, tmp_path, with_toolchain=False)
+    monkeypatch.setenv("ELAN_HOME", str(elan_home))
+    workspace = tmp_path / "ws"
+    _install_mathlib(workspace)
+
+    report = lean_toolchain.describe_environment(
+        lean_toolchain.detect_status(workspace=workspace)
+    )
+
+    assert report["available"] is False
+    assert report["ready_for_certification"] is False
+    assert report["resolved_from"]["ELAN_HOME"] == str(elan_home)
+    assert report["resolved_from"]["lake_source"] == "ELAN_HOME"
+    assert "toolchain" in report["missing"]
+    assert report["next_step"] and "--yes" in report["next_step"]
+
+
+def test_describe_environment_ready_reports_no_next_step(monkeypatch, tmp_path):
+    _, elan_home = _fake_lake(monkeypatch, tmp_path)
+    monkeypatch.setenv("ELAN_HOME", str(elan_home))
+    workspace = tmp_path / "ws"
+    _install_mathlib(workspace)
+
+    report = lean_toolchain.describe_environment(
+        lean_toolchain.detect_status(workspace=workspace)
+    )
+
+    assert report["available"] is True
+    assert report["missing"] == [] and report["next_step"] is None
+    assert report["mathlib"] == {"dependency": True, "built": True, "rev": "v4.24.0"}
+    assert report["stamp"] == {"present": True, "advisory": True}
+
+
+def test_setup_command_does_not_assume_a_path_entry():
+    """The next step must work on any machine, so it names the running interpreter
+    rather than a console script that may not be on PATH."""
+    command = lean_toolchain._setup_command()
+    assert command.startswith(lean_toolchain.sys.executable)
+    assert "-m symkit.infrastructure.lean_toolchain" in command
 
 
 # --- elan installer acquisition (network and runner mocked, nothing downloaded) ---
@@ -258,16 +363,9 @@ def test_find_lake_falls_back_to_path_when_elan_home_lacks_lake(monkeypatch, tmp
 
 
 def _ready_workspace(tmp_path: Path, version: str = "4.24.0") -> Path:
+    """A workspace that is ready on disk (toolchain pin + Mathlib built)."""
     workspace = tmp_path / "ws"
-    workspace.mkdir()
-    (workspace / "lakefile.toml").write_text('name = "ws"\n', encoding="utf-8")
-    (workspace / "lean-toolchain").write_text(
-        f"leanprover/lean4:v{version}", encoding="utf-8"
-    )
-    (workspace / lean_toolchain._STAMP).write_text(
-        json.dumps({"toolchain": version, "mathlib_rev": f"v{version}"}),
-        encoding="utf-8",
-    )
+    _install_mathlib(workspace, version)
     return workspace
 
 

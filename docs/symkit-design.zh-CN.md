@@ -58,7 +58,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 - **人机协同**：支持在推导中插入假设、限制、观察、修正建议等非计算性知识。
 - **LaTeX 友好**：原生支持 LaTeX 输入、下标符号、希腊字母和物理星号上标（如 `\beta^*`）。
 
-项目的对外主契约是 45 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
+项目的对外主契约是 46 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
 
 ---
 
@@ -169,7 +169,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 
 ### 4.4 MCP Tool 层
 
-对外暴露 45 个 MCP 工具，每个模块聚焦一类能力：
+对外暴露 46 个 MCP 工具，每个模块聚焦一类能力：
 
 | 文件 | 主要职责 |
 |---|---|
@@ -350,7 +350,7 @@ timestamp: str
 
 ### 8.1 工具分类
 
-SymKit 共暴露 45 个 MCP 工具，按功能分为 9 类：
+SymKit 共暴露 46 个 MCP 工具，按功能分为 9 类：
 
 | 类别 | 代表工具 | 数量 | 定位 |
 |---|---|---|---|
@@ -609,7 +609,7 @@ _current_context: MathContext = MathContext()   # 当前数学上下文（假设
 | `test_formula_search.py` | 公式搜索框架 |
 | `test_unified_math_coverage.py` | `math()` 统一工具覆盖（含积分变换） |
 
-当前测试状态：1055 个测试全部通过，Ruff 与 MyPy 无错误。
+当前测试状态：1065 个测试全部通过，Ruff 与 MyPy 无错误。
 
 ---
 

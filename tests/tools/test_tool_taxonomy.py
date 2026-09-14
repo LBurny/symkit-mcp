@@ -15,7 +15,7 @@ EXPECTED_CATEGORIES: dict[str, set[str]] = {
     "Assumptions": {"assume", "show_assumptions", "assume_for_step", "list_assumptions",
                     "clear_step_assumptions", "unassume", "clear_assumptions"},
     "Verification": {"session_verify_step", "session_verify_session", "check_assumption_conflicts",
-                     "session_certify"},
+                     "session_certify", "lean_status"},
     "Symbol Semantics": {"register_symbol", "lookup_symbol", "check_symbol_conflicts",
                          "list_domain_symbols"},
     "Formula Library": {"formula_search", "formula_get", "formula_add", "formula_promote",
@@ -37,8 +37,8 @@ def _registered_tools():
     return mcp._tool_manager._tools  # noqa: SLF001
 
 
-def test_tool_count_is_45():
-    assert len(_registered_tools()) == 45
+def test_tool_count_is_46():
+    assert len(_registered_tools()) == 46
 
 
 def test_every_tool_has_known_category():

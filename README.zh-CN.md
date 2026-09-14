@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-1055%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1065%20passed-brightgreen.svg)]()
 
 [English](README.md) | **简体中文**
 
@@ -42,13 +42,13 @@
 
 ## 工具
 
-45 个 MCP 工具，分 9 个类别。多数工作通过少数高层工具完成；高级用户可以精细控制每一步。
+46 个 MCP 工具，分 9 个类别。多数工作通过少数高层工具完成；高级用户可以精细控制每一步。
 
 | 类别 | 数量 | 代表工具 |
 |---|---|---|
 | 统一数学 | 1 | `math` — 33 种符号运算：微积分、ODE、矩阵、矢量分析、积分变换、量纲分析 |
 | 会话管理 | 15 | `session_start`、`session_record_step`、`session_rollback`、`session_complete` |
-| 验证 | 4 | `session_verify_step`、`session_verify_session`、`session_certify` |
+| 验证 | 5 | `session_verify_step`、`session_verify_session`、`session_certify`、`lean_status` |
 | 假设管理 | 7 | `assume`、`unassume`、`check_assumption_conflicts` |
 | 公式库 | 8 | `formula_search`、`formula_get`、`formula_add`、`formula_promote` |
 | 符号语义 | 4 | `register_symbol`、`lookup_symbol`、`check_symbol_conflicts` |
@@ -82,6 +82,8 @@ session_complete(description="不可压 NS 动量方程")
 ## Lean 4 内核认证（可选）
 
 `session_certify()` 用 Lean 4 + Mathlib 内核复核当前会话中符合条件的代数等式步骤（有理式片段内的 `simplify` / `expand` / `factor` / `combine`），经 `ring` / `field_simp` 证明。结果写入各步骤的 `details.lean`；既有验证判定从不被修改，`unproven` 只表示自动化未能闭合目标，不代表步骤有误。输入与输出逐字相同的步骤（`x = x`、`0 = 0`）记为 `trivial` 并**不计入** `proven`：内核虽瞬时通过，但并未验证任何代数。不引入任何额外 Python 依赖。
+
+不确定后端是否装好时，先调 `lean_status()`——它只读、不会运行 Lean、也不下载，会报告解析到的 toolchain / Mathlib / 工作区路径、各路径来自哪个变量、缺哪一层、以及确切的下一步命令。不要自己去翻目录或跑 `lake --version`：某个目录不存在并不构成证据，而 Mathlib 位于 `<数据目录>/lean-workspace/.lake/packages/mathlib`。
 
 ### 配置
 
@@ -176,9 +178,9 @@ src/
 │   ├── domain/           # 实体、推导引擎、验证器契约
 │   ├── application/      # 用例
 │   └── infrastructure/   # SymPy 引擎、Lean 检查器、持久化、适配器
-└── symkit_mcp/           # MCP 服务器层（FastMCP）+ 45 个工具
+└── symkit_mcp/           # MCP 服务器层（FastMCP）+ 46 个工具
 formulas/                 # 种子公式库（源码树）
-tests/                    # 1055 个测试
+tests/                    # 1065 个测试
 ```
 
 领域驱动设计：核心逻辑与 MCP、SymPy 解耦；引擎经协议可插拔；公式与会话以可读的 YAML/JSON 持久化。
