@@ -196,7 +196,6 @@ uv run symkit-mcp      # 开发服务器
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — DDD 分层与工具清单
 - [docs/symkit-design.zh-CN.md](docs/symkit-design.zh-CN.md)（[英文](docs/symkit-design.md)）— 深度技术设计
-- [docs/symkit-vs-sympy-mcp.md](docs/symkit-vs-sympy-mcp.md) — 与 SymPy-MCP 的能力对比
 - [ROADMAP.md](ROADMAP.md) — 路线图
 - [公式库字段说明](formulas/README.zh-CN.md) — YAML 条目格式
 

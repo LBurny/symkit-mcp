@@ -174,4 +174,3 @@ symkit-mcp/
 
 - [README.md](README.md) - Project overview
 - [CONSTITUTION.md](CONSTITUTION.md) - Development principles
-- [docs/symkit-vs-sympy-mcp.md](docs/symkit-vs-sympy-mcp.md) - Skill guide
