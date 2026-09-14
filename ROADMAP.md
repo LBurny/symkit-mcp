@@ -6,15 +6,27 @@ SymKit project roadmap and feature planning.
 
 ## Current
 
-**v1.7.0** (2026-09-14) — 45 MCP tools, 956 tests. See [CHANGELOG.md](CHANGELOG.md) for the
-release-by-release history.
-
-**v1.6.2** (2026-09-12) — 47 MCP tools, 643 tests. See [CHANGELOG.md](CHANGELOG.md) for the
-release-by-release history.
+**v1.7.0** (2026-09-14) — 45 MCP tools, 33 `math()` operations, 1031 tests.
+See [CHANGELOG.md](CHANGELOG.md) for the release-by-release history.
 
 ---
 
-## ✅ Completed
+## Completed
+
+### 1.7.0 — Lean certification and write-path governance (2026-09-14)
+
+- Optional Lean 4 kernel certification: `session_certify` re-proves
+  algebraic-equality steps with Lean 4 + Mathlib (`ring` / `field_simp`),
+  attaches outcomes under `details.lean`, and surfaces verifier disagreements
+  as `discrepancies` (44 → 45 tools). One-time setup via `symkit-lean-setup`.
+- Dimensional analysis: `math("dimension", ...)` (32 → 33 operations) reports
+  consistency and the net dimension of an expression; `session_verify_step` /
+  `session_verify_session` run the check automatically when the session has
+  unit information.
+- Formula write-path governance: `formula_add` requires a unit per variable,
+  write-time similarity detection (`similar_to`) surfaces duplicates at save
+  time, and `formula_promote` / `formula_get` / `formula_stats` expose the
+  `curated` flag and structural duplicate groups.
 
 ### 1.6.x — Formula index and curation
 
@@ -24,6 +36,10 @@ release-by-release history.
   `formula_reindex`, and `formula_stats`.
 - Content-hash dedup, deterministic staging ids, and idempotent re-saves.
 - Path traversal rejected on every formula write path.
+- Engineering baseline: CI quality gate (ruff / mypy / pytest over the
+  3.10/3.12 matrix) and the bylaw §5.1 modularity ratchet
+  (`scripts/check_modularity.py`), wired as a precondition of the release
+  pipeline.
 
 ### 1.5.x — Verification and assumptions
 
@@ -63,11 +79,8 @@ release-by-release history.
 
 ---
 
-## 🚧 In Progress
+## In Progress
 
-- **Engineering baseline.** CI quality gate over ruff / mypy / pytest, plus the bylaw §5.1
-  modularity ratchet (`scripts/check_modularity.py`). Added in `.github/workflows/ci.yml`
-  and wired as a precondition of the release pipeline; not yet exercised on a runner.
 - Documentation cleanup and clearer project positioning (general-purpose formula
   derivation, not domain-specific).
 - Derivation example library expansion: cross-domain cases in physics, engineering,
@@ -76,7 +89,7 @@ release-by-release history.
 
 ---
 
-## 📋 Planned
+## Planned
 
 ### Near term
 
@@ -84,10 +97,10 @@ release-by-release history.
   current session. Today `tools/_state.py` holds one process-global session, so a second
   client or agent silently takes over the first one's derivation. This is the prerequisite
   for the multi-agent goal below.
-- **Decompose `DerivationSession`.** At 1833 lines it is the largest module and sits in the
+- **Decompose `DerivationSession`.** At ~1800 lines it is the largest module and sits in the
   modularity baseline. Split step storage, verification orchestration, and report rendering
   into collaborators, then lower the baseline.
-- **Shrink the modularity baseline.** 10 files and 47 functions are currently frozen. Work
+- **Shrink the modularity baseline.** 10 files and 44 functions are currently frozen. Work
   them down by subdomain (bylaw §5.3) rather than raising limits.
 
 ### Later
