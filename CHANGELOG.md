@@ -27,6 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A nonlinear ODE no longer wedges the whole server.** `sympy.dsolve` has no
+  internal time limit and does not raise on an unsolvable nonlinear ODE — it
+  spins. Because the MCP server is one process, a single `math` call on the
+  nonlinear pendulum (`theta'' + (g/l) sin(theta) = 0`) blocked every other tool
+  for 30+ minutes (reproduced by the `symkit-mcp-test-leanstatus` round). A
+  narrow up-front screen now refuses the reliably non-terminating class — a
+  dependent function under a transcendental (`sin(theta(t))`, `exp(y(t))`) — with
+  an actionable message in 0.02s, while linear and separable ODEs still solve.
+- **`factor` results are no longer flagged as suspect identities.** Factoring a
+  nonzero expression (`factor(c^2*S - b^2*S)` → `-(b-c)*(b+c)*S`) is the answer,
+  not a failed identity claim, yet it carried `suspect_identity: "unreduced"`
+  ("the difference did not reduce to zero") and surfaced as a session warning.
+  The `factor` operation is now exempt from that grading; `simplify`/`expand`
+  keep it unchanged. Found by the `symkit-mcp-test-leanstatus` round.
 - **Every Lean hint now names the same setup command.** The `reason` strings
   embedded a bare `symkit-lean-setup` while `lean_status.next_step` and
   `session_certify.setup` named a module invocation with the running

@@ -3,10 +3,10 @@
     "src/symkit/domain/derivation_session.py": 1818,
     "src/symkit/domain/expression_parser.py": 807,
     "src/symkit/domain/formula.py": 893,
-    "src/symkit/domain/step_verifier.py": 893,
+    "src/symkit/domain/step_verifier.py": 894,
     "src/symkit/infrastructure/adapters/wikidata_formulas.py": 706,
-    "src/symkit/infrastructure/sympy_engine.py": 694,
-    "src/symkit_mcp/tools/_math_dispatch.py": 953,
+    "src/symkit/infrastructure/sympy_engine.py": 728,
+    "src/symkit_mcp/tools/_math_dispatch.py": 958,
     "src/symkit_mcp/tools/formula.py": 674,
     "src/symkit_mcp/tools/orchestration.py": 607,
     "src/symkit_mcp/tools/session.py": 1087
