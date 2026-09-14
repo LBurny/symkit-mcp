@@ -8,7 +8,7 @@ This document provides project context for Claude Code (Anthropic's AI coding as
 
 **SymKit MCP** — A general-purpose symbolic formula derivation engine for AI agents.
 
-Built on SymPy + FastMCP. Provides **45 MCP tools** covering:
+Built on SymPy + FastMCP. Provides **46 MCP tools** covering:
 
 - A unified `math()` tool for 32 symbolic operations (calculus, linear algebra, ODE, transforms)
 - Step-by-step derivation sessions with CRUD control
