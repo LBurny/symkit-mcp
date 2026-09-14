@@ -17,7 +17,9 @@ bash run_task_lean.sh tasks/task-15-*.md r16-task-15 60
 - 多 lane 并行：开多个终端各跑一条 `run_suite.sh`，data-dir 互不相同。**并行 ≤3**。
 - 产物：`runs/<run-id>/stream.jsonl`（完整事件流）、`stderr.log`。**会话 JSON 落在用户 AppData，不理会 CWD**——需要留证时从 `%LOCALAPPDATA%\symkit\symkit\derivation_sessions\` 拷回 `runs/<run-id>/`。
 - 监控：`wc -l runs/*/stream.jsonl` 看进度；单卡超 10 分钟查 CPU——卡死的真身是最内层 python.exe（stub .exe → venv python → anaconda python 三层链里 CPU 最高的那个）。杀树：`taskkill /PID <pid> /T /F`；Agent 被取消后 `claude.exe` 孤儿树会存活，也要杀。
+- **`claude` 的进程名是 `node.exe`**（npx shim），`tasklist | grep -i claude` 在三条 lane 全忙时也会返回 0——别据此判断"跑完了"。判断卡死看 `stream.jsonl` 尾部的 `tool_progress` 心跳（`"elapsed_time_seconds"`）：单个 `math` 调用涨到几百秒就是楔死（r17：order=4 的 diff 卡了 15 分钟，`tasklist` 里只看得到 node.exe 与 python.exe）。孤儿 MCP 服务器会锁 lab 的 `.venv/Scripts/symkit-mcp.exe`，`uv pip install --force-reinstall` 报 `os error 32` 时先按可执行路径筛进程并杀掉。
 - 超长单卡的处理不是干等：先评估是否触发了卡片护栏遗漏（如显式分数链），kill 后给卡加护栏换 run-id 重跑。
+- **验收重跑自己的卡本身就是缺陷来源**：r17 的 P0 楔死是重跑 task-01 时才出现的（同一表达式 `session=False` 0.06s、`session=True` 无限），任何探针都没覆盖到——验收轮必须真的重跑受影响的卡，不能只跑确定性探针。
 
 ### 汇总（analyze.py）
 
