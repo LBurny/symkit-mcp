@@ -3,10 +3,8 @@
 A single `math()` tool supports 33 mathematical operations,
 similar to Mathematica's function-call style.
 
-Design:
-- math() is the primary tool that LLMs use
-- session=True → record to derivation session, preserving full step traceability
-- session=False → stateless quick calculation
+Design: math() is the primary tool LLMs use; session=True records a fully
+traceable derivation step, session=False is a stateless quick calculation.
 
 The operation dispatcher lives in ``_math_dispatch.py``; this module is the
 thin MCP wrapper: parameter plumbing, per-call assumptions, display text, and
@@ -50,8 +48,7 @@ def _normalize_assume_input(
 
     The assumption tools disagreed about input shape (``assume`` took a dict,
     ``math``/``assume_for_step`` took clause lists); the list form normalizes
-    through the same clause parser ``math`` uses. Every clause must parse —
-    the batch is applied all-or-nothing.
+    through the same clause parser ``math`` uses, all-or-nothing.
     """
     if isinstance(variables, dict):
         return variables
@@ -72,10 +69,9 @@ def _apply_call_assumptions(
 ) -> tuple[MathContext | None, dict[str, dict[str, bool]], list[str]]:
     """Scope per-call assumptions; persist them when ``session=True``.
 
-    With session=true the assumptions persist into the shared context AND the
-    session's assumption engine (so the step verifier can see them); with
-    session=false they apply to THIS call only — the shared context is left
-    untouched, keeping stateless calls side-effect free (run-013).
+    With session=true they persist into the shared context AND the session's
+    assumption engine (so the step verifier sees them); with session=false they
+    apply to THIS call only, keeping stateless calls side-effect free (run-013).
     """
     warnings: list[str] = []
     applied: dict[str, dict[str, bool]] = {}
@@ -156,7 +152,9 @@ def _step_input_expressions(
     input_expressions: dict[str, str] = {
         # A coarse bucket records matrix ops as matrix_op.
         "operation": operation,
-        "original": str(input_obj) if input_obj is not None else preprocessed,
+        # The submitted string: sympy folds eagerly (``hermite(3, 0.7)`` ->
+        # ``-5.656``), so ``str(input_obj)`` loses the provenance (r17 audit6).
+        "original": preprocessed if isinstance(preprocessed, str) else str(input_obj or ""),
     }
     if operation == "substitute" and substitution:
         input_expressions["replacement"] = ", ".join(
@@ -246,8 +244,8 @@ def _record_dimension_step(
 ) -> None:
     """Record a ``dimension`` check, which has no SymPy result object.
 
-    The checked expression becomes the step output; the verdict summary and the
-    per-symbol dimensions go into the provenance metadata (r16 task-03/16).
+    The checked expression becomes the step output; verdict and per-symbol
+    dimensions go into the provenance metadata (r16 task-03/16).
     """
     from symkit.domain.expression_parser import parse_user_expression
 
@@ -393,10 +391,9 @@ def register_math_tools(mcp: Any) -> None:
             lower: Definite integral lower bound
             upper: Definite integral upper bound
             assumptions: Symbolic assumptions ["x is positive", "t is real"].
-                With session=true they persist for the session (and become
-                visible to the step verifier); with session=false they apply
-                to this call only. Use assume() for cross-session globals and
-                unassume()/clear_assumptions() to remove them.
+                With session=true they persist for the session (visible to the
+                step verifier); with session=false they apply to this call only.
+                Use assume() for cross-session globals, unassume() to remove.
             method: Simplification method "auto", "trig", "radical", "expand_then_simplify"
             ics: Initial conditions for dsolve {"V(0)": "V_0"} — keys are the
                 dependent function applied to a point, values are expressions
@@ -423,10 +420,6 @@ def register_math_tools(mcp: Any) -> None:
             math("laplace", "exp(-k*t)", variable="t", with_respect_to="s")
             → {"expression": "1/(k + s)", ...}
 
-            # Vector calculus
-            math("gradient", "x**2 + y**2 + z**2", variable="x,y,z")
-            → gradient in vector form
-
             # Solve ODE
             math("dsolve", "diff(y,t) - k*y", variable="y", with_respect_to="t")
             math("dsolve", "dy/dt - k*y", variable="y", with_respect_to="t",
@@ -442,21 +435,27 @@ def register_math_tools(mcp: Any) -> None:
         ) = _apply_call_assumptions(assumptions, session)
 
         # Execute the operation
-        result = _execute_operation(
-            operation, expression,
-            variable=variable,
-            with_respect_to=with_respect_to,
-            substitution=substitution,
-            point=point,
-            direction=direction,
-            order=order,
-            lower=lower,
-            upper=upper,
-            method=method,
-            ics=ics,
-            units=units,
-            assumption_context=call_context,
-        )
+        try:
+            result = _execute_operation(
+                operation, expression,
+                variable=variable,
+                with_respect_to=with_respect_to,
+                substitution=substitution,
+                point=point,
+                direction=direction,
+                order=order,
+                lower=lower,
+                upper=upper,
+                method=method,
+                ics=ics,
+                units=units,
+                assumption_context=call_context,
+            )
+        except Exception as exc:  # an internal failure is still a tool result
+            result = {
+                "success": False,
+                "error": f"Operation '{operation}' failed: {type(exc).__name__}: {exc}",
+            }
 
         if applied_assumptions:
             result["assumptions_applied"] = {
@@ -569,7 +568,10 @@ def register_math_tools(mcp: Any) -> None:
     )
     def show_assumptions() -> dict[str, Any]:
         """
-        Show all symbolic assumptions in the current scope
+        Show the symbolic assumptions in the shared math context.
+
+        Covers assumptions set via assume() or math(..., assumptions=[...]).
+        Session-level assumptions are not included; use list_assumptions().
 
         Returns:
             Assumptions in the current MathContext

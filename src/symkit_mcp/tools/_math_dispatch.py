@@ -43,8 +43,7 @@ from symkit_mcp.tools._unit_context import dimension_operation
 _engine = SymPyEngine()
 
 # Call-site names SymPy's namespace silently collapses to a symbol: ``S(t)``
-# (SingletonRegistry) and ``N(t)`` (evalf) both evaluate to ``t``, so a second
-# undefined function vanished before dsolve saw it (r14 task-15).
+# (SingletonRegistry) and ``N(t)`` (evalf) both evaluate to ``t`` (r14 task-15).
 _DEGENERATE_CALL_NAMES = ("S", "N")
 
 
@@ -191,9 +190,8 @@ def _rekey_subs_to_expression(
 ) -> dict[sp.Basic, Any]:
     """Rebind substitution keys to the symbols actually present in *expr*.
 
-    Assumption-bearing symbols (``Symbol('c', positive=True)``) do not match
-    the plain keys from :func:`_build_subs_dict`, so ``subs`` would silently
-    no-op; rebind each key by name (run-008).
+    Assumption-bearing symbols (``Symbol('c', positive=True)``) do not match the
+    plain keys, so ``subs`` would silently no-op; rebind each key by name (run-008).
     """
     rebound: dict[sp.Basic, Any] = {}
     for key, val in subs.items():
@@ -488,7 +486,9 @@ def _execute_operation(
         "ics": ics,
         "units": units,
     }
-    rejected = _unconsumed_params(operation, provided)
+    # Unknown ops reach the dispatcher's own message (r17 task-17: 'sum' reported a
+    # parameter error for an operation that does not exist).
+    rejected = _unconsumed_params(operation, provided) if operation in ALL_OPS else []
     if rejected:
         return {"success": False, "error": "; ".join(rejected)}
     return _execute_operation_inner(
@@ -547,8 +547,12 @@ def _execute_operation_inner(
     # Helper to require a successful parse and apply context assumptions
     def _require_parse_with_assumptions(expr: str) -> sp.Expr | dict[str, Any]:
         parsed = _require_parse(expr)
-        if isinstance(parsed, dict):
+        if isinstance(parsed, dict) and "success" in parsed:
             return parsed
+        if isinstance(parsed, dict):
+            # ``factorint(1)`` / ``divisors(...)`` parse to a python dict; the
+            # dispatch's error-dict convention must not swallow it (r17 task-17).
+            return {"success": False, "error": f"Cannot use {expr}: it evaluates to a mapping, not an expression"}
         return _apply_context_assumptions(parsed, context)
 
     input_obj: Any = None
@@ -806,10 +810,8 @@ def _execute_operation_inner(
                         f"{v}({func_var}); systems of ODEs are not supported yet."
                     ),
                 }
-            # sympy.dsolve has no time limit and does not raise on an unsolvable
-            # nonlinear ODE — it spins, and the single-process server then serves
-            # nothing else (round-complex: the nonlinear pendulum wedged the whole
-            # server for 30+ minutes). Refuse the non-terminating class up front.
+            # sympy.dsolve does not raise on an unsolvable nonlinear ODE, it spins,
+            # wedging the single-process server (round-complex). Refuse up front.
             hang_reason = nonpolynomial_ode_reason(ode_expr, v)
             if hang_reason:
                 return {"success": False, "error": f"dsolve: {hang_reason}"}
@@ -857,10 +859,8 @@ def _execute_operation_inner(
                 }
             else:  # eigenvects
                 vects = _engine.matrix_eigenvects(expr_obj, context)
-                # As with eigenvals (run-017), wrap the result in a sympy
-                # Tuple so it records into the session chain and renders —
-                # eigenvects used to return _result_obj=None, leaving no step
-                # and an empty "$$$$" display (run-020).
+                # As with eigenvals (run-017), wrap the result in a sympy Tuple so it
+                # records into the session chain and renders (run-020).
                 vects_obj: sp.Basic | None = None
                 try:
                     items = []

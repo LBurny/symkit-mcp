@@ -903,25 +903,28 @@ class DerivationSession:
     def representative_expression(self) -> sp.Basic | None:
         """The step output that best represents this derivation's outcome.
 
-        Numeric closing steps (evalf probes) move the current expression to a
-        float or ``0``; a trailing constant is useless (run-008), but an exact
-        ``0`` convergence self-check *is* the conclusion (r14 task-08).
-
         Selection order:
 
-        1. An exact constant-zero output.
+        1. A closing exact-zero self-check (r14 task-08); a trailing nonzero
+           constant is useless (run-008), and a zero superseded by later
+           symbolic work is a residual, not the answer (r17 tasks 02-05).
         2. The last symbolic output involving a goal target variable — free
-           symbol, applied-function name, Equality lhs, or CUSTOM final binding
-           (run-011/012/015).
-        3. The last lineage output, else the last symbolic output, else the current expression.
+           symbol, applied-function name, Equality lhs, or CUSTOM binding.
+        3. The last lineage output, else the last symbolic output, else the
+           current expression; a step consuming the previous output continues
+           the lineage across renames (r17 audit1).
         """
         targets: list[str] = []
         if self.goal is not None and self.goal.target_variables:
             targets = list(self.goal.target_variables)
 
-        candidates: list[tuple[sp.Basic, set[str], bool]] = []
+        candidates: list[tuple[sp.Basic, set[str], bool, bool]] = []
+        previous_srepr = ""
+        zero_outcome: sp.Basic | None = None
         for step in self.steps:
             is_custom = step.operation == OperationType.CUSTOM
+            chained = bool(previous_srepr) and step.input_srepr == previous_srepr
+            previous_srepr = step.output_srepr
             out = safe_load_expression(
                 step.output_expression, step.output_srepr
             )
@@ -929,24 +932,29 @@ class DerivationSession:
                 continue
             if not out.free_symbols:
                 if out == 0:
-                    return out
+                    zero_outcome = out
                 continue
-            candidates.append((out, symbol_names(out), is_custom))
+            candidates.append((out, symbol_names(out), is_custom, chained))
+            zero_outcome = None
 
+        # A closing exact-zero self-check is the conclusion (r14 task-08); a zero
+        # that later symbolic work superseded is just a residual (r17 tasks 02-05).
+        if zero_outcome is not None:
+            return zero_outcome
         if not candidates:
             return self.current_expression
 
         if targets:
-            for out, _names, _is_custom in reversed(candidates):
+            for out, _names, _is_custom, _chained in reversed(candidates):
                 if set(targets) & candidate_names(out, _names):
                     return out
 
         lineage: set[str] = set()
         lineage_members: list[sp.Basic] = []
-        for out, names, is_custom in candidates:
+        for out, names, is_custom, chained in candidates:
             if is_custom:
                 continue
-            if not lineage or names & lineage:
+            if not lineage or names & lineage or chained:
                 lineage |= names
                 lineage_members.append(out)
         if lineage_members:
@@ -1022,8 +1030,7 @@ class DerivationSession:
                 )
             if record.status == VerificationStatus.VERIFIED:
                 summary["verified"] += 1
-                # LOAD_FORMULA "verification" is trivially successful; only
-                # steps that performed a real mathematical check may promote
+                # LOAD_FORMULA verification is trivial; only real checks may promote
                 # the chain to overall "verified".
                 if step.operation != OperationType.LOAD_FORMULA:
                     verified_substantive += 1
@@ -1101,14 +1108,10 @@ class DerivationSession:
     ) -> bool:
         """Robustly check whether two SymPy objects represent the same expression.
 
-        Handles both raw expressions and equalities.  For equalities the
-        comparison is done on the (lhs - rhs) form so that different orderings
-        of the sides still match when the equation is the same.
-
-        If *assumptions* are provided they are applied to both sides before the
-        comparison, so that equivalent forms such as ``sqrt(2*G*M/R)`` and
-        ``sqrt(2)*sqrt(G)*sqrt(M)/sqrt(R)`` are recognized as equal under the
-        positive assumption.
+        Equalities are compared on the (lhs - rhs) form so that different
+        orderings of the sides still match.  With *assumptions* both sides are
+        simplified first, so ``sqrt(2*G*M/R)`` matches
+        ``sqrt(2)*sqrt(G)*sqrt(M)/sqrt(R)`` under a positive assumption.
         """
         if current == target:
             return True
@@ -1447,9 +1450,7 @@ class DerivationSession:
             }
 
         # A note computes nothing, so it must not carry an output: copying the
-        # neighbouring step's expression made a pure-text note look like it had
-        # produced that value (2026-09-12 black-box round), and let target
-        # matching select a note as the derivation's outcome.
+        # neighbour's expression made a text note look like it produced that value.
         note_emoji = {
             "assumption": "📋",
             "limitation": "⚠️",
@@ -1633,8 +1634,7 @@ class DerivationSession:
             json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
 
         self._persist_path = save_path
-        # Persisting is orthogonal to lifecycle state: an ACTIVE session stays
-        # ACTIVE after save() (auto-persisting at creation used to flip it to
+        # Persisting is orthogonal to state: an ACTIVE session stays ACTIVE (save keeps it)
         # PAUSED, producing the confusing "status: paused" on session_start).
 
         return save_path

@@ -65,3 +65,98 @@ class TestFinalExpressionIsTheConclusion:
         assert result["success"] is True
         assert result["final_expression"] == "F"
         assert "0.333" not in result["final_expression"]
+
+
+class TestOutcomeAfterChangeOfVariables:
+    """A derivation that ends by renaming its variables still has an outcome.
+
+    The lineage walk in ``representative_expression`` keeps candidates whose free
+    symbols overlap the running lineage, so a *renaming* substitution (``x -> y``)
+    shares no name with the earlier steps and the walk falls back to the
+    pre-substitution expression (r17 audit1, 1.9.0).
+    """
+
+    def test_renaming_substitution_is_the_outcome(self):
+        session = _session("rename-outcome")
+        session.load_formula("x**2 + 2*x + 1", formula_id="f1")
+        session.substitute("x", "y - 1")
+
+        result = session.complete()
+
+        final = sp.sympify(result["final_expression"])
+        assert sp.simplify(final - sp.sympify("2*y + (y - 1)**2 - 1")) == 0
+        assert not final.free_symbols & {sp.Symbol("x")}
+
+    def test_substitution_sharing_a_symbol_is_still_the_outcome(self):
+        session = _session("shared-symbol-outcome")
+        session.load_formula("x*y + x", formula_id="f1")
+        session.substitute("x", "z + 1")
+
+        result = session.complete()
+
+        assert sp.Symbol("z") in sp.sympify(result["final_expression"]).free_symbols
+
+    def test_trailing_hand_recorded_definition_is_not_the_outcome(self):
+        session = _session("custom-outcome")
+        session.load_formula("x**2 + 2*x + 1", formula_id="f1")
+        session.substitute("x", "y - 1")
+        session._add_step(  # noqa: SLF001 - the public tools route through here
+            operation=OperationType.CUSTOM,
+            description="hand-recorded definition",
+            input_expressions={"original": "E = m*c**2"},
+            output_expr=sp.Eq(sp.Symbol("E"), sp.Symbol("m") * sp.Symbol("c") ** 2),
+            sympy_command="manual_record",
+        )
+
+        result = session.complete()
+
+        final = sp.sympify(result["final_expression"])
+        assert sp.Symbol("E") not in final.free_symbols
+        assert sp.Symbol("y") in final.free_symbols
+
+
+class TestEarlyZeroCheckDoesNotBecomeTheOutcome:
+    """An exact ``0`` is the conclusion only when it is the *last* one.
+
+    The r14 rule "an exact zero convergence self-check is the conclusion" was
+    implemented by returning on the first zero output, so a mid-derivation
+    residual check hijacked the reported answer of everything that followed
+    (r17: tasks 02/03/04/05 all delivered ``0``/``0.0`` instead of the result).
+    """
+
+    def test_later_symbolic_result_wins_over_an_early_zero(self):
+        session = _session("early-zero-outcome")
+        session.load_formula("x**2 - 1", formula_id="f1")
+        session._add_step(  # noqa: SLF001 - the public tools route through here
+            operation=OperationType.SIMPLIFY,
+            description="mid-derivation residual check",
+            input_expressions={"original": "(x - 1)*(x + 1) - (x**2 - 1)"},
+            output_expr=sp.Integer(0),
+            sympy_command="math('simplify', ...)",
+        )
+        session._add_step(  # noqa: SLF001
+            operation=OperationType.SIMPLIFY,
+            description="the actual result",
+            input_expressions={"original": "(x**2 - 1)/(x + 1)"},
+            output_expr=sp.Symbol("x") - 1,
+            sympy_command="math('simplify', ...)",
+        )
+
+        result = session.complete()
+
+        assert sp.sympify(result["final_expression"]) == sp.Symbol("x") - 1
+
+    def test_trailing_zero_self_check_is_still_the_conclusion(self):
+        session = _session("trailing-zero-outcome")
+        session.load_formula("x**2 - 1", formula_id="f1")
+        session._add_step(  # noqa: SLF001
+            operation=OperationType.SIMPLIFY,
+            description="closing convergence self-check",
+            input_expressions={"original": "(x**2 - 1) - (x - 1)*(x + 1)"},
+            output_expr=sp.Integer(0),
+            sympy_command="math('simplify', ...)",
+        )
+
+        result = session.complete()
+
+        assert sp.sympify(result["final_expression"]) == sp.Integer(0)

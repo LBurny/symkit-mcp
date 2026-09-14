@@ -24,6 +24,7 @@ from symkit.domain.final_result import (
     classify_suspect_identity,
     definite_integral_variables,
     equation_identity,
+    equations_equivalent,
     evaluate_pending,
     extract_order_from_command,
     extract_variable_from_command,
@@ -38,6 +39,7 @@ from symkit.domain.final_result import (
 )
 from symkit.domain.symbol_registry import SymbolRegistry
 from symkit.domain.value_objects import VerificationResult, VerificationStatus
+from symkit.domain.verification_guardrails import collect_warnings, reverse_integrate
 
 if TYPE_CHECKING:
     from symkit.domain.derivation_session import DerivationStep
@@ -88,7 +90,7 @@ class StepVerifier:
                 "Cannot parse expressions for verification", conflicts
             )
 
-        warnings = self._collect_warnings(input_expr, output_expr, assumptions)
+        warnings = collect_warnings(output_expr)
         identity_details: dict[str, Any] = {}
         if isinstance(input_expr, sp.Equality) and op.value in ("simplify", "expand", "factor"):
             identity_details = {"equation_identity": equation_identity(input_expr)}
@@ -299,9 +301,9 @@ class StepVerifier:
         """Verify that simplify/expand/factor preserves the expression value."""
         out_bool = self._boolean_value(output_expr)
         if out_bool is not None:
-            # simplify may collapse an equation to a plain True/False when the
-            # caller's assumptions decide it; the verifier cannot see those, so
-            # an unconfirmable boolean claim is INCONCLUSIVE (run-008).
+            # simplify may collapse an equation to a plain True/False when the caller's
+            # assumptions decide it; the verifier cannot see those, so an unconfirmable
+            # boolean claim is INCONCLUSIVE (run-008).
             if isinstance(input_expr, sp.Equality):
                 status, message, identity = boolean_equation_verdict(operation, input_expr)
                 return VerificationResult(status=status, message=message, details=identity)
@@ -328,10 +330,8 @@ class StepVerifier:
                 evaluate_pending(input_expr), evaluate_pending(output_expr)
             )
         )
-        # Operator fidelity is what this certifies.  A difference input whose
-        # output stays nonzero may be a false identity — but only a numeric
-        # substitution may say so; simplification failure alone proves nothing.
-        # A factorization is the answer, not an identity claim: exempt (task-01).
+        # Operator fidelity is what this certifies.  A difference input whose output
+        # stays nonzero may be a false identity; factorisation answers, not claims (task-01).
         details: dict[str, Any] = {}
         message = f"{operation.capitalize()} verified: output matches the recomputed operator result"
         if (difference_input and operation != "factor" and not
@@ -373,9 +373,18 @@ class StepVerifier:
 
         # Repeat reverse integration for each differentiation order, so
         # integrating `2` once recovers `2*x` and twice recovers `x**2`.
-        integral = output_expr
-        for _ in range(extract_order_from_command(step.sympy_command)):
-            integral = sp.integrate(integral, var_sym)
+        integral = reverse_integrate(
+            output_expr, var_sym, extract_order_from_command(step.sympy_command)
+        )
+        if integral is None:
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message=(
+                    "Reverse integration skipped: the expression passed the size "
+                    "budget, where sympy.integrate has no bound and would risk "
+                    "wedging the server (r17)."
+                ),
+            )
         diff = sp.simplify(integral - input_expr)
         if diff.free_symbols <= {var_sym} and is_numerically_zero(
             sp.diff(diff, var_sym)
@@ -415,10 +424,8 @@ class StepVerifier:
         if bounds and not (output_expr.free_symbols & bounds):
             return self._verify_numeric_integral(input_expr, output_expr)
 
-        # An inert indefinite ``Integral(f, x)`` is the wrapper the engine
-        # evaluated into its antiderivative; reverse differentiation checks the
-        # integrand ``f`` (r16 task-06: the correct erfi antiderivative was
-        # FAILED against its own wrapper).
+            # An inert indefinite ``Integral(f, x)`` wraps the antiderivative the
+            # engine produced; reverse differentiation checks the integrand (r16 task-06).
         operands = reverse_integration_operands(
             input_expr, output_expr, step.sympy_command
         )
@@ -812,7 +819,8 @@ class StepVerifier:
         left_bool = self._boolean_value(left)
         right_bool = self._boolean_value(right)
         if isinstance(left, sp.Equality) and isinstance(right, sp.Equality):
-            return (left.lhs - left.rhs) - (right.lhs - right.rhs)
+            diffs = (left.lhs - left.rhs, right.lhs - right.rhs)
+            return sp.Integer(0) if equations_equivalent(*diffs) else diffs[0] - diffs[1]
         if isinstance(left, sp.Equality):
             if right_bool is not None:
                 # SymPy may simplify an identity/contradiction equation to True/False
@@ -823,32 +831,6 @@ class StepVerifier:
                 return sp.Integer(0) if left_bool else sp.Integer(1)
             return left - (right.lhs - right.rhs)
         return left - right
-
-    def _collect_warnings(
-        self,
-        _input_expr: sp.Basic,
-        output_expr: sp.Basic,
-        _assumptions: dict[str, dict[str, bool]],
-    ) -> list[str]:
-        """Collect lightweight sanity warnings."""
-        warnings: list[str] = []
-        expr_str = str(output_expr)
-
-        # The argument of exp should be dimensionless (the framework currently cannot do full dimensional analysis, so this is only a hint)
-        if "exp(" in expr_str:
-            warnings.append(
-                "Expression contains exp(...). Ensure the argument is dimensionless."
-            )
-        if "log(" in expr_str:
-            warnings.append(
-                "Expression contains log(...). Ensure the argument is positive in the domain."
-            )
-        if "/" in expr_str or "**(-1" in expr_str:
-            warnings.append(
-                "Expression contains division. Ensure denominators cannot be zero."
-            )
-
-        return warnings
 
     def _inconclusive_with_conflicts(
         self, message: str, conflicts: list[dict[str, Any]]

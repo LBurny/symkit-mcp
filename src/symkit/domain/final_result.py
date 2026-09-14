@@ -99,6 +99,20 @@ def is_numerically_zero(diff: sp.Basic) -> bool:
         return False
 
 
+def equations_equivalent(left_diff: sp.Basic, right_diff: sp.Basic) -> bool:
+    """Whether two equations differ only by a nonzero constant factor.
+
+    ``sympy.simplify`` normalizes an equation by moving everything to one side
+    and dividing by the leading coefficient: ``Eq(2*x, 3*x)`` comes back as
+    ``Eq(x, 0)`` with the difference flipped in sign. Comparing the differences
+    for exact equality called the tool's own output a failed step (r17 audit5).
+    """
+    if right_diff == 0:
+        return bool(sp.simplify(left_diff) == 0)
+    ratio = sp.simplify(left_diff / right_diff)
+    return bool(ratio.is_number and ratio.is_finite and ratio != 0)
+
+
 def equation_identity(expr: sp.Equality) -> dict[str, Any]:
     """Whether an operation's equation input is an identity, with its difference.
 
