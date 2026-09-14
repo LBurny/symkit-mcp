@@ -114,33 +114,78 @@ def is_numerically_zero(diff: sp.Basic) -> bool:
 
 
 def equation_identity(expr: sp.Equality) -> dict[str, Any]:
-    """Whether an operation's equation input is an identity, with its difference."""
+    """Whether an operation's equation input is an identity, with its difference.
+
+    Three-state: ``is_identity`` is ``True`` when the difference simplifies to
+    zero, ``False`` when rational substitution confirms it is nonzero, and
+    ``None`` (``verdict: "UNKNOWN"``) when the difference neither reduces nor
+    can be falsified numerically — an unproven identity is not a false one
+    (task-17: the expanded ``cos(6*x)`` polynomial identity).
+    """
     diff = sp.simplify(evaluate_pending(expr.lhs) - evaluate_pending(expr.rhs))
-    return {"is_identity": is_numerically_zero(diff), "difference": str(diff)}
+    result: dict[str, Any] = {"difference": str(diff)}
+    if is_numerically_zero(diff):
+        result["is_identity"] = True
+        result["verdict"] = "TRUE"
+        return result
+    numeric = numeric_residual_verdict(diff)
+    result["is_identity"] = False if numeric is True else None
+    result["verdict"] = "FALSE" if numeric is True else "UNKNOWN"
+    if numeric is True:
+        result["numeric_evidence"] = "difference is clearly nonzero at tested points"
+    elif numeric is False:
+        result["numeric_evidence"] = "numerically consistent with zero at tested points"
+    else:
+        result["numeric_evidence"] = "numeric residual test could not run"
+    return result
+
+
+def _reduce_identity_difference(diff: sp.Basic) -> sp.Basic:
+    """Reduce an identity residual, adding trig expansions plain ``simplify`` misses.
+
+    ``simplify(cos(6*x) - (32*cos(x)**6 - ...))`` does not expand ``cos(6*x)``,
+    so a true identity looked nonzero (task-17 step 15).  ``expand(..., trig=True)``
+    and ``trigsimp`` are tried once each; the first that reaches zero is returned.
+    """
+    for candidate in (sp.expand(diff, trig=True), sp.trigsimp(diff)):
+        reduced = sp.simplify(candidate)
+        if is_numerically_zero(reduced):
+            return reduced
+    return diff
 
 
 def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, str]:
     """Status and message for a manually recorded (CUSTOM) step's output.
 
     A recorded ``Eq(a, b)`` is content-checked on ``a - b``: identically zero
-    verifies the identity, a nonzero numeric difference fails it, and a symbolic
-    difference stays inconclusive — a model equation or definition is an axiom,
-    not a derived identity.  Outputs that are not equations (or that already
-    collapsed to a boolean) keep a verdict derived from their truth value, and
-    anything else keeps the historical "no automatic verification" verdict.
+    verifies the identity, a difference that rational substitution confirms
+    nonzero fails it, and anything else is inconclusive — unproven, not
+    disproven.  A trig-aware reduction runs first so a true identity SymPy does
+    not expand (task-17: ``cos(6*x)``) is still verified rather than called
+    false.  Outputs that are not equations (or that already collapsed to a
+    boolean) keep a verdict derived from their truth value, and anything else
+    keeps the historical "no automatic verification" verdict.
     """
     if isinstance(expr, sp.Equality):
-        diff = sp.simplify(evaluate_pending(expr.lhs) - evaluate_pending(expr.rhs))
+        diff = _reduce_identity_difference(
+            sp.simplify(evaluate_pending(expr.lhs) - evaluate_pending(expr.rhs))
+        )
         if is_numerically_zero(diff):
             return VerificationStatus.VERIFIED, "Identity verified: both sides are equal"
         if not diff.free_symbols:
             return VerificationStatus.FAILED, f"Equation is false: the sides differ by {diff}"
+        if numeric_residual_verdict(diff) is True:
+            return (
+                VerificationStatus.FAILED,
+                f"Recorded equation is not an identity: the sides differ by {diff}, "
+                "and the difference is nonzero at tested points (disproven).",
+            )
         return (
             VerificationStatus.INCONCLUSIVE,
-            f"Recorded equation is not an identity: the sides differ by {diff}. "
-            "If this step records a definition or model equation rather than a "
-            "derived identity, say so in notes/limitations; derived equalities "
-            "must simplify to zero.",
+            f"Recorded equation is not verified: the sides differ by {diff}, and the "
+            "difference neither reduced to zero nor was falsified numerically — unproven, "
+            "not disproven. If this step records a definition or model equation rather than "
+            "a derived identity, say so in notes/limitations.",
         )
     if isinstance(expr, (BooleanTrue, BooleanFalse, bool)):
         if bool(expr):
@@ -184,7 +229,11 @@ def extract_variable_from_command(command: str, operation: str) -> str | None:
         return match.group(1) if match else None
     if operation == "integrate":
         match = re.search(r"integrate\(expr,\s*(?:\(\s*)?(\w+)", command)
-        return match.group(1) if match else None
+        if match is None or match.group(1) == "None":
+            # The wrapper records an omitted variable as the placeholder
+            # ``None``; that is not a symbol name (r16 task-06 step 33).
+            return None
+        return match.group(1)
     return None
 
 
@@ -230,7 +279,14 @@ def numeric_residual_verdict(residual: sp.Basic) -> bool | None:
     tolerance of zero, and ``None`` when the test cannot run (no samplable free
     symbols, undefined functions such as ``f(2)``, singular substitutions, or
     too few valid samples).  A ``None`` must never be reported as "false".
+
+    An unevaluated aggregate (``Sum``/``Integral``) always returns ``None``: its
+    bound variable cannot be sampled — substituting ``n = 2`` evaluates a single
+    term and the residual always looks nonzero — so no rational substitution may
+    call such a residual false (task-19).
     """
+    if residual.has(sp.Sum, sp.Integral):
+        return None
     if residual.is_number:
         try:
             return abs(complex(residual.evalf(20))) > 1e-10
@@ -285,24 +341,106 @@ def matching_variable(name: str, *expressions: sp.Basic) -> sp.Symbol:
     return sp.Symbol(name)
 
 
-def classify_suspect_identity(residual: sp.Basic) -> tuple[str, str]:
+def reverse_integration_operands(
+    input_expr: sp.Basic, output_expr: sp.Basic, command: str
+) -> tuple[sp.Symbol, sp.Basic] | None:
+    """Resolve ``(variable, expected integrand)`` for reverse differentiation.
+
+    An inert indefinite ``Integral(f, x)`` input (the engine evaluated it into
+    the antiderivative) is checked against its integrand ``f``, not the wrapper.
+    An omitted command variable (``integrate(expr, None)``) falls back to the
+    engine's default, inferred from the expression when unambiguous (r16
+    task-06 step 33: a correct erfi antiderivative was FAILED against its own
+    ``Integral`` wrapper).  ``None`` means the variable could not be resolved.
+    """
+    if (
+        isinstance(input_expr, sp.Integral)
+        and len(input_expr.limits) == 1
+        and len(input_expr.limits[0]) == 1
+    ):
+        var_name: str | None = str(input_expr.limits[0][0])
+        expected: sp.Basic = input_expr.function
+    else:
+        var_name = extract_variable_from_command(command, "integrate")
+        expected = input_expr
+    if var_name is None:
+        names = {
+            str(s)
+            for s in (input_expr.free_symbols | output_expr.free_symbols)
+        }
+        if len(names) == 1:
+            var_name = next(iter(names))
+        elif "x" in names:
+            var_name = "x"
+    if var_name is None:
+        return None
+    return matching_variable(var_name, input_expr, output_expr), expected
+
+
+def classify_suspect_identity(
+    residual: sp.Basic, *, asserted: bool = False
+) -> tuple[str, str]:
     """Grade a nonzero identity residual: numerically false vs merely unproven.
 
-    Returns ``(kind, phrase)`` where ``kind`` is ``"numeric"`` when rational
-    substitution makes the residual clearly nonzero, and ``"unreduced"`` when
-    the difference never reduced but substitution is unavailable or lands on
-    zero — an unreduced difference is *not* a false identity.
+    Returns ``(kind, phrase)``.  A plain operator step over a difference form
+    (``A - B``) never *asserts* an identity — the user may simply be asking for
+    a simplification — so it is never graded ``"numeric"``/FALSE, only
+    ``"unreduced"``.  Only an explicit equation assertion (``asserted=True``)
+    may be confirmed false by rational substitution, and its wording says so.
     """
-    if numeric_residual_verdict(residual) is True:
+    numeric = numeric_residual_verdict(residual)
+    if asserted and numeric is True:
         return (
             "numeric",
             "the recorded difference is numerically nonzero, so the asserted "
             "identity is FALSE (confirmed by numeric substitution)",
         )
+    if numeric is True:
+        return (
+            "unreduced",
+            "the difference did not reduce to zero (simplifier limitation); it is "
+            "numerically nonzero at tested points, but an operator step over a plain "
+            "expression does not assert an identity — record it as an equation for a "
+            "definitive true/false verdict",
+        )
     return (
         "unreduced",
-        "the difference did not reduce to zero (simplifier limitation); "
-        "identity unproven, not disproven",
+        "the difference did not reduce to zero (simplifier limitation); identity "
+        "unproven, not disproven — record it as an equation for a definitive "
+        "true/false verdict",
+    )
+
+
+def boolean_equation_verdict(
+    operation: str, expr: sp.Equality
+) -> tuple[VerificationStatus, str, dict[str, Any]]:
+    """Verdict for an operator that collapsed an asserted equation to a boolean.
+
+    Symbolically zero verifies the identity.  A residual that rational
+    substitution confirms nonzero is an *asserted* identity that does not hold,
+    so the step FAILS and carries ``suspect_identity: "numeric"`` — status and
+    wording agree (task-17).  Anything else stays INCONCLUSIVE, since the
+    verifier cannot see the assumptions that made the operator return ``True``.
+    """
+    diff = sp.simplify(expr.lhs - expr.rhs)
+    if is_numerically_zero(diff):
+        return (
+            VerificationStatus.VERIFIED,
+            f"{operation.capitalize()} verified: expression is an identity",
+            {},
+        )
+    if numeric_residual_verdict(diff) is True:
+        kind, phrase = classify_suspect_identity(diff, asserted=True)
+        return (
+            VerificationStatus.FAILED,
+            f"{operation.capitalize()} failed: {phrase}",
+            {"suspect_identity": kind},
+        )
+    return (
+        VerificationStatus.INCONCLUSIVE,
+        f"{operation} returned True; the identity holds under assumptions the "
+        "verifier cannot confirm",
+        {},
     )
 
 
@@ -314,6 +452,47 @@ def residual_verdict(residual: sp.Basic) -> VerificationStatus:
     if verdict is True:
         return VerificationStatus.FAILED
     return VerificationStatus.INCONCLUSIVE
+
+
+def definite_integral_variables(expr: sp.Basic) -> set[sp.Symbol]:
+    """Bound variables of ``Integral`` nodes that carry explicit limits.
+
+    An indefinite integral has a single-element limit tuple ``(x,)``; a
+    definite one has ``(x, lo, hi)``.  Only the latter need the numeric path in
+    :meth:`StepVerifier._verify_integration`: reverse differentiation is invalid
+    there because a definite integral does not depend on its bound variable.
+    """
+    variables: set[sp.Symbol] = set()
+    for integral in expr.atoms(sp.Integral):
+        for limit in integral.limits:
+            if len(limit) >= 3:
+                variables.add(limit[0])
+    return variables
+
+
+def numeric_integral_verdict(input_expr: sp.Basic, output_expr: sp.Basic) -> tuple[
+    VerificationStatus, str
+]:
+    """Recompute a definite integral and compare numerically with the stated value.
+
+    A disagreement stays INCONCLUSIVE, never FAILED (quadrature probes can
+    mislead).  The recomputation evaluates unevaluated ``Integral`` nodes first,
+    because ``sp.N`` leaves a nested symbolic-bound integral inert (task-06).
+    """
+    try:
+        expected = complex(sp.N(evaluate_pending(input_expr), 20))
+        actual = complex(sp.N(output_expr, 20))
+    except (TypeError, ValueError, NotImplementedError, OverflowError):
+        return VerificationStatus.INCONCLUSIVE, "Numeric quadrature not possible"
+    if expected != expected or actual != actual:  # NaN: comparison undefined
+        return VerificationStatus.INCONCLUSIVE, "Numeric quadrature not possible"
+    tol = 1e-6 * max(1.0, abs(expected))
+    if abs(expected - actual) < tol:
+        return VerificationStatus.VERIFIED, "Definite integral verified by numeric quadrature"
+    return (
+        VerificationStatus.INCONCLUSIVE,
+        "Numeric quadrature disagrees with the stated definite-integral result",
+    )
 
 
 def _suspect_details(step: DerivationStep) -> dict[str, Any]:
@@ -333,10 +512,15 @@ def suspect_identity_steps(steps: Sequence[DerivationStep]) -> list[int]:
 
 
 def suspect_identity_warning(flagged: Sequence[int]) -> str:
-    """One-line disclosure for a session carrying suspect identities."""
+    """One-line disclosure for a session carrying unresolved differences.
+
+    These are operator steps over plain expressions whose difference did not
+    reduce; a confirmed-false *asserted* identity is a FAILED step instead and is
+    surfaced separately through ``failed_steps``.
+    """
     return (
-        f"{len(flagged)} step(s) assert identities that do not hold or did not "
-        "reduce; see suspect_identity_steps"
+        f"{len(flagged)} step(s) record a difference that did not reduce to zero; "
+        "see suspect_identity_steps"
     )
 
 

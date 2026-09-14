@@ -43,6 +43,30 @@ def _parse_assumption_clause(a: str) -> tuple[str, dict[str, bool]] | None:
     return None
 
 
+def _normalize_assume_input(
+    variables: dict[str, str] | list[str],
+) -> dict[str, str]:
+    """Accept both ``{"x": "positive"}`` and ``["x is positive"]``.
+
+    The assumption tools disagreed about input shape (``assume`` took a dict,
+    ``math``/``assume_for_step`` took clause lists); the list form normalizes
+    through the same clause parser ``math`` uses. Every clause must parse —
+    the batch is applied all-or-nothing.
+    """
+    if isinstance(variables, dict):
+        return variables
+    normalized: dict[str, str] = {}
+    for clause in variables:
+        match = _parse_assumption_clause(clause)
+        if match is None:
+            raise ValueError(
+                f"Could not parse assumption '{clause}'. Use 'x is positive'."
+            )
+        var_name, props_dict = match
+        normalized[var_name] = " ".join(props_dict)
+    return normalized
+
+
 def _apply_call_assumptions(
     assumptions: list[str] | None, session: bool
 ) -> tuple[MathContext | None, dict[str, dict[str, bool]], list[str]]:
@@ -96,6 +120,193 @@ def _render_dimension_display(result: dict[str, Any]) -> str:
     elif result.get("message"):
         lines.append(f"- {result['message']}")
     return "\n".join(lines)
+
+
+def _sympy_command(
+    operation: str,
+    variable: str | None,
+    order: int,
+    lower: str | None,
+    upper: str | None,
+    point: str | None,
+) -> str:
+    """A sympy_command string the step verifier can parse."""
+    if operation == "diff":
+        if order == 1:
+            return f"diff(expr, {variable})"
+        return f"diff(expr, {variable}, {order})"
+    if operation == "integrate":
+        if lower is not None and upper is not None:
+            return f"integrate(expr, ({variable}, {lower}, {upper}))"
+        return f"integrate(expr, {variable})"
+    if operation == "limit":
+        return f"limit(expr, {variable}, {point or '0'})"
+    return f"math('{operation}', ...)"
+
+
+def _step_input_expressions(
+    operation: str,
+    preprocessed: Any,
+    input_obj: Any,
+    variable: str | None,
+    substitution: dict[str, Any] | None,
+    direction: str,
+) -> dict[str, str]:
+    """Provenance for a recorded step: operation, input, and operation params."""
+    input_expressions: dict[str, str] = {
+        # A coarse bucket records matrix ops as matrix_op.
+        "operation": operation,
+        "original": str(input_obj) if input_obj is not None else preprocessed,
+    }
+    if operation == "substitute" and substitution:
+        input_expressions["replacement"] = ", ".join(
+            f"{k} = {v}" for k, v in substitution.items()
+        )
+        # Machine-readable copy. The human-readable join is lossy: a value
+        # containing a comma (``Rational(1,6)``, ``Eq(a, b)``) splits into
+        # fragments the verifier cannot parse (task-02 step 23).
+        input_expressions["replacement_map"] = json.dumps(
+            substitution, ensure_ascii=False
+        )
+    elif operation == "solve" and variable:
+        input_expressions["target_variable"] = variable
+    elif operation == "limit":
+        # The verifier must probe the side the user actually asked for (P5).
+        input_expressions["limit_direction"] = direction
+    elif operation == "evalf" and substitution:
+        # Without this the numeric anchor is unreplayable: the archived input is
+        # the pure symbolic expression and the substituted point is lost
+        # (r16 task-01/03/14).
+        input_expressions["input_substitution"] = json.dumps(
+            substitution, ensure_ascii=False
+        )
+    return input_expressions
+
+
+def _record_math_step(
+    sess: Any,
+    operation: str,
+    expression: str,
+    preprocessed: Any,
+    result: dict[str, Any],
+    input_obj: Any,
+    result_obj: Any,
+    *,
+    variable: str | None,
+    order: int,
+    lower: str | None,
+    upper: str | None,
+    point: str | None,
+    direction: str,
+    substitution: dict[str, Any] | None,
+    description: str,
+    notes: str,
+) -> None:
+    """Record one successful math() call as a derivation step."""
+    try:
+        # parse/cancel have exact labels; other operations keep their coarse
+        # verification bucket (r16 task-03/15).
+        op_type = (
+            OperationType(operation)
+            if operation in ("parse", "cancel")
+            else _OP_TYPE_MAP.get(operation, OperationType.CUSTOM)
+        )
+        desc = description or f"{operation}: {expression[:50]}"
+        sess._add_step(
+            operation=op_type,
+            description=desc,
+            input_expressions=_step_input_expressions(
+                operation, preprocessed, input_obj, variable, substitution, direction
+            ),
+            output_expr=result_obj,
+            sympy_command=_sympy_command(
+                operation, variable, order, lower, upper, point
+            ),
+            notes=notes,
+            # The live input object so the step archives an input_srepr and
+            # verification never re-parses a display string (invariant I2).
+            prior_expr=input_obj,
+        )
+        sess.current_expression = result_obj
+        result["step"] = sess.step_count
+        result["session_id"] = sess.session_id
+    except Exception as exc:
+        # Fail loud: recording problems are surfaced to the caller.
+        result.setdefault("warnings", []).append(
+            f"Step recording failed: {type(exc).__name__}: {exc}"
+        )
+
+
+def _record_dimension_step(
+    sess: Any,
+    expression: str,
+    result: dict[str, Any],
+    description: str,
+    notes: str,
+) -> None:
+    """Record a ``dimension`` check, which has no SymPy result object.
+
+    The checked expression becomes the step output; the verdict summary and the
+    per-symbol dimensions go into the provenance metadata (r16 task-03/16).
+    """
+    from symkit.domain.expression_parser import parse_user_expression
+
+    expr, _error = parse_user_expression(expression, convert_equation=True)
+    if expr is None:
+        return
+    sess._add_step(
+        operation=OperationType.CUSTOM,
+        description=description or f"dimension: {expression[:50]}",
+        input_expressions={
+            "operation": "dimension",
+            "original": expression,
+            "consistent": str(result.get("consistent")),
+            "dimensions": json.dumps(result.get("dimensions") or {}, ensure_ascii=False),
+            "result_dimension": json.dumps(
+                result.get("result_dimension") or {}, ensure_ascii=False
+            ),
+        },
+        output_expr=expr,
+        sympy_command="dimension(expr)",
+        notes=notes or str(result.get("message") or ""),
+        prior_expr=expr,
+    )
+    result["step"] = sess.step_count
+    result["session_id"] = sess.session_id
+
+
+def _record_step_if_possible(
+    operation: str,
+    expression: str,
+    preprocessed: Any,
+    result: dict[str, Any],
+    input_obj: Any,
+    result_obj: Any,
+    *,
+    variable: str | None,
+    order: int,
+    lower: str | None,
+    upper: str | None,
+    point: str | None,
+    direction: str,
+    substitution: dict[str, Any] | None,
+    description: str,
+    notes: str,
+) -> None:
+    """Record a successful math() call to the current session when possible."""
+    sess = get_session()
+    if sess is None:
+        return
+    if operation == "dimension":
+        _record_dimension_step(sess, expression, result, description, notes)
+    elif result_obj is not None:
+        _record_math_step(
+            sess, operation, expression, preprocessed, result,
+            input_obj, result_obj,
+            variable=variable, order=order, lower=lower, upper=upper,
+            point=point, direction=direction, substitution=substitution,
+            description=description, notes=notes,
+        )
 
 
 def register_math_tools(mcp: Any) -> None:
@@ -274,82 +485,13 @@ def register_math_tools(mcp: Any) -> None:
 
             # Record to derivation session if requested
             if session:
-                sess = get_session()
-                if sess is not None and result_obj is not None:
-                    try:
-                        op_type = _OP_TYPE_MAP.get(operation, OperationType.CUSTOM)
-                        desc = description or f"{operation}: {expression[:50]}"
-                        # A sympy_command the step verifier can parse.
-                        if operation == "diff":
-                            if order == 1:
-                                sympy_cmd = f"diff(expr, {variable})"
-                            else:
-                                sympy_cmd = f"diff(expr, {variable}, {order})"
-                        elif operation == "integrate":
-                            if lower is not None and upper is not None:
-                                sympy_cmd = f"integrate(expr, ({variable}, {lower}, {upper}))"
-                            else:
-                                sympy_cmd = f"integrate(expr, {variable})"
-                        elif operation == "limit":
-                            sympy_cmd = f"limit(expr, {variable}, {point or '0'})"
-                        else:
-                            sympy_cmd = f"math('{operation}', ...)"
-
-                        # Provide extra input metadata so the verifier can check
-                        # substitution and solve steps too. The recorded input is
-                        # str() of the same live object the operation consumed, so
-                        # the archive cannot diverge from the response.
-                        input_expressions: dict[str, str] = {
-                            # A coarse bucket records matrix ops as matrix_op.
-                            "operation": operation,
-                            "original": (
-                                str(input_obj) if input_obj is not None else preprocessed
-                            ),
-                        }
-                        if operation == "substitute" and substitution:
-                            input_expressions["replacement"] = ", ".join(
-                                f"{k} = {v}" for k, v in substitution.items()
-                            )
-                            # Machine-readable copy. The human-readable join is
-                            # lossy: a value containing a comma (``Rational(1,6)``,
-                            # ``Eq(a, b)``, a multi-argument call) splits into
-                            # fragments the verifier cannot parse, producing a
-                            # false "Could not parse replacement expression"
-                            # (task-02 step 23).
-                            input_expressions["replacement_map"] = json.dumps(
-                                substitution, ensure_ascii=False
-                            )
-                        elif operation == "solve" and variable:
-                            input_expressions["target_variable"] = variable
-                        elif operation == "limit":
-                            # The verifier must probe the side the user actually
-                            # asked for; without this a correct one-sided limit
-                            # was reported INCONCLUSIVE because the other side
-                            # disagrees (P5).
-                            input_expressions["limit_direction"] = direction
-                        sess._add_step(
-                            operation=op_type,
-                            description=desc,
-                            input_expressions=input_expressions,
-                            output_expr=result_obj,
-                            sympy_command=sympy_cmd,
-                            notes=notes,
-                            # The live input object, so the step archives an
-                            # input_srepr and verification never has to
-                            # re-parse a display string (invariant I2).  A
-                            # non-Basic input (comma-parsed tuple) is ignored
-                            # by _add_step.
-                            prior_expr=input_obj,
-                        )
-                        sess.current_expression = result_obj
-                        result["step"] = sess.step_count
-                        result["session_id"] = sess.session_id
-                    except Exception as exc:
-                        # Fail loud: recording problems are surfaced to the
-                        # caller instead of silently dropping the step.
-                        result.setdefault("warnings", []).append(
-                            f"Step recording failed: {type(exc).__name__}: {exc}"
-                        )
+                _record_step_if_possible(
+                    operation, expression, preprocessed, result,
+                    input_obj, result_obj,
+                    variable=variable, order=order, lower=lower, upper=upper,
+                    point=point, direction=direction, substitution=substitution,
+                    description=description, notes=notes,
+                )
         else:
             result["display_text"] = f"❌ **{operation}** failed: {result.get('error', 'unknown')}"
 
@@ -361,7 +503,7 @@ def register_math_tools(mcp: Any) -> None:
             "example": 'assume({"x": "positive", "t": "real"})',
         }
     )
-    def assume(variables: dict[str, str]) -> dict[str, Any]:
+    def assume(variables: dict[str, str] | list[str]) -> dict[str, Any]:
         """
         Set symbolic assumptions (affecting subsequent math() calculations)
 
@@ -370,17 +512,24 @@ def register_math_tools(mcp: Any) -> None:
 
         Args:
             variables: Mapping from variable to properties
-                       e.g., {"x": "positive real", "n": "integer"}
+                       e.g., {"x": "positive real", "n": "integer"} — or the
+                       clause-list form math()/assume_for_step() use:
+                       ["x is positive real", "n is integer"]
 
         Returns:
             All current assumptions
 
         Example:
             assume({"x": "positive", "t": "real"})
+            assume(["x is positive"])
             # Afterwards, math("simplify", "sqrt(x**2)") returns x instead of Abs(x)
         """
         from symkit.domain.assumption_engine import AssumptionLevel
 
+        try:
+            variables = _normalize_assume_input(variables)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
         ctx = get_context()
         for var, props_str in variables.items():
             props = {}

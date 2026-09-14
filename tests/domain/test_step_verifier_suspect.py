@@ -7,14 +7,14 @@ so a recorded difference ``A - B`` whose simplification came out nonzero
 stamped ``verified: expressions are equal`` and read as "this step is
 mathematically correct".
 
-Black-box round 15 (task-13) split that flag in two, because "simplify failed to
-reach zero" is *not* "the identity is false":
-
-* ``suspect_identity == "numeric"`` — a rational substitution makes the
-  residual clearly nonzero, so the asserted identity is confirmed false;
-* ``suspect_identity == "unreduced"`` — the residual never reduced, but
-  substitution is infeasible or lands on zero, so the identity is unproven, not
-  disproven.  The polarity stays ``verified`` in both cases.
+Black-box round 15 (task-13) split that flag in two, and round 16 (task-08)
+corrected the polarity further: an operator step over a *plain* difference form
+(``A - B``, not an ``Eq``) never asserts an identity — the user may just be
+asking for a simplification — so it must never be graded ``"numeric"``/FALSE.
+Such steps carry only ``suspect_identity == "unreduced"`` (the difference did
+not reduce to zero; unproven, not disproven) and keep ``status: verified``.  A
+false identity is confirmed only through an explicit equation assertion (see
+``test_step_verifier_eq_content.py``), where it FAILS the step.
 
 The difference detection is deliberately conservative: an ordinary sum
 (``x**2 + x``, ``x**2 - 1``), a difference whose negated term is a bare symbol
@@ -78,9 +78,11 @@ def _make_archived_step(
 
 
 class TestSuspectIdentity:
-    def test_nonzero_residual_on_difference_is_suspect(self, verifier):
+    def test_nonzero_residual_on_difference_is_unreduced_not_false(self, verifier):
         # task-11 E2: cos(2x) = 1 - 2*sin(2x)**2 is false; the faithful
-        # simplification is the nonzero residual -8 sin^4 x + 6 sin^2 x.
+        # simplification is the nonzero residual -8 sin^4 x + 6 sin^2 x.  A
+        # plain difference form is not an asserted identity, so the verdict is
+        # "unreduced" and never "the identity is FALSE" (task-08 W1).
         step = _make_step(
             OperationType.SIMPLIFY,
             "cos(2*x) - (1 - 2*sin(2*x)**2)",
@@ -88,11 +90,12 @@ class TestSuspectIdentity:
         )
         result = verifier.verify_step(step, prior_expr=None)
         assert result.status == VerificationStatus.VERIFIED  # polarity unchanged
-        assert result.details.get("suspect_identity") == "numeric"
-        assert "FALSE (confirmed by numeric substitution)" in result.message
+        assert result.details.get("suspect_identity") == "unreduced"
+        assert "asserted identity is FALSE" not in result.message
+        assert "did not reduce to zero" in result.message
         assert "matches the recomputed operator result" in result.message
 
-    def test_false_identity_residual_minus_two_is_suspect(self, verifier):
+    def test_false_identity_residual_minus_two_is_unreduced(self, verifier):
         # task-11 probe: cos(4x) - (8 sin^4 - 8 sin^2 + 3) simplifies to -2.
         step = _make_step(
             OperationType.SIMPLIFY,
@@ -100,8 +103,9 @@ class TestSuspectIdentity:
             "-2",
         )
         result = verifier.verify_step(step, prior_expr=None)
-        assert result.details.get("suspect_identity") == "numeric"
-        assert "FALSE (confirmed by numeric substitution)" in result.message
+        assert result.status == VerificationStatus.VERIFIED
+        assert result.details.get("suspect_identity") == "unreduced"
+        assert "asserted identity is FALSE" not in result.message
 
     def test_zero_residual_on_difference_is_not_suspect(self, verifier):
         # cos(2x) = cos^2 x - sin^2 x is a true identity: output 0.
@@ -115,7 +119,7 @@ class TestSuspectIdentity:
         assert "suspect_identity" not in result.details
         assert result.message.endswith("output matches the recomputed operator result")
 
-    def test_expand_nonzero_difference_is_suspect(self, verifier):
+    def test_expand_nonzero_difference_is_unreduced(self, verifier):
         step = _make_step(
             OperationType.EXPAND,
             "(x + y)**2 - x**2 - y**2",
@@ -123,19 +127,21 @@ class TestSuspectIdentity:
         )
         result = verifier.verify_step(step, prior_expr=None)
         assert result.status == VerificationStatus.VERIFIED
-        assert result.details.get("suspect_identity") == "numeric"
-        assert "FALSE (confirmed by numeric substitution)" in result.message
+        assert result.details.get("suspect_identity") == "unreduced"
+        assert "asserted identity is FALSE" not in result.message
 
-    def test_surd_difference_is_confirmed_false(self, verifier):
-        # task-13 #6: sqrt(a^2 + b^2) = a + b is false (a=3, b=4 -> -2).
+    def test_surd_difference_is_unreduced(self, verifier):
+        # task-13 #6: sqrt(a^2 + b^2) = a + b is false (a=3, b=4 -> -2), but a
+        # plain difference form cannot assert that; the verdict is unproven.
         step = _make_step(
             OperationType.SIMPLIFY,
             "sqrt(a**2 + b**2) - (a + b)",
             "-a - b + sqrt(a**2 + b**2)",
         )
         result = verifier.verify_step(step, prior_expr=None)
-        assert result.details.get("suspect_identity") == "numeric"
-        assert "FALSE (confirmed by numeric substitution)" in result.message
+        assert result.status == VerificationStatus.VERIFIED
+        assert result.details.get("suspect_identity") == "unreduced"
+        assert "asserted identity is FALSE" not in result.message
 
     def test_unevaluated_derivative_difference_is_unreduced(self, verifier):
         # task-02/13: the residual is symbolically nonzero only because the
@@ -199,7 +205,7 @@ class TestSuspectIdentityArchived:
     """The live recorder archives ``input_srepr``; ``safe_load_expression``
     flattens ``-(A - B)`` on reload, so the detection must read the archive."""
 
-    def test_archived_nonzero_difference_is_suspect(self, verifier):
+    def test_archived_nonzero_difference_is_unreduced(self, verifier):
         step = _make_archived_step(
             OperationType.SIMPLIFY,
             "cos(2*x) - (1 - 2*sin(2*x)**2)",
@@ -207,8 +213,8 @@ class TestSuspectIdentityArchived:
         )
         result = verifier.verify_step(step, prior_expr=None)
         assert result.status == VerificationStatus.VERIFIED
-        assert result.details.get("suspect_identity") == "numeric"
-        assert "FALSE (confirmed by numeric substitution)" in result.message
+        assert result.details.get("suspect_identity") == "unreduced"
+        assert "asserted identity is FALSE" not in result.message
 
     def test_archived_non_difference_not_marked(self, verifier):
         step = _make_archived_step(

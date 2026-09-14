@@ -38,12 +38,12 @@ def translate_equality(
     if isinstance(lhs, sp.Equality) or isinstance(rhs, sp.Equality):
         raise UntranslatableError("equality-to-equality rewrites need linear_combination (v2)")
     target_type = "ℂ" if (lhs.has(sp.I) or rhs.has(sp.I)) else "ℝ"
-    bindings = _bindings(lhs, rhs, assumptions or {}, target_type)
+    lane = "field" if (_needs_field(lhs) or _needs_field(rhs)) else "ring"
+    bindings = _bindings(lhs, rhs, assumptions or {}, target_type, lane)
 
     def render(expr: sp.Basic) -> str:
         return _to_lean(expr, target_type, bindings.names)
 
-    lane = "field" if (_needs_field(lhs) or _needs_field(rhs)) else "ring"
     return LeanStatement(
         name,
         target_type,
@@ -55,14 +55,36 @@ def translate_equality(
     )
 
 
+def clear_denominators(lhs: sp.Basic, rhs: sp.Basic) -> tuple[sp.Basic, sp.Basic]:
+    """Return the numerator forms of both sides over a common denominator.
+
+    Used as the field-lane fallback: ``field_simp`` sometimes leaves an
+    ``unsolved goals`` state even though the denominator-free polynomial
+    identity is provable by ``ring``.  ``together(...).as_numer_denom()[0]``
+    keeps the numerator's algebraic structure: a plain expansion can collapse
+    a true identity to ``0 = 0``, which certifies nothing visible (r16
+    acceptance task-15).
+    """
+    lhs_num = sp.together(lhs).as_numer_denom()[0]
+    rhs_num = sp.together(rhs).as_numer_denom()[0]
+    return lhs_num, rhs_num
+
+
 def _bindings(
     lhs: sp.Basic,
     rhs: sp.Basic,
     assumptions: Mapping[str, Mapping[str, bool]],
     target_type: str,
+    lane: str,
 ) -> _Bindings:
     names = _sanitize_symbols(sorted(lhs.free_symbols | rhs.free_symbols, key=str))
-    symbol_facts, covered = _symbol_hypotheses(names, assumptions, target_type)
+    # A pure ring identity is unconditional over a field: ``x ≠ 0`` and order
+    # facts can never be needed, so emitting them would only put an unrelated
+    # global assumption into the kernel goal (r16 task-15).
+    if lane == "field":
+        symbol_facts, covered = _symbol_hypotheses(names, assumptions, target_type)
+    else:
+        symbol_facts, covered = [], frozenset()
     denominator_facts = _denominator_hypotheses(
         (lhs, rhs), names, covered, target_type, symbol_facts
     )
@@ -228,23 +250,35 @@ def _denominator_hypotheses(
                 if base.free_symbols:
                     bases.setdefault(sp.srepr(base), base)
     used_names = {fact.split(" : ", 1)[0] for fact in existing}
-    rendered: list[str] = []
+    factors: list[sp.Basic] = []
     for _, base in sorted(bases.items(), key=lambda item: item[0]):
-        for factor in _nonzero_factors(base):
-            if not factor.free_symbols:
-                continue
-            if isinstance(factor, sp.Symbol):
-                if factor not in covered:
-                    raise UntranslatableError(
-                        f"denominator {factor} has no nonzero assumption in this "
-                        f"statement; call assume({factor}, nonzero) before certifying"
-                    )
-            else:
-                identifier = _hyp_identifier(str(factor), used_names)
-                used_names.add(identifier)
-                rendered.append(
-                    f"{identifier} : {_to_lean(factor, target_type, names)} ≠ 0"
-                )
+        factors.extend(
+            factor for factor in _nonzero_factors(base) if factor.free_symbols
+        )
+    missing = [f for f in factors if isinstance(f, sp.Symbol) and f not in covered]
+    if missing:
+        # Name every factor that has no user-supplied nonzero assumption in one
+        # pass; reporting only the first made a multi-factor denominator
+        # (e.g. x*(x+1)) look like it needed a single assumption (r16 task-15).
+        uncovered = [
+            factor
+            for factor in factors
+            if not (isinstance(factor, sp.Symbol) and factor in covered)
+        ]
+        listed = ", ".join(dict.fromkeys(str(factor) for factor in uncovered))
+        raise UntranslatableError(
+            f"denominator factors {listed} have no nonzero assumption in this "
+            f"statement; call assume(<factor>, nonzero) before certifying"
+        )
+    rendered: list[str] = []
+    for factor in factors:
+        if isinstance(factor, sp.Symbol):
+            continue  # already carried by its symbol-level assumption
+        identifier = _hyp_identifier(str(factor), used_names)
+        used_names.add(identifier)
+        rendered.append(
+            f"{identifier} : {_to_lean(factor, target_type, names)} ≠ 0"
+        )
     return rendered
 
 

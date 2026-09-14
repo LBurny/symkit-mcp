@@ -98,7 +98,53 @@ class TestStepVerifierIntegrate:
         result = verifier.verify_step(step, prior_expr=None)
         assert result.status == VerificationStatus.VERIFIED
 
-class TestStepVerifierDefiniteIntegrate:
+class TestStepVerifierIndefiniteIntegralWrapper:
+    """r16 task-06 step 33: an inert ``Integral`` input verifies its integrand.
+
+    The engine evaluated ``Integral(f, x)`` into the antiderivative F, but the
+    verifier compared dF/dx against the wrapper ``Integral(f, x)`` and FAILED
+    the mathematically correct erfi result.
+    """
+
+    def test_erfi_antiderivative_is_not_failed(self, verifier):
+        step = _make_step(
+            OperationType.INTEGRATE,
+            {"original": "Integral(exp(x**2), x)"},
+            "sqrt(pi)*erfi(x)/2",
+            sympy_command="integrate(expr, None)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED, result.message
+
+    def test_default_variable_indefinite_integral_is_verified(self, verifier):
+        step = _make_step(
+            OperationType.INTEGRATE,
+            {"original": "x**2"},
+            "x**3/3",
+            sympy_command="integrate(expr, None)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED, result.message
+
+class TestStepVerifierEvalfFiniteSum:
+    """r16 task-19 step 13: the numeric baseline must not drift on a Sum.
+
+    ``N`` of an inert finite ``Sum`` accumulates in double precision (phantom
+    imaginary part included); the tool evaluates it exactly via ``doit``, so
+    the verifier must do the same before comparing.
+    """
+
+    def test_finite_alternating_sum_is_verified(self, verifier):
+        step = _make_step(
+            OperationType.EVALF,
+            {"original": "Sum((-1)**n/n**2,(n,1,1000))"},
+            "-0.822466533924113",
+            sympy_command="math('evalf', ...)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED, result.message
+
+
     """Regression (run-011): reverse differentiation is meaningless for a
     definite integral — the result no longer depends on the integration
     variable, so d/dv of the correct constant ``3*k_B*T/m`` is ``0`` and the
@@ -431,3 +477,53 @@ class TestEvalfQuadratureTolerance:
         )
         result = verifier.verify_step(step, prior_expr=None)
         assert result.status == VerificationStatus.FAILED
+
+
+class TestStepVerifierEvalfSymbolicInput:
+    """evalf of a symbolic input must be verifiable, not contradicted.
+
+    2026-09-14 defect: ``math("evalf", "2*x")`` succeeds and returns
+    ``2.0*x``, but the verifier demanded purely numeric I/O and answered
+    INCONCLUSIVE for the same recorded step — the tool surface and its own
+    verifier disagreed about the same operation.
+    """
+
+    def test_symbolic_evalf_is_verified(self, verifier):
+        step = _make_step(
+            OperationType.EVALF,
+            {"original": "2*x"},
+            "2.0*x",
+            sympy_command="math('evalf', ...)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED, result.message
+
+    def test_mismatched_symbolic_evalf_is_not_failed(self, verifier):
+        step = _make_step(
+            OperationType.EVALF,
+            {"original": "2*x"},
+            "3.0*x",
+            sympy_command="math('evalf', ...)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.INCONCLUSIVE
+        assert result.status != VerificationStatus.FAILED
+
+
+class TestStepVerifierEvalfMatrix:
+    """evalf of a list literal (now a Matrix) must verify, not contradict.
+
+    2026-09-14 follow-up: flat list literals parse to ``Matrix``; the evalf
+    verifier's numeric path raises on a matrix, so the symbolic fallback must
+    handle matrix-valued I/O too.
+    """
+
+    def test_matrix_evalf_is_verified(self, verifier):
+        step = _make_step(
+            OperationType.EVALF,
+            {"original": "[1, 2]"},
+            "Matrix([[1.0], [2.0]])",
+            sympy_command="math('evalf', ...)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED, result.message

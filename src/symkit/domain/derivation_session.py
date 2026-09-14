@@ -101,12 +101,20 @@ def _library_candidates() -> list[dict[str, Any]]:
         return []
 
 
+def _free_symbols(value: Any) -> set[sp.Symbol]:
+    if isinstance(value, (list, tuple)):
+        return {s for item in value for s in _free_symbols(item)}
+    return value.free_symbols if isinstance(value, sp.Basic) else set()
+
+
 class OperationType(Enum):
     """Derivation operation types."""
 
     LOAD_FORMULA = "load_formula"
+    PARSE = "parse"
     SUBSTITUTE = "substitute"
     SIMPLIFY = "simplify"
+    CANCEL = "cancel"
     EXPAND = "expand"
     FACTOR = "factor"
     SOLVE = "solve"
@@ -507,7 +515,7 @@ class DerivationSession:
             }
 
         # Check whether variable exists
-        symbol_names = {str(s) for s in expr.free_symbols}
+        symbol_names = {str(s) for s in _free_symbols(expr)}
         if target_var not in symbol_names:
             return {
                 "success": False,
@@ -677,11 +685,11 @@ class DerivationSession:
         var_symbol = sp.Symbol(variable)
 
         # Check whether variable exists
-        if var_symbol not in expr.free_symbols:
+        if var_symbol not in _free_symbols(expr):
             return {
                 "success": False,
                 "error": f"Variable '{variable}' not in expression",
-                "available_variables": [str(s) for s in expr.free_symbols],
+                "available_variables": [str(s) for s in _free_symbols(expr)],
             }
 
         try:
@@ -1130,7 +1138,7 @@ class DerivationSession:
             except (TypeError, ValueError):
                 continue
         targets = narrow_target_variables(self.goal.target_variables if self.goal else [], symbols)
-        seen = {str(s) for s in current.free_symbols} | set().union(*symbols)
+        seen = {str(s) for s in _free_symbols(current)} | set().union(*symbols)
         return targets, set(targets) - seen, target_variables_reached(targets, verified)
 
     def compute_progress(self) -> dict[str, Any]:
@@ -1195,7 +1203,7 @@ class DerivationSession:
 
         # Target form: reduce variables
         if self.goal.target_form == "reduce_symbols":
-            current_symbols = len(current.free_symbols)
+            current_symbols = len(_free_symbols(current))
             if self.steps:
                 initial = safe_load_expression(
                     self.steps[0].output_expression,
@@ -1521,7 +1529,7 @@ class DerivationSession:
         target_reached = bool(progress.get("matches_target"))
 
         warnings: list[str] = []
-        if not target_reached:
+        if not target_reached and self.goal is not None and self.goal.has_explicit_target():
             warnings.append("Current expression does not match the derivation target.")
         overall = verification_summary.get("overall")
         if overall != "verified":

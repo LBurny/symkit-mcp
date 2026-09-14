@@ -39,8 +39,21 @@ def get_session() -> DerivationSession | None:
 
 
 def set_session(session: DerivationSession | None) -> None:
-    global _current_session
+    """Bind the current session and scope the shared assumption context to it.
+
+    Assumptions are session-scoped: starting/resuming a session other than the
+    one currently bound resets the context, and ending a session (~``None``)
+    reclaims its assumptions.  A context created with no session carries the
+    legacy global assumptions and is adopted as-is by the next session, so
+    ``assume`` before ``session_start`` keeps working (r16 task-20 S-2).
+    """
+    global _current_session, _current_context
+    previous = _current_session
     _current_session = session
+    if session is None or (
+        previous is not None and previous.session_id != session.session_id
+    ):
+        _current_context = MathContext()
 
 
 def get_context() -> MathContext:

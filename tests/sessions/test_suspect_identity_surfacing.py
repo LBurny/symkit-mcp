@@ -73,4 +73,4 @@ def test_suspect_step_keeps_verified_status(fresh_session_manager):
     tools["math"](operation="expand", expression="(x + y)**2 - x**2 - y**2", session=True)
     session = _state.get_session()
     assert session is not None
-    assert '"suspect_identity": "numeric"' in session.steps[0].verification_result
+    assert '"suspect_identity": "unreduced"' in session.steps[0].verification_result

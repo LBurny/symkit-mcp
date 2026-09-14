@@ -5,6 +5,124 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Fixes from the r16 black-box sandbox round (20 task cards; findings in the
+`symkit-mcp-test-r16` lab). Test suite grew 956 → 997.
+
+Fixes from the 2026-09-14 maintainer verification round: nine defects reported
+from a real SST k-omega derivation session were re-verified against the source
+before fixing; six were confirmed and fixed here, two turned out to be
+message-semantics misreadings (the suspect messages are factually accurate),
+and one schema claim did not reproduce. A follow-up turbine-session report
+re-verified six more claims the same way: four were artifacts of the pre-fix
+code, one was a downstream symptom of the content loss, and the remaining live
+bug (the target warning) is fixed here. Test suite grew 997 → 1031.
+
+### Fixed
+
+- **`session_complete` stops warning about a target that was never set.** A
+  text-only goal (no target expression, no target variables, and the default
+  `derive_expression` form) can never match anything, so the "Current
+  expression does not match the derivation target" warning fired
+  unconditionally. It now appears only when the goal defines a checkable
+  target (`DerivationGoal.has_explicit_target()`).
+- **`session_complete` no longer saves a bare constant as the derived
+  formula.** A trailing `0` self-check still headlines `final_expression`
+  (r14 task-08 display semantics), but the library write now prefers the last
+  symbolic derivation output, and skips the write entirely when the derivation
+  produced only a constant; both cases return an explanatory warning. A
+  multi-step derivation can no longer land in the library as
+  `expression: '0'` with `variables: {}`.
+- **The library `verified` label now requires no unreduced differences.** When
+  the verification summary lists `suspect_identity_steps`, the formula is
+  saved with `verified: false` and the response names the flagged steps; the
+  graded chain-level `overall` semantics are unchanged. A 16-step chain with 3
+  suspect and 1 inconclusive step can no longer publish `verified: true`.
+- **Lowercase `max`/`min` evaluate numerically.** The parser rewrites them to
+  SymPy's auto-evaluating `Max`/`Min`, so `evalf("max(0.1, 0.05)")` returns
+  `0.1` and SST-style F1/F2 mixing-function identities become numerically
+  verifiable instead of freezing on `Function('max')`.
+- **A name used both bare and as a call site parses.** `1/z + z(x)` — and the
+  turbomachinery workhorses `k`/`k(x)`, `omega`/`omega(x)` — no longer dies
+  with an unhelpful `SympifyError: z`: call sites are renamed internally to
+  `<name>__call` bound to `Function('<name>')`, the bare occurrence keeps its
+  plain `Symbol`, and per-call assumptions attach to the symbol rather than
+  being dropped because a call site exists.
+- **`evalf` of a symbolic input is verifiable.** The verifier compares
+  `N(input)` with the recorded output symbolically instead of answering
+  INCONCLUSIVE for the same step the tool reported as a success; mismatches
+  stay INCONCLUSIVE, so float form noise cannot produce a false FAILED.
+- **Flat list literals are matrices.** `[1/1.168, 2+2]` parses to a column
+  `Matrix` exactly like the list-of-lists grid already did (run-020), instead
+  of reaching the execution layer and crashing with
+  `'list' object has no attribute 'evalf'/'replace'`.
+- **`assume` accepts the clause-list form.** `assume(["x is positive"])` now
+  works alongside the dict form, aligning the three assumption entry points
+  (`assume`, `math(assumptions=[...])`, `assume_for_step`); an unparsable
+  clause rejects the whole batch up-front with a clear error.
+
+- **Verifier stops accusing honest computations of being false identities.**
+  A plain expression that merely looks like a difference (`E²−p²c²`, an AM-GM
+  expansion) is no longer treated as a zero-assertion: only steps whose input
+  is an explicit equation get the numeric TRUE/FALSE refutation, and a
+  difference containing an unevaluated `Sum`/`Integral` is never refuted by
+  substitution. Non-asserted difference forms get a neutral
+  `suspect_identity: "unreduced"` hint that tells the caller to record an
+  equation for a definitive verdict. (r16 tasks 01/08/19/20)
+- **Hand-recorded equations get a numeric gate and a trig fallback.** When the
+  symbolic difference of a recorded `Eq` does not reduce, the verifier now
+  tries `expand(trig=True)`/`trigsimp` and then a rational-point residual:
+  numerically zero → `inconclusive` ("unproven, not disproven"), genuinely
+  nonzero → `failed`. The true identity `cos(6x) = 32cos⁶x − 48cos⁴x + 18cos²x − 1`
+  is no longer declared "not an identity" because `simplify` alone cannot
+  reduce it. (r16 task 17)
+- **Definite-integral results are no longer false-failed** by the
+  differentiation reverse-check (a constant antiderivative differentiates to
+  0 ≠ integrand). A definite-bounds `Integral` whose output lacks the bound
+  variable is checked numerically or left `inconclusive` instead. The
+  `erfi` reverse-check also no longer treats a recorded variable of `None`
+  as the literal symbol `None`. (r16 tasks 06/19)
+- **`evalf` on large finite sums is exact and cancellation-aware.**
+  `Sum((-1)**n/n, (n,1,2000))` returned `−0.7 + 0.09i` (naive double
+  summation with a phantom imaginary part); finite sums now evaluate exactly
+  first at ≥30-digit precision, double the precision and warn when
+  catastrophic cancellation is detected. The evalf verification baseline was
+  aligned to the same exact path. (r16 task 19)
+- **`session_explain`/`session_complete` no longer crash** with
+  `'tuple' object has no attribute 'free_symbols'` when the session contains
+  a system-`solve` (list-input) step; tuple/list solution objects are
+  unwrapped at every consumer. (r16 task 20)
+- **Assumptions are scoped to the session.** `assume` no longer leaks across
+  sessions into unrelated solves, and Lean certification binds hypotheses
+  from the step's own record instead of the global pool (ring identities no
+  longer inherit an unrelated `x ≠ 0` binder). (r16 task 20/15)
+- **Lean field lane falls back to a ring proof with meaningful binders.** An
+  unproven field statement is retried as its cleared polynomial identity
+  (structure preserved, never collapsed to `0 = 0`) with the denominator
+  factors bound nonzero; the retry reports lane `field+ring`. The
+  untranslatable reason now lists *all* denominator factors missing an
+  assumption, not just the first. (r16 task 15)
+- **Nested `integrate(integrate(...))` calls no longer return the correct
+  value times a spurious `x`.** When the input already contains inline
+  integral calls and no outer limits are given, the parsed (already fully
+  evaluated) value is returned instead of differentiating once more in the
+  default variable. (r16 acceptance, task 06)
+- **System solve respects assumptions and announces headline truncation.**
+  Tuple solutions violating active assumptions are filtered into
+  `filtered_by_assumptions` (consistent with scalar solve), and multi-solution
+  results warn that the headline `solution` shows the first of N. (r16 tasks
+  07/10/20)
+- **Oversized explicit sums are rejected up front.** Parsing an expression
+  with more than 1000 explicit additive terms fails with guidance toward
+  `Sum(1/k, (k,1,n))`/`harmonic(n)`, instead of wedging the server for
+  30+ minutes / gigabytes on exact-rational denominators (observed with a
+  term-by-term H_n at n = 10⁶). (r16 task 05 incident)
+- **Session provenance:** `dimension` calls now record steps; `parse`/`cancel`
+  are no longer mislabelled `load_formula`/`simplify` in the step's top-level
+  operation; `evalf` substitutions are recorded as `input_substitution` so
+  numeric anchors are reproducible from the log. (r16 tasks 03/15/16)
+
 ## [1.7.0] - 2026-09-14
 
 ### Added

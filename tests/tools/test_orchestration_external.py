@@ -57,6 +57,14 @@ class TestDeriveExternalSources:
             "_build_external_adapters",
             lambda _sources: [FormulaInfoAdapter(FakeExternalAdapter())],
         )
+        # Hermetic against the process-shared formula index: auto_save in any
+        # earlier test of the run accumulates staging entries in the conftest
+        # SYMKIT_DATA_DIR, and scored library candidates (external results are
+        # pinned at 0.5) would crowd the fake external card out of top_k.
+        monkeypatch.setattr(
+            "symkit.domain.derivation_session._library_candidates",
+            lambda: [],
+        )
 
         mcp = MockMCP()
         _register_all_tools(mcp)

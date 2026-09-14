@@ -51,10 +51,11 @@ Pure business logic with no external dependencies.
 | `repositories/` | FormulaRepository (abstract interface) |
 | `assumption_binding.py` | Sole implementation of assumption → Symbol binding (`resolve_assumed_symbol`, `apply_assumptions`); owns the property whitelist and conflict table. Assumptions are applied *after* parsing, onto free symbols only (invariant I1/I3) |
 | `expr_io.py` | srepr-first reconstruction of archived expressions (`safe_load_expression`); verification replays the archived object instead of re-parsing a display string (invariant I2) |
-| `final_result.py` | 会话收尾的结果选取：手工记录等式的同一性判定（`recorded_step_verdict`）、`select_headline` 跳过 failed 步选取最终表达式 |
+| `parser_call_sites.py` | 共享解析器的调用位名称处理：小写 `max(`/`min(` 改写为自动求值的 `Max`/`Min`；同名「裸符号 + 函数调用」双用时把调用位改写为 `<name>__call` 并绑定 `Function('<name>')`，裸符号保持 `Symbol`、假设仅作用于符号 |
+| `final_result.py` | 会话收尾的结果选取与判定分级：手工记录等式的同一性判定（`recorded_step_verdict`）、suspect_identity 分级（`classify_suspect_identity` / `numeric_residual_verdict`：数值证伪仅限显式等式断言，跳过含未求值聚合的差式）、`select_headline` 跳过 failed 步选取最终表达式 |
 | `units.py` / `dimensional_analysis.py` | 单位解析与量纲一致性检查（纯领域逻辑，无外部依赖）：量纲向量、四则运算/函数传播规则、问题诊断 |
 | `lean_types.py` | Lean 认证通道的共享契约：`LeanStatement` / `LeanOutcome` 值对象、`LeanChecker` Protocol、`UntranslatableError`；domain 定义接口，infrastructure 实现 |
-| `lean_translation.py` | SymPy → Lean 4 表达式翻译（有理式片段：+−*/整数次幂）；变量分母要求显式非零假设，片段外构造抛 `UntranslatableError` |
+| `lean_translation.py` | SymPy → Lean 4 表达式翻译（有理式片段：+−*/整数次幂）；变量分母要求显式非零假设，片段外构造抛 `UntranslatableError`；`clear_denominators` 生成保结构的分子形态（field→ring 兜底用） |
 
 ### 2. Application Layer (`src/symkit/application/`)
 
@@ -66,7 +67,7 @@ through these classes.
 |--------|-------------|
 | `use_cases.py` | `CalculateUseCase`, `SimplifyUseCase`, `DeriveUseCase`, `VerifyUseCase` — public library entry points |
 | `formula_catalog.py` | Formula catalog over the SQLite FTS5 index; composition root for the formula layers |
-| `lean_certification.py` | `certify_session` 用例：重放会话中的代数等式步骤、经 `LeanChecker` 批量内核复核，结果写入步骤 `details.lean`；从不改动既有判定，分歧以 `discrepancies` 报告 |
+| `lean_certification.py` | `certify_session` 用例：重放会话中的代数等式步骤、经 `LeanChecker` 批量内核复核，结果写入步骤 `details.lean`；从不改动既有判定，分歧以 `discrepancies` 报告；field 步 unproven 时以清分母多项式形式重试（lane `field+ring`，分母因子带非零 binders） |
 
 ### 3. Infrastructure Layer (`src/symkit/infrastructure/`)
 
@@ -75,6 +76,7 @@ Interfaces to external systems.
 | Module | Description |
 |--------|-------------|
 | `sympy_engine.py` | `SymbolicEngine` implementation over SymPy (calculus, matrix, ODE, transforms, vector calculus) |
+| `numeric_eval.py` | 有限 `Sum` 的数值求值：≥30 位工作精度先精确求和，抵消检测触发精度加倍并告警；支撑 `evalf` 及其验证 |
 | `vector_input.py` | `curl`/`divergence` 的向量场输入归一：逗号分量串 / 3 元列表 / 3x1 矩阵 / `N.i,N.j,N.k` 形式统一为 `CoordSys3D` 场，标量输入显式报错而非静默成零；`normalize_derivatives` 规范化混合偏导变量序 |
 | `formula_files.py` / `formula_index_store.py` | YAML layer reader and the SQLite FTS5 index store |
 | `derivation_repository.py` | Session JSON persistence |
@@ -95,6 +97,7 @@ MCP protocol interface, independent of the core library.
 | `tools/_state.py` | Process-global current session/context shared by all tool modules |
 | `tools/_unit_context.py` | MCP 层单位接线：聚合会话单位（公式变量 + 符号注册表）、`dimension` 操作、验证链的量纲后置检查 |
 | `tools/_formula_governance.py` | 公式写入治理：变量单位必填（`"-"` 为显式无量纲哨兵）、`similar_to` 近重复提示（结构指纹优先、FTS 兜底）、单位回填 |
+| `tools/_system_solve.py` | 列表输入的系统 `solve`：逐解假设过滤（`filtered_by_assumptions`）、多解头条告警 |
 | `tools/certification.py` | `session_certify` 工具：Verification 类别，委托 `application/lean_certification.py`；无 Lean 工具链时返回 `lean_available: false` 与安装指引 |
 
 ---

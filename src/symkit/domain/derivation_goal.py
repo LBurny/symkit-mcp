@@ -114,6 +114,20 @@ class DerivationGoal:
             "assumptions": self.assumptions,
         }
 
+    def has_explicit_target(self) -> bool:
+        """Whether the goal defines a checkable target at all.
+
+        A text-only goal (no target expression, no target variables, and the
+        default ``derive_expression`` form) can never match anything; warning
+        about a "missed target" for it is noise (2026-09-14 turbine round,
+        defect #4).
+        """
+        if self.target_expression:
+            return True
+        if self.target_variables:
+            return True
+        return bool(self.target_form) and self.target_form != "derive_expression"
+
     @classmethod
     def from_text(cls, text: str, domain: str = "") -> DerivationGoal:
         """Parse a goal from natural-language goal text."""

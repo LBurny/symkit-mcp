@@ -390,3 +390,131 @@ class TestEngineeringSymbolNames:
         assert error is None, error
         assert expr is not None
         assert "O(" in str(expr)  # call site keeps SymPy's Big-O semantics
+
+
+class TestAdditiveScaleGuard:
+    """A huge explicit sum must be rejected before its exact-rational lcm
+    denominator chain explodes and wedges the server (r16 task-05)."""
+
+    @staticmethod
+    def _harmonic_terms(n: int) -> str:
+        return " + ".join(f"1/{k}" for k in range(1, n + 1))
+
+    def test_just_under_the_limit_parses(self):
+        expr, error = parse_expression_string(self._harmonic_terms(999))
+        assert error is None, error
+        assert expr is not None
+
+    def test_over_the_limit_is_rejected_with_closed_form_hint(self):
+        with pytest.raises(ValueError) as excinfo:
+            parse_expression_string(self._harmonic_terms(1001))
+        message = str(excinfo.value)
+        assert "1001" in message
+        assert "Sum(1/k" in message
+
+    def test_equation_side_is_guarded_too(self):
+        with pytest.raises(ValueError):
+            parse_expression_string("y = " + self._harmonic_terms(1001))
+
+
+class TestMinMaxFunctionCalls:
+    """Lowercase ``max``/``min`` call sites parse to SymPy ``Max``/``Min``.
+
+    The 2026-09-14 SST derivation round: the parser bound ``max(`` to an
+    undefined ``Function('max')``, so ``evalf("max(0.1, 0.05)")`` returned the
+    call unevaluated and every SST mixing-function (F1/F2) identity was
+    numerically unverifiable.
+    """
+
+    def test_lowercase_max_evaluates_numeric_args(self):
+        expr, error = parse_expression_string("max(0.1, 0.05)")
+        assert error is None, error
+        assert abs(float(expr) - 0.1) < 1e-12
+
+    def test_lowercase_min_stays_symbolic_for_symbols(self):
+        expr, error = parse_expression_string("min(x, 0)")
+        assert error is None, error
+        assert expr == sp.Min(sp.Symbol("x"), 0)
+
+    def test_uppercase_max_is_untouched(self):
+        expr, error = parse_expression_string("Max(0.1, 0.05)")
+        assert error is None, error
+        assert abs(float(expr) - 0.1) < 1e-12
+
+    def test_max_inside_limiter_expression(self):
+        expr, error = parse_expression_string("a1*k/max(a1*omega, F2*S) - k/omega")
+        assert error is None, error
+        assert expr.has(sp.Max), str(expr)
+        substituted = expr.subs({sp.Symbol("a1"): 2, sp.Symbol("k"): 3,
+                                 sp.Symbol("omega"): 5, sp.Symbol("F2"): 7,
+                                 sp.Symbol("S"): 11})
+        assert abs(complex(sp.N(substituted)).real - (-201 / 385)) < 1e-12
+
+
+class TestDualUseSymbolAndFunction:
+    """A name used both bare and as a call site must not crash the parser.
+
+    2026-09-14 defect: ``1/z + z(x)`` bound ``z`` to ``Function('z')`` for the
+    call site, so the bare ``1/z`` died with an unhelpful ``SympifyError: z``.
+    Single-letter names (``k``, ``omega``) make this the common shape for
+    boundary-layer derivations.
+    """
+
+    def test_bare_symbol_plus_function_call_parses(self):
+        expr, error = parse_expression_string("1/z + z(x)")
+        assert error is None, error
+        assert expr.has(sp.Symbol("z"))
+        assert expr.has(sp.Function("z"))
+        assert "z(x)" in str(expr)
+        assert "__call" not in str(expr)
+
+    def test_product_form_dual_use(self):
+        expr, error = parse_expression_string("k*omega + k(x)")
+        assert error is None, error
+        assert expr.has(sp.Function("k"))
+        assert expr.has(sp.Symbol("k"))
+        assert "__call" not in str(expr)
+
+    def test_single_use_forms_keep_existing_shapes(self):
+        applied, _ = parse_expression_string("z(x) + 1")
+        assert applied.has(sp.Function("z")(sp.Symbol("x")))
+        bare, _ = parse_expression_string("1/k")
+        assert sp.simplify(bare - 1 / sp.Symbol("k")) == 0
+
+    def test_assumptions_bind_bare_symbol_not_call(self):
+        positive_k = sp.Symbol("k", positive=True)
+        expr, error = parse_expression_string(
+            "k + k(x)", local_dict={"k": positive_k}
+        )
+        assert error is None, error
+        assert expr.has(positive_k)
+        assert expr.has(sp.Function("k"))
+        assert "__call" not in str(expr)
+
+    def test_simplify_dual_use_expression(self):
+        expr, error = parse_expression_string("k(x) + k - k")
+        assert error is None, error
+        # evaluate=False keeps the additive terms; the value is k(x).
+        assert sp.simplify(expr - sp.Function("k")(sp.Symbol("x"))) == 0
+
+
+class TestFlatListLiteral:
+    """A flat ``[a, b]`` list literal is a column vector, not an opaque list.
+
+    2026-09-14 defect: only list-of-lists became a ``Matrix`` (run-020), so a
+    flat list flowed into the execution layer and crashed with
+    ``'list' object has no attribute 'evalf'`` / ``'replace'``.
+    """
+
+    def test_flat_list_becomes_column_matrix(self):
+        expr, error = parse_expression_string("[1/1.168, 2+2]")
+        assert error is None, error
+        assert isinstance(expr, sp.MatrixBase)
+        assert expr.shape == (2, 1)
+        assert abs(float(expr[1]) - 4) < 1e-12
+
+    def test_matrix_grid_still_supported(self):
+        expr, error = parse_expression_string("[[1, 2], [3, 4]]")
+        assert error is None, error
+        assert isinstance(expr, sp.MatrixBase)
+        assert expr.shape == (2, 2)

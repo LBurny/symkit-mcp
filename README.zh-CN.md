@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-956%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1031%20passed-brightgreen.svg)]()
 [![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
 [English](README.md) | **简体中文**
@@ -347,7 +347,7 @@ symkit-mcp/
 │       ├── server.py
 │       └── tools/           # 45 个 MCP 工具
 ├── formulas/                # 推导成果仓库
-├── tests/                   # 956 个测试
+├── tests/                   # 1031 个测试
 └── pyproject.toml
 ```
 

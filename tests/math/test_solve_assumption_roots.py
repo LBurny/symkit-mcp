@@ -81,3 +81,40 @@ def test_solve_discloses_negative_root_filtered_by_positive_assumption(
     assert res["solution"] == "2", res
     assert not any("-2" in s for s in res["all_solutions"]), res
     assert "-2" in res["filtered_by_assumptions"], res
+
+
+def test_system_solve_applies_assumptions_like_scalar(fresh_session_manager):
+    """r16 task-20 S-3: a system solve must apply active assumptions, not
+    return positive-violating equilibria such as ``(0, 0, 12, 0)`` silently."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="solve",
+        expression="x+y+z-12, -lam+y*z, -lam+x*z, -lam+x*y",
+        variable="x,y,z,lam",
+        assumptions=["x positive", "y positive", "z positive"],
+        session=False,
+    )
+    assert res["success"], res
+    assert res["all_solutions"] == ["(4, 4, 4, 16)"], res
+    assert "(0, 0, 12, 0)" in res["filtered_by_assumptions"], res
+    assert any("x positive" in warning for warning in res["warnings"]), res
+
+
+def test_multi_solution_solve_flags_headline_bias(fresh_session_manager):
+    """r16 task-04/07/10/20: ``solution`` shows only the first root; >1 solution
+    must warn and point at ``all_solutions``."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="solve",
+        expression="x+y+z-12, -lam+y*z, -lam+x*z, -lam+x*y",
+        variable="x,y,z,lam",
+        session=False,
+    )
+    assert res["success"], res
+    assert len(res["all_solutions"]) == 4, res
+    assert any(
+        "first of 4 solutions" in warning for warning in res["warnings"]
+    ), res
+    assert any("all_solutions" in warning for warning in res["warnings"]), res

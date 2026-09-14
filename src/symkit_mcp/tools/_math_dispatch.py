@@ -28,6 +28,7 @@ from symkit.domain.expression_parser import (
     preprocess_unicode,
 )
 from symkit.domain.value_objects import MathContext
+from symkit.infrastructure.numeric_eval import numeric_evalf
 from symkit.infrastructure.sympy_engine import (
     SymPyEngine,
     coupled_undefined_functions,
@@ -35,6 +36,7 @@ from symkit.infrastructure.sympy_engine import (
 )
 from symkit.infrastructure.vector_input import vector_operation
 from symkit_mcp.tools._state import get_context, get_session
+from symkit_mcp.tools._system_solve import solve_system
 from symkit_mcp.tools._unit_context import dimension_operation
 
 _engine = SymPyEngine()
@@ -60,6 +62,20 @@ def _engine_failure(operation: str, error: str) -> str:
             "\"A is positive\"), or assume_for_step(), to decide the sign."
         )
     return message
+
+
+def _inline_integral_value(
+    preprocessed: Any, input_obj: Any, variable: Any, lower: Any, upper: Any
+) -> Any:
+    """Inline integral value; ``False`` on failure, ``None`` if not applicable."""
+    if variable is not None or lower is not None or upper is not None:
+        return None
+    if not isinstance(preprocessed, str) or not re.search(
+        r"(?<![A-Za-z0-9_.])(?:integrate|Integral)\s*\(", preprocessed
+    ):
+        return None
+    value = input_obj.doit() if input_obj.has(sp.Integral) else input_obj
+    return value if not value.has(sp.Integral) else False
 
 
 def _effective_context(assumption_context: MathContext | None) -> MathContext:
@@ -516,7 +532,10 @@ def _execute_operation_inner(
 
     # Helper to parse with consistent error handling
     def _parse(expr: str) -> tuple[sp.Expr | None, str | None]:
-        return _parse_math_expression(expr)
+        try:
+            return _parse_math_expression(expr)
+        except ValueError as exc:  # additive-scale guard (r16 task-05)
+            return None, str(exc)
 
     # Helper to require a successful parse
     def _require_parse(expr: str) -> sp.Expr | dict[str, Any]:
@@ -534,6 +553,7 @@ def _execute_operation_inner(
 
     input_obj: Any = None
     result: Any = None
+    op_warnings: list[str] = []
 
     # ── SYNTACTIC OPERATIONS ──
     if operation in _SYNTACTIC_OPS and operation not in ("collect", "apart"):
@@ -579,7 +599,7 @@ def _execute_operation_inner(
                 return subs_error
             assert subs is not None
             parsed = parsed.subs(_rekey_subs_to_expression(parsed, subs)).doit()
-        result = dense_matrix_form(parsed).evalf()
+        result, op_warnings = numeric_evalf(dense_matrix_form(parsed))
 
     # ── SOLVE ──
     elif operation == "solve":
@@ -616,37 +636,7 @@ def _execute_operation_inner(
             # A comma-separated expression parses to a python tuple — treat it
             # as a system of equations (run-018).
             if isinstance(parsed, (list, tuple)):
-                eqs = list(parsed)
-                eq_syms: set[sp.Basic] = set()
-                for eq in eqs:
-                    eq_syms |= set(eq.free_symbols)
-                var_names = [n.strip() for n in variable.split(",") if n.strip()]
-                vars_ = []
-                for name in var_names:
-                    sym = next((s for s in eq_syms if str(s) == name), None)
-                    vars_.append(sym if sym is not None else sp.Symbol(name))
-                solutions = sp.solve(eqs, vars_)
-                # sp.solve returns a dict for a single solution, a list of
-                # dicts/tuples otherwise — normalize to a list (run-018;
-                # solutions[0] on the dict raised a bare KeyError: 0).
-                if isinstance(solutions, dict):
-                    solutions = [solutions]
-                if not solutions:
-                    return {"success": False,
-                            "error": f"No solution found for {variable}"}
-                first = solutions[0]
-                result = sp.sympify(str(first))
-                return {
-                    "success": True,
-                    "expression": str(result),
-                    "latex": sp.latex(result),
-                    "solution": str(first),
-                    "solution_latex": sp.latex(result),
-                    "all_solutions": [str(s) for s in solutions],
-                    "operation": operation,
-                    "_input_obj": input_obj,
-                    "_result_obj": result,
-                }
+                return solve_system(parsed, variable, context, input_obj, operation)
             v = _resolve_variable_symbol(parsed, variable, context)
             eq = parsed
             solutions = list(sp.solve(eq, v))
@@ -756,7 +746,17 @@ def _execute_operation_inner(
         if operation == "diff":
             out = _engine.differentiate(expr_obj, v, order, context)
         elif operation == "integrate":
-            out = _engine.integrate(expr_obj, v, lower, upper, context)
+            inline = _inline_integral_value(preprocessed, input_obj, variable, lower, upper)
+            if inline is False:
+                return {"success": False, "error": (
+                    "integrate: the nested definite integral did not evaluate in "
+                    "closed form; pass the inner Integral with explicit lower/upper "
+                    "for the outer variable, or add assumptions."
+                )}
+            if inline is not None:
+                result, out = inline, None
+            else:
+                out = _engine.integrate(expr_obj, v, lower, upper, context)
         elif operation == "limit":
             pt = point or "0"
             out = _engine.limit(expr_obj, v, pt, direction, context)
@@ -891,9 +891,10 @@ def _execute_operation_inner(
         else:
             return {"success": False, "error": f"Unknown operation: {operation}"}
 
-        if not out.is_valid:
-            return {"success": False, "error": _engine_failure(operation, out.error)}
-        result = out.sympy_expr
+        if out is not None:
+            if not out.is_valid:
+                return {"success": False, "error": _engine_failure(operation, out.error)}
+            result = out.sympy_expr
 
     else:
         return {
@@ -908,6 +909,7 @@ def _execute_operation_inner(
         "operation": operation,
         "_input_obj": input_obj,
         "_result_obj": result,
+        **({"warnings": op_warnings} if op_warnings else {}),
     }
 
 

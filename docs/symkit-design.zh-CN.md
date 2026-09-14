@@ -119,7 +119,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | 文件 | 主要职责 |
 |---|---|
 | `src/symkit/domain/derivation_session.py` | `DerivationSession`、`SessionManager` 及操作实现。新增 `output_srepr` 与 `_safe_load_expression`。 |
-| `src/symkit/domain/step_verifier.py` | 假设感知的步骤验证引擎。 |
+| `src/symkit/domain/step_verifier.py` | 假设感知的步骤验证引擎：算子忠实性校验、手录等式的数值残差门与三角展开兜底、定积分结果的数值复算。 |
 | `src/symkit/domain/assumption_engine.py` | 多级假设存储与冲突检测。 |
 | `src/symkit/domain/formula.py` | `Formula` 值对象、解析器、来源枚举。支持复合 LaTeX 等式拆分、`\max`/`\min` 映射、`^*` 上标处理。 |
 | `src/symkit/domain/formula_recommender.py` | 本地+外部公式推荐与 `FormulaSourceAdapter` 协议。 |
@@ -132,10 +132,10 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | `src/symkit/domain/value_objects.py` | `MathContext`、`VerificationResult`、`StepStatus` 等。 |
 | `src/symkit/domain/entities.py` | `Expression` 等数据类。 |
 | `src/symkit/domain/services.py` | `SymbolicEngine`、`Verifier`、`FormulaRepository` 协议。 |
-| `src/symkit/domain/final_result.py` | 手工记录等式的同一性判定，以及跳过 failed 尾步的最终表达式选取。 |
+| `src/symkit/domain/final_result.py` | 手工记录等式的同一性判定、suspect_identity 分级（`classify_suspect_identity` / `numeric_residual_verdict`：数值证伪仅限显式等式断言，且跳过含未求值 `Sum`/`Integral` 的差式），以及跳过 failed 尾步的最终表达式选取。 |
 | `src/symkit/domain/units.py` / `src/symkit/domain/dimensional_analysis.py` | 单位解析与量纲一致性检查：量纲向量、四则运算/函数传播规则、问题诊断（纯领域逻辑）。 |
 | `src/symkit/domain/lean_types.py` | Lean 认证通道的共享契约：`LeanStatement` / `LeanOutcome` 值对象、`LeanChecker` 协议、`UntranslatableError`。 |
-| `src/symkit/domain/lean_translation.py` | SymPy → Lean 4 表达式翻译（有理式片段：+−*/整数次幂）；变量分母要求显式非零假设。 |
+| `src/symkit/domain/lean_translation.py` | SymPy → Lean 4 表达式翻译（有理式片段：+−*/整数次幂）；变量分母要求显式非零假设。`clear_denominators` 生成保结构的分子形态，供 field→ring 兜底使用。 |
 
 ### 4.2 Application 层
 
@@ -145,7 +145,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 |---|---|
 | `src/symkit/application/use_cases.py` | `CalculateUseCase`、`SimplifyUseCase`、`DeriveUseCase`、`VerifyUseCase`。 |
 | `src/symkit/application/formula_catalog.py` | `FormulaCatalog`：以 manifest 差量对账 YAML 各层与索引，并统一提供检索与策展操作。 |
-| `src/symkit/application/lean_certification.py` | `certify_session` 用例：重放会话中的代数等式步骤并经 `LeanChecker` 复核，结果写入步骤 `details.lean`；从不改动既有判定。 |
+| `src/symkit/application/lean_certification.py` | `certify_session` 用例：重放会话中的代数等式步骤并经 `LeanChecker` 复核，结果写入步骤 `details.lean`；从不改动既有判定。field 步 unproven 时以清分母多项式形式重试（lane `field+ring`，分母因子带非零 binders）。 |
 
 ### 4.3 Infrastructure 层
 
@@ -154,6 +154,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | 文件 | 主要职责 |
 |---|---|
 | `src/symkit/infrastructure/sympy_engine.py` | SymPy 实现的 `SymbolicEngine`。 |
+| `src/symkit/infrastructure/numeric_eval.py` | 有限 `Sum` 的数值求值：≥30 位工作精度下先精确求和，检测灾难抵消（加倍精度并告警）；支撑 `evalf` 及其验证。 |
 | `src/symkit/infrastructure/derivation_repository.py` | YAML 持久化的 `DerivationRepository`（staging 存储层）。 |
 | `src/symkit/infrastructure/formula_index_store.py` | SQLite FTS5 索引存储（trigram 分词；YAML 各层之上的可重建缓存）。 |
 | `src/symkit/infrastructure/formula_files.py` | 公式目录的 YAML 各层扫描、加载与写盘。 |
@@ -181,7 +182,8 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | `src/symkit_mcp/tools/orchestration.py` | 高层编排工具 `derive()`、`intent_execute()` 等。 |
 | `src/symkit_mcp/tools/symbols.py` | 符号注册工具。 |
 | `src/symkit_mcp/tools/codegen.py` | 代码/LaTeX/报告生成。 |
-| `src/symkit_mcp/tools/_state.py` | 全局状态（`SessionManager`、当前会话、`MathContext`）与公式目录组合根。 |
+| `src/symkit_mcp/tools/_state.py` | 全局状态（`SessionManager`、当前会话、`MathContext`）与公式目录组合根。假设绑定会话生命周期：新会话以全新假设作用域开始。 |
+| `src/symkit_mcp/tools/_system_solve.py` | 列表输入的系统 `solve`：逐解假设过滤（`filtered_by_assumptions`）与多解头条告警。 |
 | `src/symkit_mcp/tools/_expression_parser.py` | 统一解析器兼容 shim。 |
 
 ---
@@ -277,7 +279,7 @@ timestamp: str
 
 ## 6. 表达式解析管道
 
-`parse_user_expression`（`src/symkit/domain/expression_parser.py`）和 `FormulaParser`（`src/symkit/domain/formula.py`）共同构成统一的表达式解析层。管道如下：
+`parse_user_expression`（`src/symkit/domain/expression_parser.py`）和 `FormulaParser`（`src/symkit/domain/formula.py`）共同构成统一的表达式解析层。超过 1000 个显式相加项的输入会被解析期拒绝（防止精确有理数求和失控）。管道如下：
 
 ```text
 用户输入 (LaTeX / SymPy / Unicode / 自然方程)
@@ -446,7 +448,7 @@ id / 名称 / 别名命中不受该规则约束。
 
 ### 8.5 假设工具（assumptions）
 
-- `assume(variables)`：设置全局/会话级假设（作用于 `MathContext`），返回值会回显已应用的假设。
+- `assume(variables)`：设置全局/会话级假设（作用于 `MathContext`）；同时接受映射形式（`{"x": "positive"}`）与 `math()`/`assume_for_step` 的子句列表形式（`["x is positive"]`）；无法解析的子句整批拒绝。返回值会回显已应用的假设。
 - `show_assumptions()`：展示当前假设。
 - `unassume(variables)` / `clear_assumptions()`：移除指定符号的假设 / 清空当前上下文的所有假设。
 - `assume_for_step(args)`：设置当前步骤的临时假设。接受单串交替形式（`"x positive y real"`）或列表形式（`["x", "positive", ...]`）；标记数为奇数会响亮报错。
@@ -607,7 +609,7 @@ _current_context: MathContext = MathContext()   # 当前数学上下文（假设
 | `test_formula_search.py` | 公式搜索框架 |
 | `test_unified_math_coverage.py` | `math()` 统一工具覆盖（含积分变换） |
 
-当前测试状态：956 个测试全部通过，Ruff 与 MyPy 无错误。
+当前测试状态：997 个测试全部通过，Ruff 与 MyPy 无错误。
 
 ---
 

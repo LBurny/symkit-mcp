@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 import sympy as sp
 
 from symkit.domain.derivation_session import OperationType, StepStatus
-from symkit.domain.lean_translation import translate_equality
+from symkit.domain.lean_translation import clear_denominators, translate_equality
 from symkit.domain.lean_types import LeanOutcome, UntranslatableError
 from symkit.domain.step_verifier import (
     verification_result_from_json,
@@ -34,6 +34,7 @@ ELIGIBLE_OPERATIONS = frozenset(
         OperationType.EXPAND,
         OperationType.FACTOR,
         OperationType.COMBINE,
+        OperationType.CANCEL,
     }
 )
 
@@ -56,6 +57,8 @@ class _StepRecord:
     detail: str | None = None
     record: VerificationResult | None = None
     outcome: LeanOutcome | None = None
+    input_expr: sp.Basic | None = None
+    output_expr: sp.Basic | None = None
 
 
 def certify_session(
@@ -88,10 +91,99 @@ def certify_session(
         entry.certification = "proven" if outcome.proven else "unproven"
         entry.detail = outcome.detail
         _attach_lean(entry.step, outcome, statement.lane, entry.statement or "")
+    _retry_unproven_field_lanes(entries, checker, session)
     session._update_timestamp()
     if session._persist_path:
         session.save()
     return _build_report(entries)
+
+
+def _retry_unproven_field_lanes(
+    entries: list[_StepRecord], checker: LeanChecker, session: DerivationSession
+) -> None:
+    """Re-check unproven field statements as cleared polynomial (ring) goals.
+
+    ``field_simp`` can leave an ``unsolved goals`` state even when the
+    denominator-free polynomial identity is provable by ``ring``.  Multiplying
+    both sides by the denominator factors and re-running the ring lane recovers
+    those false negatives; a recovered step is reported with lane
+    ``field+ring`` (r16 task-15).
+    """
+    retries = [
+        entry
+        for entry in entries
+        if entry.statement_obj is not None
+        and entry.statement_obj.lane == "field"
+        and entry.outcome is not None
+        and not entry.outcome.proven
+        and entry.input_expr is not None
+        and entry.output_expr is not None
+    ]
+    if not retries:
+        return
+    assumptions = session.assumption_engine.get_assumptions()
+    pending = [
+        (entry, statement)
+        for entry in retries
+        if (statement := _retry_statement(entry, assumptions)) is not None
+    ]
+    if not pending:
+        return
+    outcomes = {o.name: o for o in checker.check([s for _, s in pending])}
+    for entry, statement in pending:
+        outcome = outcomes.get(statement.name)
+        if outcome is None or not outcome.proven:
+            continue
+        entry.outcome = outcome
+        entry.certification = "proven"
+        entry.detail = outcome.detail
+        entry.lane = "field+ring"
+        entry.statement = _render_statement(statement)
+        _attach_lean(entry.step, outcome, entry.lane, entry.statement)
+
+
+def _retry_statement(
+    entry: _StepRecord, assumptions: dict[str, dict[str, bool]]
+) -> LeanStatement | None:
+    """Build the cleared ring goal for one unproven field step, or ``None``."""
+    assert entry.statement_obj is not None
+    assert entry.input_expr is not None and entry.output_expr is not None
+    try:
+        lhs, rhs = clear_denominators(entry.input_expr, entry.output_expr)
+        bases = _multiplier_bases(entry.input_expr, entry.output_expr)
+        if not bases and not (lhs.free_symbols or rhs.free_symbols):
+            # No denominator factors to bind and nothing left in the goal:
+            # a ``0 = 0``-shaped theorem certifies nothing observable, so
+            # keep the honest ``unproven`` verdict.
+            return None
+        # The cleared form is equivalent to the original only where the
+        # multiplier is nonzero, so its factors must stay bound as
+        # hypotheses even though the cleared goal itself has no division.
+        retry_assumptions = dict(assumptions)
+        for base in bases:
+            retry_assumptions.setdefault(str(base), {})["nonzero"] = True
+        return translate_equality(
+            lhs,
+            rhs,
+            assumptions=retry_assumptions,
+            name=entry.statement_obj.name,
+        )
+    except UntranslatableError:
+        return None
+
+
+def _multiplier_bases(lhs: sp.Basic, rhs: sp.Basic) -> list[sp.Basic]:
+    """Denominator factors the field→ring clearing divided by, in order."""
+    bases: list[sp.Basic] = []
+    for expr in (lhs, rhs):
+        for power in expr.atoms(sp.Pow):
+            if (
+                isinstance(power.exp, sp.Integer)
+                and power.exp.is_negative
+                and power.base not in bases
+            ):
+                bases.append(power.base)
+    return bases
 
 
 def _plan_steps(session: DerivationSession) -> list[_StepRecord]:
@@ -102,8 +194,30 @@ def _plan_steps(session: DerivationSession) -> list[_StepRecord]:
         if step.operation not in ELIGIBLE_OPERATIONS:
             entries.append(_StepRecord(step, "skipped"))
             continue
-        entries.append(_plan_eligible(session, step, assumptions))
+        entries.append(_plan_eligible(session, step, _step_assumptions(step, assumptions)))
     return entries
+
+
+def _step_assumptions(
+    step: DerivationStep, fallback: dict[str, dict[str, bool]]
+) -> dict[str, dict[str, bool]]:
+    """Assumptions to bind for one step: its own record, else the session pool.
+
+    Preferring the recorded step assumptions keeps a global/session assumption
+    that was set for another step from leaking a binder into this one; the
+    merged engine remains the fallback for steps that record none (r16 task-15).
+    """
+    if not step.assumptions:
+        return fallback
+    parsed: dict[str, dict[str, bool]] = {}
+    for clause in step.assumptions:
+        parts = clause.replace(" is ", " ").split()
+        if len(parts) < 2:
+            continue
+        props = parsed.setdefault(parts[0], {})
+        for prop in parts[1:]:
+            props[prop] = True
+    return parsed or fallback
 
 
 def _plan_eligible(
@@ -145,6 +259,8 @@ def _plan_eligible(
         statement=rendered,
         statement_obj=statement,
         record=record,
+        input_expr=input_expr,
+        output_expr=output_expr,
     )
 
 

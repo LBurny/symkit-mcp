@@ -54,14 +54,39 @@ class TestCustomEqualityContent:
         assert _payload(step)["status"] == "verified"
         assert "Identity verified" in _payload(step)["message"]
 
-    def test_false_manual_identity_is_inconclusive_with_difference(self) -> None:
+    def test_false_manual_identity_is_failed_with_difference(self) -> None:
+        # (a+b)^2 = a^2 + b^2 is disproven by rational substitution (2*a*b is
+        # nonzero), so a recorded equation is FAILED, not merely inconclusive
+        # (task-17: buried coefficient errors must be caught, not shrugged off).
         session = _session()
         step = _record(session, "(a+b)**2 = a**2 + b**2")
         payload = _payload(step)
-        assert payload["status"] == "inconclusive"
+        assert payload["status"] == "failed"
         assert "2*a*b" in payload["message"]
         assert "not an identity" in payload["message"]
-        assert "notes/limitations" in payload["message"]
+
+    def test_true_trig_identity_survives_plain_simplify(self) -> None:
+        # task-17 step 15: plain simplify does not expand cos(6*x), so the true
+        # identity used to be reported as "not an identity".  The trig fallback
+        # must verify it.
+        session = _session()
+        step = _record(
+            session,
+            "cos(6*x) = 32*cos(x)**6 - 48*cos(x)**4 + 18*cos(x)**2 - 1",
+        )
+        payload = _payload(step)
+        assert payload["status"] == "verified"
+        assert "Identity verified" in payload["message"]
+
+    def test_unproven_manual_equation_stays_inconclusive(self) -> None:
+        # A model equation naming an undefined function cannot be sampled
+        # (f(2) stays inert), so it stays inconclusive — unproven, not disproven.
+        session = _session()
+        step = _record(session, "f(x) = cos(x)")
+        payload = _payload(step)
+        assert payload["status"] == "inconclusive"
+        assert "unproven, not disproven" in payload["message"]
+        assert "not an identity" not in payload["message"]
 
     def test_numeric_contradiction_is_failed(self) -> None:
         session = _session()

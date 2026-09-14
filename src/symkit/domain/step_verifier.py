@@ -19,15 +19,19 @@ from symkit.domain.expression_parser import (
     parse_expression_string,
 )
 from symkit.domain.final_result import (
+    boolean_equation_verdict,
     classify_suspect_identity,
+    definite_integral_variables,
     equation_identity,
     evaluate_pending,
     extract_order_from_command,
     extract_variable_from_command,
     is_difference_form,
     matching_variable,
+    numeric_integral_verdict,
     recorded_step_verdict,
     residual_verdict,
+    reverse_integration_operands,
 )
 from symkit.domain.final_result import (
     is_numerically_zero as is_numerically_zero,
@@ -300,18 +304,8 @@ class StepVerifier:
             # caller's assumptions decide it; the verifier cannot see those, so
             # an unconfirmable boolean claim is INCONCLUSIVE (run-008).
             if isinstance(input_expr, sp.Equality):
-                diff = sp.simplify(input_expr.lhs - input_expr.rhs)
-                if is_numerically_zero(diff):
-                    return VerificationResult.success(
-                        f"{operation.capitalize()} verified: expression is an identity"
-                    )
-                return VerificationResult(
-                    status=VerificationStatus.INCONCLUSIVE,
-                    message=(
-                        f"{operation} returned True; the identity holds under "
-                        "assumptions the verifier cannot confirm"
-                    ),
-                )
+                status, message, identity = boolean_equation_verdict(operation, input_expr)
+                return VerificationResult(status=status, message=message, details=identity)
             in_bool = self._boolean_value(input_expr)
             if in_bool is not None:
                 # Under session assumptions the parser may collapse an Eq to a
@@ -341,7 +335,9 @@ class StepVerifier:
         details: dict[str, Any] = {}
         message = f"{operation.capitalize()} verified: output matches the recomputed operator result"
         if difference_input and not is_numerically_zero(evaluate_pending(output_expr)):
-            kind, phrase = classify_suspect_identity(evaluate_pending(output_expr))
+            kind, phrase = classify_suspect_identity(
+                evaluate_pending(output_expr), asserted=isinstance(input_expr, sp.Equality)
+            )
             details["suspect_identity"] = kind
             message += f", but {phrase}"
         if is_numerically_zero(diff) or is_numerically_zero(
@@ -413,16 +409,35 @@ class StepVerifier:
                 definite, input_expr, output_expr, assumptions
             )
 
-        var = extract_variable_from_command(step.sympy_command, "integrate")
-        if var is None:
+        # A bare definite ``Integral`` (``integrate(expr, None)``) must not use
+        # reverse differentiation: its value does not depend on the bound variable.
+        bounds = definite_integral_variables(input_expr)
+        if bounds and not (output_expr.free_symbols & bounds):
+            return self._verify_numeric_integral(input_expr, output_expr)
+
+        # An inert indefinite ``Integral(f, x)`` is the wrapper the engine
+        # evaluated into its antiderivative; reverse differentiation checks the
+        # integrand ``f`` (r16 task-06: the correct erfi antiderivative was
+        # FAILED against its own wrapper).
+        operands = reverse_integration_operands(
+            input_expr, output_expr, step.sympy_command
+        )
+        if operands is None:
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
                 message="Could not determine integration variable",
             )
 
-        var_sym = matching_variable(var, input_expr, output_expr)
-        derivative = sp.diff(output_expr, var_sym)
-        diff = sp.simplify(derivative - input_expr)
+        var_sym, expected = operands
+        return self._reverse_differentiation_verdict(
+            sp.diff(output_expr, var_sym), expected
+        )
+
+    def _reverse_differentiation_verdict(
+        self, derivative: sp.Basic, expected: sp.Basic
+    ) -> VerificationResult:
+        """Verdict from comparing ``d(output)/dv`` with the expected integrand."""
+        diff = sp.simplify(derivative - expected)
         if is_numerically_zero(diff):
             return VerificationResult(
                 status=VerificationStatus.VERIFIED,
@@ -440,14 +455,13 @@ class StepVerifier:
             return VerificationResult(
                 status=status,
                 message="Reverse differentiation did not match; numeric substitution inconclusive",
-                details={"derivative": str(derivative), "expected": str(input_expr)},
+                details={"derivative": str(derivative), "expected": str(expected)},
                 reverse_check=False,
             )
-
         return VerificationResult.failure(
             "Differentiation of integral does not match original",
             derivative=str(derivative),
-            expected=str(input_expr),
+            expected=str(expected),
             reverse_check=False,
         )
 
@@ -509,6 +523,17 @@ class StepVerifier:
             "definite-integral result",
         )
 
+    def _verify_numeric_integral(
+        self, input_expr: sp.Basic, output_expr: sp.Basic
+    ) -> VerificationResult:
+        """Recompute a definite integral numerically; a mismatch stays INCONCLUSIVE."""
+        status, message = numeric_integral_verdict(input_expr, output_expr)
+        return VerificationResult(
+            status=status,
+            message=message,
+            reverse_check=status == VerificationStatus.VERIFIED,
+        )
+
     def _verify_substitution(
         self,
         step: DerivationStep,
@@ -549,9 +574,8 @@ class StepVerifier:
             applied = applied or expected != before
 
         if not applied:
-            # Every key is absent from the input, so nothing was substituted and
-            # there is nothing to compare. Saying "verified" here inflated the
-            # verified count with steps that did no work.
+            # Every key is absent from the input: nothing was substituted, and
+            # a "verified" here inflated the count with no-work steps.
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
                 message="Substitution keys do not occur in the input expression",
@@ -651,15 +675,31 @@ class StepVerifier:
     ) -> VerificationResult:
         """Verify numeric evaluation by independent re-evaluation."""
         try:
-            expected = complex(sp.N(input_expr, 20))
+            # N of an inert finite ``Sum`` drifts in double precision; the
+            # tool evaluates it exactly via ``doit`` (r16 task-19 step 13).
+            expected = complex(sp.N(evaluate_pending(input_expr), 20))
             actual = complex(sp.N(output_expr, 20))
         except (TypeError, ValueError):
+            # evalf over symbolic input (``2*x`` → ``2.0*x``): compare
+            # ``N(input)`` with the output; a mismatch stays INCONCLUSIVE.
+            try:
+                expected_sym = sp.N(evaluate_pending(input_expr), 20)
+                diff_sym = sp.simplify(expected_sym - output_expr)
+            except (TypeError, ValueError):
+                return VerificationResult(
+                    status=VerificationStatus.INCONCLUSIVE,
+                    message="evalf input/output is not purely numeric",
+                )
+            if is_numerically_zero(diff_sym):
+                return VerificationResult.success(
+                    "Numeric evaluation verified (symbolic comparison)"
+                )
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
-                message="evalf input/output is not purely numeric",
+                message="evalf output does not match the numeric evaluation of its input",
+                details={"expected": str(expected_sym), "actual": str(output_expr)},
             )
-        # Quadrature of an inert Integral is less accurate than evalf of a
-        # closed form; comparing the two needs a relative tolerance (task-18).
+        # Quadrature of an inert Integral needs a relative tolerance (task-18).
         quadrature = input_expr.has(sp.Integral) or output_expr.has(sp.Integral)
         tol = (1e-6 if quadrature else 1e-12) * max(1.0, abs(expected))
         if abs(expected - actual) < tol:
@@ -699,9 +739,8 @@ class StepVerifier:
         # Deterministic small-prime valuation for unrelated symbols.
         primes = [2, 3, 5, 7, 11, 13]
         valuation = {s: sp.Integer(primes[i % len(primes)]) for i, s in enumerate(others)}
-        # Probe only the side the user asked for. Probing both sides of a
-        # correct one-sided limit always disagrees on the other side, which
-        # reported INCONCLUSIVE with no hint that the answer was right (P5).
+        # Probe only the side the user asked for: probing both sides of a
+        # correct one-sided limit always disagrees on the other side (P5).
         direction = step.input_expressions.get("limit_direction", "+-")
 
         def _disagree() -> VerificationResult:

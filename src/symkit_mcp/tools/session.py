@@ -23,23 +23,15 @@ from symkit.domain.derivation_pattern import (
 from symkit.domain.derivation_session import DerivationSession
 from symkit.domain.expression_parser import parse_user_expression
 from symkit.domain.formula import FormulaSource
-from symkit.infrastructure.derivation_repository import (
-    DerivationResult,
-    get_repository,
-)
-from symkit.infrastructure.formula_identity import staging_id
 from symkit_mcp.tools import _unit_context
-from symkit_mcp.tools._formula_governance import (
-    build_auto_variables,
-    similar_to,
-)
+from symkit_mcp.tools._formula_governance import similar_to
 from symkit_mcp.tools._session_views import (
     render_empty_session,
     render_session_header,
+    save_derivation_formula,
     unknown_pattern_warning,
 )
 from symkit_mcp.tools._state import (
-    get_catalog,
     get_context,
     get_manager,
     get_session,
@@ -615,6 +607,9 @@ def register_session_tools(mcp: Any) -> None:
             auto_save: Persist the derived formula into the formula library
                 (default True). The session record JSON is always persisted
                 regardless; this flag only controls the formula-library write.
+                A bare-constant outcome (e.g. a trailing ``0`` self-check) is
+                not written as a formula: the last symbolic derivation output
+                is saved instead, or nothing at all (a warning says which).
             require_target_match: If True, the derivation will only be saved as
                 completed when the current expression matches the goal target.
                 Default is False for backward compatibility, but a warning is
@@ -633,80 +628,53 @@ def register_session_tools(mcp: Any) -> None:
 
         verification_summary = result.get("verification_summary", {})
         warnings = list(result.get("warnings", []))
+        # The library label is a stronger claim than the chain's graded
+        # ``overall``: an unreduced difference (suspect_identity) is unresolved
+        # mathematics and must not be labelled ``verified: true`` in the
+        # formula library (2026-09-14 SST round).
+        suspect_steps = verification_summary.get("suspect_identity_steps") or []
         is_verified = (
             verification_summary.get("overall") == "verified"
             and verification_summary.get("total", 0) > 0
+            and not suspect_steps
         )
+        if suspect_steps:
+            warnings.append(
+                f"{len(suspect_steps)} step(s) recorded an unreduced difference "
+                "(suspect_identity); the formula is saved with verified=false"
+            )
         verification_method = "step_verifier" if is_verified else ""
         verified_at = datetime.now().isoformat() if is_verified else None
 
-        saved_path = None
-        saved_id: str | None = None
-        saved_expression_str: str | None = None
+        saved: dict[str, Any] = {}
         if auto_save:
             try:
-                # Use the global repository singleton (defaults to the per-user
-                # derived-formula directory) rather than a CWD-relative path.
-                repo = get_repository()
-                # The current expression may be a trailing numeric check
-                # (evalf / residual); save the representative symbolic output.
-                saved_expr = session.representative_expression()
-                if saved_expr is None:
-                    saved_expr = session.current_expression
-                if saved_expr is None:
-                    raise ValueError("No expression available to save")
-                saved_expression_str = str(saved_expr)
-                # Deterministic staging id: identical content re-completed by any
-                # session maps to the same id (idempotent re-save); different
-                # content yields a different hash suffix, so no -vN minting is
-                # needed and random session hex ids never enter the library.
-                fallback_name = session.goal.text if session.goal is not None else ""
-                result_id = staging_id(
-                    session.name or fallback_name, saved_expression_str
-                )
-                existing = repo.get(result_id)
-                session_ids = list(existing.session_ids) if existing is not None else []
-                if session.session_id not in session_ids:
-                    session_ids.append(session.session_id)
-                derivation_result = DerivationResult(
-                    id=result_id,
-                    name=session.name,
-                    expression=str(saved_expr),
-                    latex=sp.latex(saved_expr),
-                    variables=build_auto_variables(saved_expr, session),
-                    derived_from=list(session.formulas.keys()),
-                    derivation_steps=[step["description"] for step in result["steps"]],
-                    assumptions=_as_str_list(assumptions),
-                    session_ids=session_ids,
-                    verified=is_verified,
+                saved = save_derivation_formula(
+                    session,
+                    result,
+                    is_verified=is_verified,
                     verification_method=verification_method,
                     verified_at=verified_at,
                     description=description,
-                    domain=session.domain,
                     application_context=application_context,
+                    assumptions=_as_str_list(assumptions),
                     limitations=_as_str_list(limitations),
                     references=_as_str_list(references),
                     tags=_as_str_list(tags),
-                    author=session.author,
-                    category=session.domain or "derived",
+                    warnings=warnings,
                 )
-                repo.register(derivation_result)
-                saved_path = repo.save(result_id)
-                saved_id = result_id
-                try:
-                    get_catalog().ensure_fresh()
-                except Exception as e:
-                    warnings.append(f"Saved but index update failed: {e}")
             except Exception as e:
                 warnings.append(f"Completed but save failed: {e}")
 
         set_session(None)
-        if saved_path and saved_expression_str:
-            result["saved_to"] = str(saved_path)
-            result["saved_id"] = saved_id
-            result["saved_expression"] = saved_expression_str
-            result["message"] = f"Derivation completed and saved to {saved_path}"
-            similar = similar_to(saved_expression_str, saved_id)
+        if saved:
+            result["saved_to"] = str(saved["saved_path"])
+            result["saved_id"] = saved["saved_id"]
+            result["saved_expression"] = saved["saved_expression"]
+            result["message"] = (
+                f"Derivation completed and saved to {saved['saved_path']}"
+            )
+            similar = similar_to(saved["saved_expression"], saved["saved_id"])
             if similar:
                 result["similar_to"] = similar
         if warnings:

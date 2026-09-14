@@ -120,7 +120,7 @@ Responsible for business rules, entities, and domain services. Key files:
 | File | Responsibility |
 |---|---|
 | `src/symkit/domain/derivation_session.py` | `DerivationSession`, `SessionManager`, and operations. Includes `output_srepr` and `_safe_load_expression`. |
-| `src/symkit/domain/step_verifier.py` | Assumption-aware step verification engine. |
+| `src/symkit/domain/step_verifier.py` | Assumption-aware step verification engine: operator-faithfulness checks, numeric residual gates plus a trig-expansion fallback for recorded equations, and numeric re-checks for definite-integral results. |
 | `src/symkit/domain/assumption_engine.py` | Multi-level assumption storage and conflict detection. |
 | `src/symkit/domain/formula.py` | `Formula` value object, parser, and source enum. Supports compound LaTeX equation splitting, `\max`/`\min` mapping, and `^*` superscript handling. |
 | `src/symkit/domain/formula_recommender.py` | Local + external formula recommendation and `FormulaSourceAdapter` protocol. |
@@ -133,10 +133,10 @@ Responsible for business rules, entities, and domain services. Key files:
 | `src/symkit/domain/value_objects.py` | `MathContext`, `VerificationResult`, `StepStatus`, etc. |
 | `src/symkit/domain/entities.py` | `Expression` and other data classes. |
 | `src/symkit/domain/services.py` | `SymbolicEngine`, `Verifier`, `FormulaRepository` protocols. |
-| `src/symkit/domain/final_result.py` | Equation-identity verdict for manually recorded steps and headline selection that skips failed tail steps. |
+| `src/symkit/domain/final_result.py` | Equation-identity verdicts for manually recorded steps, suspect-identity grading (`classify_suspect_identity` / `numeric_residual_verdict`: numeric refutation is reserved for explicitly asserted equations and skips unevaluated `Sum`/`Integral` differences), and headline selection that skips failed tail steps. |
 | `src/symkit/domain/units.py` / `src/symkit/domain/dimensional_analysis.py` | Unit parsing and dimensional-consistency checking: dimension vectors, arithmetic/function propagation, and problem diagnostics (pure domain logic). |
 | `src/symkit/domain/lean_types.py` | Shared contracts for the Lean certification lane: `LeanStatement` / `LeanOutcome` value objects, the `LeanChecker` protocol, `UntranslatableError`. |
-| `src/symkit/domain/lean_translation.py` | SymPy → Lean 4 translation of the rational fragment (+−*/integer powers); variable denominators require explicit nonzero assumptions. |
+| `src/symkit/domain/lean_translation.py` | SymPy → Lean 4 translation of the rational fragment (+−*/integer powers); variable denominators require explicit nonzero assumptions. `clear_denominators` builds the structure-preserving numerator form used by the field→ring fallback. |
 
 ### 4.2 Application Layer
 
@@ -146,7 +146,7 @@ Coarse-grained use cases that coordinate Domain and Infrastructure without conta
 |---|---|
 | `src/symkit/application/use_cases.py` | `CalculateUseCase`, `SimplifyUseCase`, `DeriveUseCase`, `VerifyUseCase`. |
 | `src/symkit/application/formula_catalog.py` | `FormulaCatalog`: reconciles the YAML layers with the index via a manifest diff and serves all search and curation operations. |
-| `src/symkit/application/lean_certification.py` | `certify_session` use case: replays a session's algebraic-equality steps through `LeanChecker`, storing outcomes under each step's `details.lean`; never mutates existing verdicts. |
+| `src/symkit/application/lean_certification.py` | `certify_session` use case: replays a session's algebraic-equality steps through `LeanChecker`, storing outcomes under each step's `details.lean`; never mutates existing verdicts. An unproven field statement is retried as its cleared polynomial identity (lane `field+ring`, denominator factors bound nonzero). |
 
 ### 4.3 Infrastructure Layer
 
@@ -155,6 +155,7 @@ Technical implementation details:
 | File | Responsibility |
 |---|---|
 | `src/symkit/infrastructure/sympy_engine.py` | SymPy-based `SymbolicEngine` implementation. |
+| `src/symkit/infrastructure/numeric_eval.py` | Numeric evaluation of finite `Sum`s: exact summation at ≥30-digit working precision with cancellation detection (doubles precision and warns); backs `evalf` and its verification. |
 | `src/symkit/infrastructure/derivation_repository.py` | YAML-persisted `DerivationRepository` (the staging store). |
 | `src/symkit/infrastructure/formula_index_store.py` | SQLite FTS5 index store (trigram tokenizer; a rebuildable cache over the YAML layers). |
 | `src/symkit/infrastructure/formula_files.py` | YAML layer scanning, loading, and writing for the formula catalog. |
@@ -182,7 +183,8 @@ Exposes 45 MCP tools; each module focuses on one capability area:
 | `src/symkit_mcp/tools/orchestration.py` | High-level orchestration tools `derive()`, `intent_execute()`, etc. |
 | `src/symkit_mcp/tools/symbols.py` | Symbol registration tools. |
 | `src/symkit_mcp/tools/codegen.py` | Code/LaTeX/report generation. |
-| `src/symkit_mcp/tools/_state.py` | Global state (`SessionManager`, current session, `MathContext`) and the formula-catalog composition root. |
+| `src/symkit_mcp/tools/_state.py` | Global state (`SessionManager`, current session, `MathContext`) and the formula-catalog composition root. Assumptions are bound to the session lifecycle: a new session starts with a fresh assumption scope. |
+| `src/symkit_mcp/tools/_system_solve.py` | List-input system `solve`: per-solution assumption filtering (`filtered_by_assumptions`) and the multi-solution headline warning. |
 | `src/symkit_mcp/tools/_expression_parser.py` | Unified parser compatibility shim. |
 
 ---
@@ -278,7 +280,7 @@ It handles merging, overriding, and conflict detection.
 
 ## 6. Expression Parsing Pipeline
 
-`parse_user_expression` (`src/symkit/domain/expression_parser.py`) and `FormulaParser` (`src/symkit/domain/formula.py`) form the unified expression parsing layer. The pipeline is:
+`parse_user_expression` (`src/symkit/domain/expression_parser.py`) and `FormulaParser` (`src/symkit/domain/formula.py`) form the unified expression parsing layer. Inputs with more than 1000 explicit additive terms are rejected up front (guarding against exact-rational sum blowups). The pipeline is:
 
 ```text
 User input (LaTeX / SymPy / Unicode / natural equation)
@@ -453,7 +455,7 @@ path) is rejected before anything is written, and ids must be plain file names.
 
 ### 8.5 Assumption Tools
 
-- `assume(variables)`: set global/session-level assumptions (affects `MathContext`); the response echoes the applied assumptions.
+- `assume(variables)`: set global/session-level assumptions (affects `MathContext`); accepts both a mapping (`{"x": "positive"}`) and the clause-list form used by `math()`/`assume_for_step` (`["x is positive"]`); an unparsable clause rejects the whole batch. The response echoes the applied assumptions.
 - `show_assumptions()`: show current assumptions.
 - `unassume(variables)` / `clear_assumptions()`: remove assumptions for the given symbols / clear all assumptions in the current context.
 - `assume_for_step(args)`: set temporary assumptions for the current step. Accepts a single alternating string (`"x positive y real"`) or a list (`["x", "positive", ...]`); an odd token count fails loudly.
@@ -615,7 +617,7 @@ Tests are organized by functional layer in `tests/`, with shared fixtures
 | `test_formula_search.py` | Formula search framework |
 | `test_unified_math_coverage.py` | `math()` unified tool coverage, incl. integral transforms |
 
-Current status: 956 tests pass; Ruff and MyPy report no errors.
+Current status: 997 tests pass; Ruff and MyPy report no errors.
 
 ---
 

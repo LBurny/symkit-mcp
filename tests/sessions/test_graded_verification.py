@@ -180,11 +180,13 @@ def test_manual_equation_steps_are_content_checked(fresh_session_manager):
     false = tools["session_record_step"]("(a+b)**2 = a**2 + b**2", "pseudo identity")
     broken = tools["session_record_step"]("1 = 2", "broken arithmetic")
     assert good["verification_status"] == "success"
-    assert false["verification_status"] == "pending_verification"
+    # A recorded equation disproven by rational substitution (2*a*b != 0) is
+    # FAILED, not merely pending: buried errors must be caught (task-17).
+    assert false["verification_status"] == "failed"
     assert broken["verification_status"] == "failed"
     summary = tools["session_verify_session"]()
-    assert summary["failed"] == 1
-    assert summary["failed_steps"] == [3]
+    assert summary["failed"] == 2
+    assert summary["failed_steps"] == [2, 3]
     assert summary["overall"] == "failed"
 
 

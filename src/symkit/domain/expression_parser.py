@@ -34,6 +34,12 @@ from sympy.parsing.sympy_parser import (
     standard_transformations,
 )
 
+from symkit.domain.parser_call_sites import (
+    build_undefined_function_local_dict,
+    protect_min_max_calls,
+    split_dual_use_call_sites,
+)
+
 TRANSFORMATIONS = standard_transformations + (
     implicit_multiplication,
     implicit_application,
@@ -442,41 +448,11 @@ def _build_vector_calculus_local_dict(expr: str) -> dict[str, Any]:
     return local_dict
 
 
-# Namespace that already has native semantics when called: every public SymPy
-# name (``sin``, ``sqrt``, ``Eq``, ``Derivative``, ``beta``, ...) plus Python
-# keywords/constants that ``parse_expr`` may legitimately encounter.
-_KNOWN_CALLABLE_NAMESPACE: frozenset[str] = frozenset(
-    set(dir(sp)) | {"and", "or", "not", "True", "False"}
+# Names the call-site machinery must never claim as user-defined functions:
+# vector-calculus notation (protected separately above) and symbolic constants.
+_UNDEFINED_FUNC_EXCLUDES: frozenset[str] = (
+    frozenset(_VECTOR_CALCULUS_NAMES) | _CONSTANT_NAMES
 )
-
-# Matches ``name(`` call sites, excluding attribute access (``a.name(``).
-_UNDEFINED_FUNC_CALL_RE: re.Pattern[str] = re.compile(
-    r"(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*)\s*\("
-)
-
-
-def _build_undefined_function_local_dict(
-    expr: str, exclude: set[str] | frozenset[str] = frozenset()
-) -> dict[str, Any]:
-    """Bind unknown ``name(`` call sites to SymPy undefined ``Function``s.
-
-    Red line: function notation must never degrade to implicit
-    multiplication. ``v(t)`` is the function v evaluated at t, not ``v*t``.
-    Names already bound by other protection layers (``exclude``), known to
-    SymPy, or listed as constants keep their existing semantics. Bare names
-    without a call site are unaffected and remain Symbols.
-    """
-    local_dict: dict[str, Any] = {}
-    for name in set(_UNDEFINED_FUNC_CALL_RE.findall(expr)):
-        if (
-            name in _KNOWN_CALLABLE_NAMESPACE
-            or name in exclude
-            or name in _VECTOR_CALCULUS_NAMES
-            or name in _CONSTANT_NAMES
-        ):
-            continue
-        local_dict[name] = sp.Function(name)
-    return local_dict
 
 
 def _convert_equals_to_eq(expr_str: str) -> str:
@@ -536,15 +512,15 @@ def _parse_unevaluated(expr: str, local_dict: dict[str, Any]) -> Any:
     method chain such as ``Matrix(...).inv() - Matrix(...).inv()`` therefore
     raises ``AttributeError: 'Attribute' object has no attribute 'id'``.
     Attribute chains have no unevaluated form, so fall back to normal
-    evaluation for the whole expression.
+    evaluation for the whole expression, or a flat sum too deep to transform.
     """
     try:
         return parse_expr(
             expr, local_dict=local_dict, transformations=TRANSFORMATIONS,
             evaluate=False,
         )
-    except AttributeError as exc:
-        if "object has no attribute 'id'" not in str(exc):
+    except (AttributeError, RecursionError) as exc:
+        if isinstance(exc, AttributeError) and "object has no attribute 'id'" not in str(exc):
             raise
         return parse_expr(
             expr, local_dict=local_dict, transformations=TRANSFORMATIONS,
@@ -586,6 +562,16 @@ def _evaluate_matrix_powers(expr: sp.Basic) -> sp.Basic:
     return expr.replace(_is_matrix_pow, _replace)
 
 
+_MAX_ADDITIVE_TERMS = 1000
+_HARMONIC_HINT = "expression has {n} explicit additive terms; submitting large term-by-term sums (e.g. harmonic numbers) explodes exact-rational denominators — use Sum(1/k, (k, 1, n)) / harmonic(n) closed forms instead"
+
+
+def _guard_additive_scale(expr_str: str) -> None:
+    terms = expr_str.count("+") + expr_str.count("-") + 1
+    if terms > _MAX_ADDITIVE_TERMS:
+        raise ValueError(_HARMONIC_HINT.format(n=terms))
+
+
 def parse_expression_string(
     expr_str: str,
     *,
@@ -620,30 +606,33 @@ def parse_expression_string(
     processed = preprocess_vector_calculus(processed) if preprocess else processed
     processed = preprocess_diff_to_derivative(processed) if preprocess else processed
     processed = preprocess_leibniz_derivatives(processed) if preprocess else processed
+    processed = protect_min_max_calls(processed) if preprocess else processed
 
     if convert_equation:
         processed = _convert_equals_to_eq(processed)
+    # Reject a huge flat sum (exact-rational lcm explosion, r16 task-05) pre-parse.
+    _guard_additive_scale(processed)
 
     merged_local_dict = _build_local_dict(processed)
     merged_local_dict.update(_build_vector_calculus_local_dict(processed))
+    call_excludes = set(merged_local_dict) | set(_UNDEFINED_FUNC_EXCLUDES)
+    processed, func_renames = split_dual_use_call_sites(processed, call_excludes)
     merged_local_dict.update(
-        _build_undefined_function_local_dict(processed, exclude=set(merged_local_dict))
+        build_undefined_function_local_dict(processed, exclude=call_excludes)
+    )
+    merged_local_dict.update(
+        {temp: sp.Function(name) for temp, name in func_renames.items()}
     )
     if local_dict:
         _merge_caller_local_dict(merged_local_dict, processed, local_dict)
 
-    # SymPy's ``parse_expr(..., evaluate=False)`` fails for ``Eq`` when the RHS
-    # contains an expression that simplifies to zero (e.g. ``1*(0+0)/2``),
-    # raising "integer division or modulo by zero". We work around this by
-    # parsing the LHS and RHS separately and building the Equality ourselves.
+    # parse_expr(..., evaluate=False) dies on an Eq whose RHS simplifies to
+    # zero ("integer division or modulo by zero"); parse the sides separately.
     eq_args = _split_eq_args(processed)
     if eq_args is not None:
         lhs_str, rhs_str = eq_args
         try:
-            # We use evaluate=True for the arguments of Eq.  SymPy's Eq
-            # constructor has a known bug when passed an unevaluated Mul that
-            # contains a zero sub-expression (e.g. ``1*(0+0)/2``), so we let
-            # SymPy simplify the operands before building the relation.
+            # Eq sides are parsed evaluated (evaluate=False breaks on a zero side).
             lhs = parse_expr(
                 lhs_str,
                 local_dict=merged_local_dict,
@@ -660,14 +649,11 @@ def parse_expression_string(
 
     try:
         expr = _parse_unevaluated(processed, merged_local_dict)
-        # A list-of-lists literal is a matrix (``[[a,b],[c,d]]``).  Matrix
-        # operations accepted this shape while ``parse`` rejected it
-        # (run-020); unify on ``sp.Matrix``.
-        if (
-            isinstance(expr, list)
-            and expr
-            and all(isinstance(row, list) for row in expr)
-        ):
+        # A list literal is a matrix: a list-of-lists is the row-grid form
+        # (run-020) and a flat list is a column vector; leaving either as a
+        # Python list crashed the execution layer with
+        # ``'list' object has no attribute 'evalf'/'replace'``.
+        if isinstance(expr, list) and expr:
             expr = sp.Matrix(expr)
         return _rationalize_unevaluated_divisions(
             _evaluate_matrix_powers(expr)
