@@ -1,391 +1,208 @@
 # SymKit
 
-> **Mathematica-style symbolic computation, powered by LLMs.**
+Step-by-step symbolic math for AI agents: derive, verify, and certify formulas over SymPy, with full provenance.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
 [![Tests](https://img.shields.io/badge/tests-1031%20passed-brightgreen.svg)]()
-[![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
 **English** | [简体中文](README.zh-CN.md)
 
-## What if you had Mathematica's symbolic engine, driven by natural language?
+## What is SymKit?
 
-Mathematica gave us precise symbolic math. LLMs gave us natural-language reasoning. **SymKit combines both.**
+An [MCP](https://modelcontextprotocol.io/) server that lets AI agents do exact symbolic math through conversation. Built on SymPy, it combines known formulas into new ones, records every derivation step, and verifies each result symbolically and dimensionally — instead of leaving calculations as uncheckable LLM prose.
 
-It is an MCP server that lets AI agents perform step-by-step symbolic derivations: calculate, transform, verify, and store formulas with full provenance — all through conversation.
-
-```text
-┌────────────────────────────────────────────────────────────────────┐
-│                                                                    │
-│  You describe the math in plain English                              │
-│        ↓                                                           │
-│  SymKit executes, verifies, and records every step                 │
-│        ↓                                                           │
-│  You get an exact, reusable formula with an audit trail            │
-│                                                                    │
-└────────────────────────────────────────────────────────────────────┘
-```
-
-## Why SymKit?
-
-| Traditional LLM | SymKit |
+| LLM alone | With SymKit |
 |---|---|
-| ❌ "The answer is approximately..." | ✅ "The exact expression is..." |
-| ❌ "Let me calculate that again" | ✅ Every step is recorded and verifiable |
-| ❌ "I think these units work out" | ✅ Dimensional analysis checks every result |
+| ❌ "The answer is approximately..." | ✅ "The exact expression is ..." |
+| ❌ Recalculating from scratch to double-check | ✅ Every step is recorded and independently verifiable |
+| ❌ "I think the units work out" | ✅ Dimensional analysis checks every result |
 | ❌ "Where did this formula come from?" | ✅ Full provenance: base formulas + derivation steps |
-| ❌ Calculation is lost in chat history | ✅ Stored as reusable Markdown + YAML |
 
-## What it does
+Works for physics, engineering, chemistry, biology, economics — any domain where formulas are combined and transformed.
 
-SymKit is **not a formula database**. It is a **symbolic derivation engine** that creates new formulas from existing ones.
+## Core capabilities
 
-```text
-Known formulas                      New formula
-┌─────────────────┐                 ┌────────────────────────────┐
-│ F = -kx         │                 │                            │
-│ F = ma          │  ──compose──▶   │  ω = √(k/m)                │
-│ d²x/dt² = a     │                 │  (simple harmonic oscillator) │
-└─────────────────┘                 └────────────────────────────┘
-```
-
-Use it for physics, engineering, chemistry, biology, economics — any domain where you need to combine and transform mathematical relationships.
-
-## Four superpowers
-
-| Capability | What it means | Tools |
+| Capability | What it means | Main tools |
 |---|---|---|
-| **Derive** | Combine base formulas into new ones | `derive`, `intent_execute`, `math` |
-| **Control** | Review, annotate, and rollback every step | `session_*`, `*_step` |
-| **Verify** | Check correctness symbolically and dimensionally | `session_verify_*`, `assume*` |
-| **Ship** | Turn results into Python, LaTeX, Markdown, or SymPy | `generate_*` |
+| Derive | Combine base formulas into new ones | `derive`, `intent_execute`, `math` |
+| Control | Inspect, annotate, and roll back every step | `session_*` |
+| Verify | Symbolic equivalence + dimensional analysis | `session_verify_*`, `assume` |
+| Ship | Export to Python, LaTeX, Markdown, or SymPy script | `generate_output` |
 
-## See it in action
-
-**Derive a physical law from first principles:**
+Example — deriving the angular frequency of a simple harmonic oscillator from `F = -kx` and `F = m·a`:
 
 ```text
-User: Derive the angular frequency of a simple harmonic oscillator.
-
-SymKit:
-  1. Load F = -kx  and  F = m·d²x/dt²
-  2. Substitute → m·d²x/dt² = -kx
-  3. Solve ODE → x(t) = A·cos(ωt + φ),  ω = √(k/m)
-  4. Verify by substitution: d²x/dt² = -ω²x  ✓
-  5. Store result with full derivation history
+1. Load the two base formulas and substitute → m·d²x/dt² = -kx
+2. Solve the ODE → x(t) = A·cos(ωt + φ),  ω = √(k/m)
+3. Verify by substitution: d²x/dt² = -ω²x  ✓
+4. Store the result with its full derivation history
 ```
 
-**Build a custom engineering model:**
+## Tools
 
-```text
-User: Find the cutoff frequency of an RC high-pass filter.
+45 MCP tools across 9 categories. Most work flows through a few high-level tools; power users can drive each step individually.
 
-SymKit:
-  1. Load Q = CV and V = IR
-  2. Derive capacitive reactance X_c = 1/(2πfC)
-  3. Set X_c = R at cutoff
-  4. Solve for f → f_c = 1 / (2πRC)  ✓
-```
-
-**Verify a calculus result:**
-
-```text
-User: Calculate and verify ∫(x² + 3x) dx.
-
-→ Result: x³/3 + 3x²/2 + C
-→ Verify: d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
-```
-
-## 45 MCP tools, one coherent workflow
-
-SymKit exposes **45 MCP tools** across 9 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
-
-| Category | Tools | Count |
+| Category | Count | Highlights |
 |---|---|---|
-| **Unified Math** | `math` | 1 |
-| **Session Management** | `session_start`, `session_show`, `session_rollback`, `session_complete`, ... | 15 |
-| **Verification** | `session_verify_step`, `session_verify_session`, `session_certify`, `check_assumption_conflicts` | 4 |
-| **Assumptions** | `assume`, `show_assumptions`, `assume_for_step`, `list_assumptions`, `clear_step_assumptions`, `unassume`, `clear_assumptions` | 7 |
-| **Formula Library** | `formula_search`, `formula_get`, `formula_add`, `formula_promote`, `formula_remove`, `formula_reindex`, `formula_stats`, `formula_categories` | 8 |
-| **Symbol Semantics** | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 |
-| **Output** | `generate_output` (`format` = `markdown_report` / `latex` / `python` / `sympy_script`) | 1 |
-| **High-Level Orchestration** | `derive`, `intent_execute`, `list_patterns` | 3 |
-| **Meta** | `tool_categories`, `tool_recommend` | 2 |
+| Unified Math | 1 | `math` — 33 symbolic operations: calculus, ODEs, matrices, vector analysis, integral transforms, dimensional analysis |
+| Session Management | 15 | `session_start`, `session_record_step`, `session_rollback`, `session_complete` |
+| Verification | 4 | `session_verify_step`, `session_verify_session`, `session_certify` |
+| Assumptions | 7 | `assume`, `unassume`, `check_assumption_conflicts` |
+| Formula Library | 8 | `formula_search`, `formula_get`, `formula_add`, `formula_promote` |
+| Symbol Semantics | 4 | `register_symbol`, `lookup_symbol`, `check_symbol_conflicts` |
+| Output | 1 | `generate_output` (`markdown_report` / `latex` / `python` / `sympy_script`) |
+| Orchestration | 3 | `derive`, `intent_execute`, `list_patterns` |
+| Meta | 2 | `tool_categories`, `tool_recommend` |
 
-The `math()` tool alone covers 33 symbolic operations — calculus, ODEs, matrices, vector analysis, integral transforms, dimensional analysis — and can write its result directly into a derivation session.
+## Derivation sessions
+
+A derivation is a chain of immutable, verifiable steps. Expressions are never edited in place — if something goes wrong, `session_rollback` to the last good state and continue, keeping the whole derivation reproducible. Every step stores its inputs, outputs, notes, assumptions, and SymPy command, persisted as JSON under the data directory.
 
 ## Formula library
 
-Formulas live in editable YAML files, served through a persistent SQLite FTS5 index, so search is deterministic, offline, and instant. Session output no longer drowns the curated library — entries are ranked by tier:
+Formulas live in YAML files backed by a persistent SQLite FTS5 index — deterministic, offline, instant. Entries are ranked by tier:
 
-| Tier | Where it comes from | Ranking boost |
+| Tier | Source | Boost |
 |---|---|---|
-| `seed` | bundled read-only formulas (Reynolds number, Navier-Stokes, …) | +0.10 |
-| `curated` | `formula_add`, or a staging entry promoted via `formula_promote` | +0.15 |
-| `staging` | session-derived output written by `session_complete(auto_save=True)` | +0.00 |
-
-**Recommended workflow:**
+| `seed` | Bundled read-only formulas (Reynolds number, Navier–Stokes, …) | +0.10 |
+| `curated` | `formula_add`, or promoted via `formula_promote` | +0.15 |
+| `staging` | Session output from `session_complete(auto_save=True)` | +0.00 |
 
 ```text
-1. Search
-   formula_search("Navier-Stokes equations", domain="fluid_dynamics")
-   formula_search("drag", tier="curated")          # curated entries only
-
-2. Get and load
-   formula_get("ns_incompressible", load_into_session=True)
-
-3. Derive
-   math("simplify", "...", session=True)
-
-4. Complete
-   session_complete(description="Incompressible NS momentum equation")
+formula_search("Navier-Stokes", domain="fluid_dynamics")
+formula_get("ns_incompressible", load_into_session=True)
+math("simplify", "...", session=True)
+session_complete(description="Incompressible NS momentum equation")
 ```
 
-**What search matches:** names, aliases (including Chinese — `雷诺数` finds the Reynolds number), tags, domains, categories, descriptions, and the expression text itself (`sqrt` finds every formula whose expression contains it). Entries whose canonicalized expressions are identical — `a + b` and `b + a` — collapse into one result with a `duplicates` count. Generic words such as `equation` or `law` cannot carry a match on their own.
+Search covers names, aliases (Chinese works: `雷诺数` → Reynolds number), tags, domains, descriptions, and expression text. Session output lands in `staging` with a deterministic id and is deduplicated; promote keepers with `formula_promote`, inspect tiers with `formula_stats`, rebuild after hand-editing YAML with `formula_reindex`. The index (`<data dir>/formulas/index.sqlite3`) is a cache — deleting it is always safe. Optional external sources (`source="wikidata" | "scipy" | "biomodels"`) degrade gracefully offline.
 
-**Curation:** `session_complete(auto_save=True)` writes to `staging` with a deterministic id (`pendulum-9f3a2c`); re-completing the same content updates that entry instead of piling up copies. Promote keepers with `formula_promote`, inspect per-tier counts and duplicate groups with `formula_stats`, and rebuild after hand-editing YAML with `formula_reindex`.
+## Lean 4 kernel certification (optional)
 
-**Index location:** `<user data dir>/formulas/index.sqlite3`. It is a cache over the YAML files — delete it at any time and it rebuilds on the next start.
+`session_certify()` re-proves eligible algebraic-equality steps of the current session (`simplify` / `expand` / `factor` / `combine` in the rational fragment) with the Lean 4 + Mathlib kernel, using `ring` / `field_simp`. Results are attached under each step's `details.lean`; existing verification verdicts are never modified, and `unproven` only means the automation could not close the goal — not that the step is wrong. No extra Python packages are required.
 
-**External sources (optional):** `source="wikidata"`, `"scipy"`, or `"biomodels"` query external services instead, and degrade gracefully offline. Wikidata sometimes returns rendered MathML for search previews; call `formula_get` on the result ID to retrieve the original LaTeX and a SymPy-ready string.
-
-**Query normalization:** `fluid_dynamics`, `fluid mechanics`, and `cfd` all resolve to the same domain; `Navier–Stokes` (en dash) and `Navier-Stokes` (hyphen) are equivalent.
-
-**Function notation & results:** unknown calls like `v(t)` parse as undefined functions (Mathematica convention), never as implicit multiplication; `solve` returns a bare `solution` / `solution_latex` next to the `Eq(...)` expression; `evalf` accepts `substitution`; and `session_start` / `session_set_goal` accept explicit `target_variables` so goal tracking does not depend on heuristic text extraction.
-
-## You own every step
-
-A derivation in SymKit is a chain of immutable, verifiable steps. You can:
-
-- **Create** — `session_record_step`
-- **Read** — `session_get_steps`, `session_show`
-- **Annotate** — `session_add_note`
-- **Rollback** — `session_rollback`
-- **Verify** — `session_verify_step`, `session_verify_session`, `session_certify`
-
-Expressions are never edited in place. If something goes wrong, roll back to the last good state and continue. This keeps the entire derivation reproducible.
-
-### Optional: Lean 4 kernel certification
-
-`session_certify` re-proves the session's algebraic-equality steps (`simplify` / `expand` / `factor` / `combine` in the rational fragment) with the Lean 4 + Mathlib kernel and records the outcome under each step's `details.lean`. It never changes existing verification verdicts, and `unproven` only means the automation could not close the goal. The feature needs no extra Python packages; run `symkit-lean-setup` once to install the Lean toolchain, and steps dividing by a variable require an explicit `assume(x, nonzero)`-style assumption first.
-
-## Works with the MCP ecosystem
-
-SymKit is designed to extend, not replace, your scientific computing stack. Symbolic computation runs on its own SymPy engine, and base formulas come from the bundled seed library, Wikidata, or SciPy — SymKit adds derivation, verification, and provenance on top.
-
-**When to use SymKit:**
-
-- ✅ Deriving new formulas from existing ones
-- ✅ Building temperature/pressure/parameter-corrected models
-- ✅ Creating custom models for any quantitative domain
-- ✅ Producing verified, citable derivation results
-
-**When to use something else:**
-
-- ❌ Clinical scoring → use `medical-calc-mcp`
-- ❌ Reading textbook formulas → use the reference directly
-
-## Get started in 60 seconds
-
-### Requirements
-
-- **Python 3.10+**
-- An MCP-compatible client: Claude Desktop, Claude Code, Cherry Studio, …
-- **uv** (recommended) **or** pip
-
-### Step 1 — Install SymKit
-
-Pick **one** of the three install paths below. Each produces a runnable
-`symkit-mcp` command you point your MCP client at in Step 3.
-
-#### Option A — `uv` (recommended)
-
-[`uv`](https://docs.astral.sh/uv/) is a fast Python package manager. Install
-SymKit as an isolated global CLI tool — no virtualenv to manage, no clashes
-with your system Python:
+### Setup
 
 ```bash
-# 1. Install uv itself (if you don't have it yet)
-# macOS / Linux:
-curl -LsSf https://astral.sh/uv/install.sh | sh
-# Windows (PowerShell):
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+# One-time: install elan + Lean 4 + prebuilt Mathlib (~1–2 GB download, needs network)
+symkit-lean-setup --yes
 
-# 2. Install SymKit as a global CLI tool
+# Optionally pin a Lean version instead of stable
+symkit-lean-setup --yes --toolchain v4.24.0
+```
+
+Configuration knobs:
+
+- **Data directory**: the Lean workspace is installed to `<data dir>/lean-workspace`. Set `SYMKIT_DATA_DIR` before running the setup (and the server) to relocate it.
+- **Toolchain location**: `lake` is discovered from `PATH`, then `ELAN_HOME/bin`, then `~/.elan/bin`. Point `ELAN_HOME` at an existing elan install to reuse it.
+- **Proxies**: if the download stalls or fails behind a corporate proxy, export `HTTP_PROXY` / `HTTPS_PROXY` before running the setup — the elan installer does not read the Windows system proxy settings.
+- **Readiness check**: re-running `session_certify()` reports `lean_available: true` once the toolchain and the `.symkit-lean-ready` stamp are in place.
+
+Usage notes: `session_certify()` requires an active session, and steps that divide by a variable need an explicit assumption first (e.g. `assume({"x": "nonzero"})`). Without a toolchain, everything else in SymKit is unchanged.
+
+## Installation
+
+Requirements: Python 3.10+, an MCP-compatible client (Claude Desktop, Claude Code, Cherry Studio, …), and uv or pip.
+
+### Option A — uv (recommended)
+
+```bash
 uv tool install symkit-mcp
-
-# 3. Verify it's on your PATH
 symkit-mcp --version
 ```
 
-`uv tool install` places a `symkit-mcp` entry point on your PATH. Upgrade later
-with `uv tool upgrade symkit-mcp`, and uninstall with `uv tool uninstall symkit-mcp`.
+`uvx symkit-mcp` runs the latest release on the fly without installing.
 
-> **No-install alternative:** `uvx symkit-mcp` runs the latest published
-> release on the fly, caching it behind the scenes. Useful for one-off runs
-> or for the MCP client config in Step 3 — no `uv tool install` required.
-
-#### Option B — `pip`
+### Option B — pip
 
 ```bash
-# Install
 pip install symkit-mcp
-
-# Verify
-symkit-mcp --version
 ```
 
-Prefer [`pipx`](https://pypa.github.io/pipx/) (`pipx install symkit-mcp`) if
-you want each CLI tool in its own isolated environment.
+(`pipx install symkit-mcp` for an isolated environment.)
 
-#### Option C — From source (development or unreleased changes)
+### Option C — from source
 
 ```bash
 git clone https://github.com/LBurny/symkit-mcp.git
 cd symkit-mcp
-
-# Install the project + dev/test extras into a local .venv
 uv sync --all-extras
-
-# Run the server straight from the checkout — no install step needed
 uv run symkit-mcp
 ```
 
-`uv run` executes against the local source tree, so you can edit and re-run
-immediately. Pull the latest deps after changing `pyproject.toml` with
-`uv sync`.
+### Data directory
 
-### Step 2 — Where data lives
+Runtime data lives per-user (via `platformdirs`): `~/.local/share/symkit/` on Linux, `%LOCALAPPDATA%\symkit` on Windows, `~/Library/Application Support/symkit` on macOS. Set `SYMKIT_DATA_DIR` to override — e.g. per project via the MCP server `env` block, to isolate sessions and formula libraries. Seed formulas ship read-only inside the package; user formulas from `formula_add` go to a writable overlay that overrides seeds by id; session-derived formulas go to `<data dir>/formulas/derived/`.
 
-After install, SymKit stores runtime data in a per-user directory (resolved via
-`platformdirs`): derived formulas and session JSONs persist under
-`~/.local/share/symkit/` (Linux), `%LOCALAPPDATA%\symkit` (Windows), or
-`~/Library/Application Support/symkit` (macOS). Set the `SYMKIT_DATA_DIR`
-environment variable to override this location — for example, point it at a
-per-project folder (via your MCP client's server `env` block) to keep each
-project's sessions and formula library isolated. Seed formulas (Reynolds
-number, Navier-Stokes, …) ship read-only inside the package; user-added
-formulas via `formula_add` are written to the writable overlay and override
-seeds by id. Formulas saved by completed sessions (`formulas/derived/`) are
-included in `formula_search`.
+### Connect your client
 
-### Step 3 — Connect to your client
+Add an `mcpServers` entry (Claude Desktop: `claude_desktop_config.json`; Cherry Studio: settings panel).
 
-SymKit speaks MCP over stdio, so the same server works with every
-MCP-compatible client. Below is the JSON config for Claude Desktop and Cherry
-Studio.
-
-#### Claude Desktop / Cherry Studio (JSON config)
-
-Add an `mcpServers` entry to your client's config file (`claude_desktop_config.json`
-for Claude Desktop; the equivalent settings panel for Cherry Studio).
-
-**Installed via `uv tool` / `pip` / `pipx`** (the `symkit-mcp` command is on PATH):
+Installed on PATH (uv tool / pip / pipx):
 
 ```json
-{
-  "mcpServers": {
-    "symkit": {
-      "command": "symkit-mcp",
-      "args": []
-    }
-  }
-}
+{ "mcpServers": { "symkit": { "command": "symkit-mcp", "args": [] } } }
 ```
 
-**Run on the fly without installing** (uvx pulls and caches the latest release):
+Without installing (uvx pulls and caches the latest release):
 
 ```json
-{
-  "mcpServers": {
-    "symkit": {
-      "command": "uvx",
-      "args": ["symkit-mcp"]
-    }
-  }
-}
+{ "mcpServers": { "symkit": { "command": "uvx", "args": ["symkit-mcp"] } } }
 ```
 
-**Running from a local source checkout** (no install needed):
+From a source checkout:
 
 ```json
 {
   "mcpServers": {
     "symkit": {
       "command": "uv",
-      "args": [
-        "run",
-        "--no-sync",
-        "--directory",
-        "<your-local-symkit-mcp-path>",
-        "python",
-        "-m",
-        "symkit_mcp.server"
-      ]
+      "args": ["run", "--no-sync", "--directory", "<local-path>",
+               "python", "-m", "symkit_mcp.server"]
     }
   }
 }
 ```
 
-Replace `<your-local-symkit-mcp-path>` with the absolute path to your local
-`symkit-mcp` clone. `--no-sync` skips dependency resolution on every launch;
-run `uv sync` manually when dependencies change.
+> Windows: if the client reports "command not found", use an absolute path, e.g. `"C:/Users/you/AppData/Local/uv/tools/symkit-mcp/Scripts/symkit-mcp.exe"`.
 
-> **Windows PATH gotcha:** if Claude Desktop fails to launch the server with a
-> "command not found" error, the app's process PATH may not include your
-> `Scripts/` or uv tool directory. Switch the `command` to an absolute path,
-> e.g. `"C:/Users/you/AppData/Local/uv/tools/symkit-mcp/Scripts/symkit-mcp.exe"`.
-
-## Clean architecture, built to extend
+## Architecture
 
 ```text
-symkit-mcp/
-├── src/
-│   ├── symkit/               # Pure domain logic (no MCP dependency)
-│   │   ├── domain/          # Entities, value objects, derivation engine
-│   │   ├── application/     # Use cases
-│   │   └── infrastructure/  # SymPy engine, adapters, persistence
-│   └── symkit_mcp/          # MCP server layer
-│       ├── server.py
-│       └── tools/           # 45 MCP tools
-├── formulas/                # Seed formula library (source tree)
-├── tests/                   # 1031 tests
-└── pyproject.toml
+src/
+├── symkit/               # Core domain library (no MCP dependency)
+│   ├── domain/           # Entities, derivation engine, verifier contracts
+│   ├── application/      # Use cases
+│   └── infrastructure/   # SymPy engine, Lean checker, persistence, adapters
+└── symkit_mcp/           # MCP server layer (FastMCP) + 45 tools
+formulas/                 # Seed formula library (source tree)
+tests/                    # 1031 tests
 ```
 
-- **Domain-driven design** — core logic is independent of MCP and SymPy.
-- **Pluggable engines** — swap the symbolic engine or verifier via protocols.
-- **File-based persistence** — formulas and sessions live in readable Markdown/YAML/JSON.
+Domain-driven design: the core is independent of MCP and SymPy, engines are pluggable via protocols, and formulas/sessions persist as readable YAML/JSON.
 
 ## Development
 
 ```bash
-# Run the full test suite
-uv run pytest
-
-# Lint and type check
+uv run pytest          # full test suite
 uv run ruff check src/ tests/
 uv run mypy src/
-
-# Start the dev server
-uv run symkit-mcp
+uv run symkit-mcp      # dev server
 ```
 
 ## Learn more
 
-- [Architecture](ARCHITECTURE.md) — DDD layering and responsibilities
-- [SymKit Design](docs/symkit-design.md) — In-depth technical design (English)
-- [SymKit Design (中文)](docs/symkit-design.zh-CN.md) — 中文设计文档
-- [SymKit vs SymPy-MCP](docs/symkit-vs-sympy-mcp.md) — Capability comparison
-- [Roadmap](ROADMAP.md) — What's coming next
+- [Architecture](ARCHITECTURE.md) — DDD layering and tool inventory
+- [SymKit Design](docs/symkit-design.md) ([中文](docs/symkit-design.zh-CN.md)) — in-depth technical design
+- [SymKit vs SymPy-MCP](docs/symkit-vs-sympy-mcp.md) — capability comparison
+- [Roadmap](ROADMAP.md) — what's coming next
+- [Formula library fields](formulas/README.md) — YAML entry format
 
 ## Acknowledgments
 
-SymKit is built on the foundation of [nsforge-mcp](https://github.com/u9401066/nsforge-mcp), which pioneered the neurosymbolic formula-derivation approach. The original Chinese README of nsforge-mcp can be found [here](https://github.com/u9401066/nsforge-mcp/blob/master/README.zh-TW.md).
-
-SymKit can be used alongside [sympy-mcp](https://github.com/sdiehl/sympy-mcp), which exposes SymPy as a general-purpose MCP computation service.
+SymKit builds on [nsforge-mcp](https://github.com/u9401066/nsforge-mcp), which pioneered the neurosymbolic formula-derivation approach, and can be used alongside [sympy-mcp](https://github.com/sdiehl/sympy-mcp), a general-purpose SymPy MCP service.
 
 ## License
 

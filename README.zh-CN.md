@@ -1,387 +1,208 @@
 # SymKit
 
-> **LLM 驱动的 Mathematica 式符号计算。**
+面向 AI Agent 的逐步符号数学：在 SymPy 之上推导、验证、认证公式，并保留完整来源。
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
 [![Tests](https://img.shields.io/badge/tests-1031%20passed-brightgreen.svg)]()
-[![Lint](https://img.shields.io/badge/ruff-passing-brightgreen.svg)]()
 
 [English](README.md) | **简体中文**
 
-## 如果你拥有 Mathematica 的符号引擎，但可以用自然语言驱动它？
+## SymKit 是什么？
 
-Mathematica 给了我们精确的符号数学能力，大语言模型给了我们自然语言推理能力。**SymKit 把两者结合起来。**
+一个 [MCP](https://modelcontextprotocol.io/) 服务器，让 AI Agent 通过对话完成精确的符号数学。基于 SymPy 构建：把已知公式组合成新公式，记录每个推导步骤，并对每个结果做符号等价与量纲双重验证——而不是让计算停留在大模型无法复核的叙述里。
 
-它是一个 MCP 服务器，让 AI Agent 通过对话完成逐步符号推导：计算、变换、验证、保存公式，并记录完整来源。
-
-```text
-┌────────────────────────────────────────────────────────────────────┐
-│                                                                    │
-│  你用 plain English 描述数学问题                                    │
-│        ↓                                                           │
-│  SymKit 执行、验证并记录每一步                                       │
-│        ↓                                                           │
-│  你得到的是精确、可复用的公式及其审计链条                              │
-│                                                                    │
-└────────────────────────────────────────────────────────────────────┘
-```
-
-## 为什么要用 SymKit？
-
-| 传统 LLM | SymKit |
+| 只有 LLM | 配合 SymKit |
 |---|---|
 | ❌ "答案大约是……" | ✅ "精确表达式是……" |
-| ❌ "我再算一遍" | ✅ 每一步都被记录并可验证 |
+| ❌ 靠重新算一遍来复查 | ✅ 每一步都被记录、可独立验证 |
 | ❌ "我觉得单位是对的" | ✅ 量纲分析自动检查每个结果 |
 | ❌ "这公式从哪来的？" | ✅ 完整来源：基础公式 + 推导步骤 |
-| ❌ 计算结果消失在聊天记录里 | ✅ 以可复用的 Markdown + YAML 保存 |
 
-## 它能做什么？
+适用于物理、工程、化学、生物、经济——任何需要组合与变换数学关系的领域。
 
-**SymKit 不是公式数据库。** 它是一个**符号推导引擎**，能从已有公式中创造新公式。
+## 核心能力
 
-```text
-已知公式                          新公式
-┌─────────────────┐              ┌────────────────────────────┐
-│ F = -kx         │              │                            │
-│ F = ma          │  ──组合──▶   │  ω = √(k/m)                │
-│ d²x/dt² = a     │              │  （简谐振子角频率）          │
-└─────────────────┘              └────────────────────────────┘
-```
-
-无论是物理、工程、化学、生物还是经济，只要涉及数学关系的组合与变换，SymKit 都能派上用场。
-
-## 四大核心能力
-
-| 能力 | 含义 | 工具 |
+| 能力 | 含义 | 主要工具 |
 |---|---|---|
-| **推导** | 将基础公式组合为新公式 | `derive`、`intent_execute`、`math` |
-| **控制** | 查看、注释、回滚每一步 | `session_*`、`*_step` |
-| **验证** | 符号等价与量纲分析双重检查 | `session_verify_*`、`assume*` |
-| **交付** | 生成 Python、LaTeX、Markdown、SymPy | `generate_*` |
+| 推导 | 将基础公式组合为新公式 | `derive`、`intent_execute`、`math` |
+| 控制 | 查看、注释、回滚每一步 | `session_*` |
+| 验证 | 符号等价 + 量纲分析 | `session_verify_*`、`assume` |
+| 交付 | 导出 Python、LaTeX、Markdown、SymPy 脚本 | `generate_output` |
 
-## 实际效果
-
-**从第一性原理推导物理定律：**
+示例——从 `F = -kx` 和 `F = m·a` 推导简谐振子的角频率：
 
 ```text
-用户：推导简谐振子的角频率。
-
-SymKit：
-  1. 加载 F = -kx  和  F = m·d²x/dt²
-  2. 代入 → m·d²x/dt² = -kx
-  3. 求解 ODE → x(t) = A·cos(ωt + φ)，ω = √(k/m)
-  4. 回代验证：d²x/dt² = -ω²x  ✓
-  5. 保存完整推导历史
+1. 加载两个基础公式并代入 → m·d²x/dt² = -kx
+2. 求解 ODE → x(t) = A·cos(ωt + φ)，ω = √(k/m)
+3. 回代验证：d²x/dt² = -ω²x  ✓
+4. 保存结果及完整推导历史
 ```
 
-**构建自定义工程模型：**
+## 工具
 
-```text
-用户：求 RC 高通滤波器的截止频率。
+45 个 MCP 工具，分 9 个类别。多数工作通过少数高层工具完成；高级用户可以精细控制每一步。
 
-SymKit：
-  1. 加载 Q = CV 和 V = IR
-  2. 推导容抗 X_c = 1/(2πfC)
-  3. 在截止频率处令 X_c = R
-  4. 解出 f → f_c = 1 / (2πRC)  ✓
-```
-
-**验证微积分结果：**
-
-```text
-用户：计算并验证 ∫(x² + 3x) dx。
-
-→ 结果：x³/3 + 3x²/2 + C
-→ 验证：d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
-```
-
-## 45 个 MCP 工具，一套连贯工作流
-
-SymKit 提供 **45 个 MCP 工具**，分为 9 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
-
-| 类别 | 工具 | 数量 |
+| 类别 | 数量 | 代表工具 |
 |---|---|---|
-| **统一数学** | `math` | 1 |
-| **会话管理** | `session_start`、`session_show`、`session_rollback`、`session_complete` 等 | 15 |
-| **验证** | `session_verify_step`、`session_verify_session`、`session_certify`、`check_assumption_conflicts` | 4 |
-| **假设管理** | `assume`、`show_assumptions`、`assume_for_step`、`list_assumptions`、`clear_step_assumptions`、`unassume`、`clear_assumptions` | 7 |
-| **公式库** | `formula_search`、`formula_get`、`formula_add`、`formula_promote`、`formula_remove`、`formula_reindex`、`formula_stats`、`formula_categories` | 8 |
-| **符号语义** | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 |
-| **输出** | `generate_output`（`format` = `markdown_report` / `latex` / `python` / `sympy_script`） | 1 |
-| **高层编排** | `derive`、`intent_execute`、`list_patterns` | 3 |
-| **元工具** | `tool_categories`、`tool_recommend` | 2 |
+| 统一数学 | 1 | `math` — 33 种符号运算：微积分、ODE、矩阵、矢量分析、积分变换、量纲分析 |
+| 会话管理 | 15 | `session_start`、`session_record_step`、`session_rollback`、`session_complete` |
+| 验证 | 4 | `session_verify_step`、`session_verify_session`、`session_certify` |
+| 假设管理 | 7 | `assume`、`unassume`、`check_assumption_conflicts` |
+| 公式库 | 8 | `formula_search`、`formula_get`、`formula_add`、`formula_promote` |
+| 符号语义 | 4 | `register_symbol`、`lookup_symbol`、`check_symbol_conflicts` |
+| 输出 | 1 | `generate_output`（`markdown_report` / `latex` / `python` / `sympy_script`） |
+| 高层编排 | 3 | `derive`、`intent_execute`、`list_patterns` |
+| 元工具 | 2 | `tool_categories`、`tool_recommend` |
 
-仅 `math()` 一个工具就覆盖 33 种符号运算——微积分、ODE、矩阵、矢量分析、积分变换、量纲分析——并且可以直接把结果写入推导会话。
+## 推导会话
+
+推导是一串不可变、可验证的步骤。表达式不会被原地修改——出错时 `session_rollback` 回到上一个有效状态再继续，保证整个推导可复现。每一步都保存输入、输出、注释、假设与实际执行的 SymPy 命令，以 JSON 持久化在数据目录下。
 
 ## 公式库
 
-公式以可编辑 YAML 存储，检索由持久化 SQLite FTS5 索引提供——确定、离线、即时。会话产物不再淹没精选库，条目按 tier 分层排序：
+公式以 YAML 文件存储，由持久化 SQLite FTS5 索引支撑检索——确定、离线、即时。条目按 tier 分层排序：
 
-| tier | 来源 | 排序加成 |
+| tier | 来源 | 加成 |
 |---|---|---|
-| `seed` | 随包分发的只读内置公式（雷诺数、Navier-Stokes 等） | +0.10 |
-| `curated` | `formula_add`，或经 `formula_promote` 从暂存晋升 | +0.15 |
+| `seed` | 随包分发的只读公式（雷诺数、Navier–Stokes 等） | +0.10 |
+| `curated` | `formula_add`，或经 `formula_promote` 晋升 | +0.15 |
 | `staging` | `session_complete(auto_save=True)` 写入的会话产物 | +0.00 |
 
-**推荐工作流：**
-
 ```text
-1. 搜索
-   formula_search("Navier-Stokes equations", domain="fluid_dynamics")
-   formula_search("drag", tier="curated")          # 只搜精选层
-
-2. 获取并加载
-   formula_get("ns_incompressible", load_into_session=True)
-
-3. 推导
-   math("simplify", "...", session=True)
-
-4. 完成
-   session_complete(description="不可压 NS 动量方程")
+formula_search("Navier-Stokes", domain="fluid_dynamics")
+formula_get("ns_incompressible", load_into_session=True)
+math("simplify", "...", session=True)
+session_complete(description="不可压 NS 动量方程")
 ```
 
-**检索范围：** 名称、别名（含中文——搜 `雷诺数` 能找到 Reynolds number）、标签、领域、分类、描述，以及表达式文本本身（搜 `sqrt` 能命中所有表达式中含它的公式）。规范化表达式相同的条目——`a + b` 与 `b + a`——折叠为一条并附带 `duplicates` 计数。`equation`、`law` 这类通用词不能单独撑起命中。
+检索覆盖名称、别名（支持中文：搜 `雷诺数` 命中 Reynolds number）、标签、领域、描述及表达式文本。会话产物以确定性 id 写入 `staging` 并自动去重；用 `formula_promote` 晋升要留存的条目，用 `formula_stats` 查看分层统计，手工编辑 YAML 后用 `formula_reindex` 重建索引。索引（`<数据目录>/formulas/index.sqlite3`）只是缓存，随时可删。可选外部来源（`source="wikidata" | "scipy" | "biomodels"`）离线时优雅降级。
 
-**策展：** `session_complete(auto_save=True)` 以确定性 id（`pendulum-9f3a2c`）写入 `staging` 层；同内容重复完成只更新该条目，不再堆积副本。用 `formula_promote` 把要留存的条目晋升到精选层，用 `formula_stats` 查看各层条目数与重复组，手工编辑 YAML 后用 `formula_reindex` 重建索引。
+## Lean 4 内核认证（可选）
 
-**索引位置：** `<用户数据目录>/formulas/index.sqlite3`。它是 YAML 文件之上的缓存——随时可删，下次启动自动重建。
+`session_certify()` 用 Lean 4 + Mathlib 内核复核当前会话中符合条件的代数等式步骤（有理式片段内的 `simplify` / `expand` / `factor` / `combine`），经 `ring` / `field_simp` 证明。结果写入各步骤的 `details.lean`；既有验证判定从不被修改，`unproven` 只表示自动化未能闭合目标，不代表步骤有误。不引入任何额外 Python 依赖。
 
-**外部来源（可选）：** `source="wikidata"`、`"scipy"`、`"biomodels"` 改为查询外部服务，离线时优雅降级。Wikidata 的搜索预览有时返回渲染后的 MathML，调用 `formula_get` 获取结果 ID 对应的原版 LaTeX 和 SymPy 可用字符串。
-
-**查询规范化：** `fluid_dynamics`、`fluid mechanics`、`cfd` 都会解析到同一个领域；`Navier–Stokes`（en dash）与 `Navier-Stokes`（hyphen）等价。
-
-**函数记号与结果：** 未知调用如 `v(t)` 会解析为未定义函数（Mathematica 惯例），绝不会退化为隐式乘法；`solve` 在 `Eq(...)` 表达式之外另返回裸的 `solution` / `solution_latex`；`evalf` 支持 `substitution` 一次完成代入求值；`session_start` / `session_set_goal` 接受显式 `target_variables`，目标追踪不再依赖启发式文本抽取。
-
-## 每一步都由你掌控
-
-SymKit 中的推导是一串不可变、可验证的步骤。你可以：
-
-- **创建** — `session_record_step`
-- **读取** — `session_get_steps`、`session_show`
-- **注释** — `session_add_note`
-- **回滚** — `session_rollback`
-- **验证** — `session_verify_step`、`session_verify_session`、`session_certify`
-
-表达式不会原地修改。如果出错，回滚到上一个有效状态再继续。这保证了整个推导过程可复现。
-
-### 可选：Lean 4 内核认证
-
-`session_certify` 用 Lean 4 + Mathlib 内核复核会话中的代数等式步骤（有理式片段内的 `simplify` / `expand` / `factor` / `combine`），结果写入各步骤的 `details.lean`。它从不改动既有验证判定，`unproven` 只表示自动化未能闭合目标，不代表步骤错误。该功能不增加任何 Python 依赖；需要时运行一次 `symkit-lean-setup` 安装 Lean 工具链即可。含变量分母的步骤要求先用 `assume(x, nonzero)` 之类的假设声明非零条件。
-
-## 与 MCP 生态协同
-
-SymKit 的设计目标是扩展科学计算栈，而非取代它。符号计算由自带的 SymPy 引擎执行，基础公式来自内置种子库、Wikidata 或 SciPy——SymKit 在此之上提供推导、验证和来源追溯。
-
-**适合使用 SymKit 的场景：**
-
-- ✅ 从已有公式推导新公式
-- ✅ 构建温度/压力/参数修正模型
-- ✅ 为任意定量领域创建自定义模型
-- ✅ 生成经过验证、可引用的推导成果
-
-**不适合使用 SymKit 的场景：**
-
-- ❌ 临床评分 → 使用 `medical-calc-mcp`
-- ❌ 阅读教科书公式 → 直接查阅参考资料
-
-## 60 秒快速开始
-
-### 环境要求
-
-- **Python 3.10+**
-- 任意 MCP 兼容客户端：Claude Desktop、Claude Code、Cherry Studio ……
-- **uv**（推荐）**或** pip
-
-### 第 1 步 —— 安装 SymKit
-
-从下面三种安装方式中**任选其一**。每种方式最终都会产出一个可执行的
-`symkit-mcp` 命令，供第 3 步配置客户端时指向。
-
-#### 方式 A —— `uv`（推荐）
-
-[`uv`](https://docs.astral.sh/uv/) 是一个高速 Python 包管理器。以隔离的
-全局 CLI 工具形式安装 SymKit——无需手动管理虚拟环境，也不会与系统
-Python 冲突：
+### 配置
 
 ```bash
-# 1. 先安装 uv 本身（如果还没有）
-# macOS / Linux：
-curl -LsSf https://astral.sh/uv/install.sh | sh
-# Windows (PowerShell)：
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+# 一次性安装 elan + Lean 4 + 预编译 Mathlib（约 1–2 GB 下载，需联网）
+symkit-lean-setup --yes
 
-# 2. 将 SymKit 安装为全局 CLI 工具
+# 可选：固定 Lean 版本而非 stable
+symkit-lean-setup --yes --toolchain v4.24.0
+```
+
+配置要点：
+
+- **数据目录**：Lean 工作区安装在 `<数据目录>/lean-workspace`。运行安装脚本（及服务器）前设置 `SYMKIT_DATA_DIR` 可改变位置。
+- **工具链位置**：`lake` 按 `PATH` → `ELAN_HOME/bin` → `~/.elan/bin` 的顺序查找。已有 elan 安装时，把 `ELAN_HOME` 指向它即可复用。
+- **代理**：若下载在代理环境停滞或失败，先导出 `HTTP_PROXY` / `HTTPS_PROXY` 再运行安装——elan 安装器不读取 Windows 系统代理设置。
+- **就绪检查**：工具链与 `.symkit-lean-ready` 标记就位后，再次调用 `session_certify()` 会报告 `lean_available: true`。
+
+使用限制：`session_certify()` 需要活跃会话；含变量作分母的步骤需先声明显式假设（如 `assume({"x": "nonzero"})`）。未安装工具链时，SymKit 的其余行为完全不变。
+
+## 安装
+
+环境要求：Python 3.10+、任意 MCP 兼容客户端（Claude Desktop、Claude Code、Cherry Studio 等）、uv 或 pip。
+
+### 方式 A —— uv（推荐）
+
+```bash
 uv tool install symkit-mcp
-
-# 3. 确认已加入 PATH
 symkit-mcp --version
 ```
 
-`uv tool install` 会把 `symkit-mcp` 入口放入你的 PATH。之后用
-`uv tool upgrade symkit-mcp` 升级，用 `uv tool uninstall symkit-mcp` 卸载。
+`uvx symkit-mcp` 免安装即时运行最新发布版。
 
-> **免安装替代方案：** `uvx symkit-mcp` 可即时运行最新发布版（后台自动
-> 缓存）。适合一次性运行，或直接用于第 3 步的客户端配置——无需
-> `uv tool install`。
-
-#### 方式 B —— `pip`
+### 方式 B —— pip
 
 ```bash
-# 安装
 pip install symkit-mcp
-
-# 验证
-symkit-mcp --version
 ```
 
-如果希望每个 CLI 工具都跑在各自隔离环境里，推荐
-[`pipx`](https://pypa.github.io/pipx/)（`pipx install symkit-mcp`）。
+（需要隔离环境可用 `pipx install symkit-mcp`。）
 
-#### 方式 C —— 从源码安装（用于开发或未发布改动）
+### 方式 C —— 从源码
 
 ```bash
 git clone https://github.com/LBurny/symkit-mcp.git
 cd symkit-mcp
-
-# 将项目 + 开发/测试 extras 安装到本地 .venv
 uv sync --all-extras
-
-# 直接从代码检出目录运行服务器——无需安装步骤
 uv run symkit-mcp
 ```
 
-`uv run` 针对本地源码树执行，改完代码即可立即重跑。修改 `pyproject.toml`
-后用 `uv sync` 拉取最新依赖。
+### 数据目录
 
-### 第 2 步 —— 数据存放位置
+运行时数据按用户存放（经 `platformdirs` 解析）：Linux 为 `~/.local/share/symkit/`，Windows 为 `%LOCALAPPDATA%\symkit`，macOS 为 `~/Library/Application Support/symkit`。设置 `SYMKIT_DATA_DIR` 可覆盖——例如通过 MCP 服务器的 `env` 配置块按项目隔离会话与公式库。种子公式只读打包在包内；`formula_add` 添加的用户公式进入可写覆盖层并按 id 覆盖种子；会话派生公式写入 `<数据目录>/formulas/derived/`。
 
-安装后，SymKit 会把运行时数据存放在按用户划分的目录（由
-`platformdirs` 解析）：派生公式和会话 JSON 持久化在
-`~/.local/share/symkit/`（Linux）、`%LOCALAPPDATA%\symkit`（Windows）或
-`~/Library/Application Support/symkit`（macOS）。设置 `SYMKIT_DATA_DIR`
-环境变量可覆盖该位置——例如把它指向某个项目专属目录（通过 MCP 客户端的
-服务器 `env` 配置块注入），即可让各项目的会话与公式库互相隔离。种子公式
-（雷诺数、Navier-Stokes ……）以只读形式打包在包内；通过 `formula_add`
-添加的用户公式写入可写覆盖层，并按 id 覆盖种子。由完成的会话保存的派生
-公式（`formulas/derived/`）也会纳入 `formula_search` 的检索范围。
+### 接入客户端
 
-### 第 3 步 —— 接入客户端
+在客户端配置中加入 `mcpServers` 条目（Claude Desktop 为 `claude_desktop_config.json`；Cherry Studio 为设置面板）。
 
-SymKit 通过 stdio 通信 MCP，因此同一台服务器适配所有 MCP 兼容客户端。
-下方是 Claude Desktop 与 Cherry Studio 的 JSON 配置。
-
-#### Claude Desktop / Cherry Studio（JSON 配置）
-
-在客户端的配置文件（Claude Desktop 为 `claude_desktop_config.json`；
-Cherry Studio 为对应的设置面板）中加入 `mcpServers` 条目。
-
-**通过 `uv tool` / `pip` / `pipx` 安装**（`symkit-mcp` 已在 PATH 中）：
+已安装且在 PATH 中（uv tool / pip / pipx）：
 
 ```json
-{
-  "mcpServers": {
-    "symkit": {
-      "command": "symkit-mcp",
-      "args": []
-    }
-  }
-}
+{ "mcpServers": { "symkit": { "command": "symkit-mcp", "args": [] } } }
 ```
 
-**免安装即时运行**（uvx 拉取并缓存最新发布版）：
+免安装（uvx 拉取并缓存最新发布版）：
 
 ```json
-{
-  "mcpServers": {
-    "symkit": {
-      "command": "uvx",
-      "args": ["symkit-mcp"]
-    }
-  }
-}
+{ "mcpServers": { "symkit": { "command": "uvx", "args": ["symkit-mcp"] } } }
 ```
 
-**从本地源码检出目录运行**（无需安装）：
+从源码检出目录运行：
 
 ```json
 {
   "mcpServers": {
     "symkit": {
       "command": "uv",
-      "args": [
-        "run",
-        "--no-sync",
-        "--directory",
-        "<your-local-symkit-mcp-path>",
-        "python",
-        "-m",
-        "symkit_mcp.server"
-      ]
+      "args": ["run", "--no-sync", "--directory", "<本地路径>",
+               "python", "-m", "symkit_mcp.server"]
     }
   }
 }
 ```
 
-将 `<your-local-symkit-mcp-path>` 替换为你本地 `symkit-mcp` 仓库的绝对
-路径。`--no-sync` 会跳过每次启动时的依赖同步；依赖变更后手动运行
-`uv sync` 即可。
+> Windows：若客户端报 "command not found"，改用绝对路径，如 `"C:/Users/you/AppData/Local/uv/tools/symkit-mcp/Scripts/symkit-mcp.exe"`。
 
-> **Windows PATH 坑：** 如果 Claude Desktop 启动服务器时报 "command not
-> found"，多半是应用进程的 PATH 没包含你的 `Scripts/` 或 uv 工具目录。
-> 把 `command` 改成绝对路径即可，例如
-> `"C:/Users/you/AppData/Local/uv/tools/symkit-mcp/Scripts/symkit-mcp.exe"`。
-
-## 架构清晰，易于扩展
+## 架构
 
 ```text
-symkit-mcp/
-├── src/
-│   ├── symkit/               # 纯领域逻辑（不依赖 MCP）
-│   │   ├── domain/          # 实体、值对象、推导引擎
-│   │   ├── application/     # 用例
-│   │   └── infrastructure/  # SymPy 引擎、适配器、持久化
-│   └── symkit_mcp/          # MCP 服务器层
-│       ├── server.py
-│       └── tools/           # 45 个 MCP 工具
-├── formulas/                # 推导成果仓库
-├── tests/                   # 1031 个测试
-└── pyproject.toml
+src/
+├── symkit/               # 核心领域库（不依赖 MCP）
+│   ├── domain/           # 实体、推导引擎、验证器契约
+│   ├── application/      # 用例
+│   └── infrastructure/   # SymPy 引擎、Lean 检查器、持久化、适配器
+└── symkit_mcp/           # MCP 服务器层（FastMCP）+ 45 个工具
+formulas/                 # 种子公式库（源码树）
+tests/                    # 1031 个测试
 ```
 
-- **领域驱动设计** — 核心逻辑与 MCP 和 SymPy 解耦。
-- **可插拔引擎** — 通过协议可替换符号引擎或验证器。
-- **基于文件的持久化** — 公式和会话以 Markdown/YAML/JSON 存储，便于阅读和版本控制。
+领域驱动设计：核心逻辑与 MCP、SymPy 解耦；引擎经协议可插拔；公式与会话以可读的 YAML/JSON 持久化。
 
 ## 开发
 
 ```bash
-# 运行完整测试套件
-uv run pytest
-
-# Lint 与类型检查
+uv run pytest          # 完整测试套件
 uv run ruff check src/ tests/
 uv run mypy src/
-
-# 启动开发服务器
-uv run symkit-mcp
+uv run symkit-mcp      # 开发服务器
 ```
 
 ## 了解更多
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — DDD 分层与职责
-- [docs/symkit-design.md](docs/symkit-design.md) — 深度技术设计文档（英文）
-- [docs/symkit-design.zh-CN.md](docs/symkit-design.zh-CN.md) — 深度技术设计文档（中文）
+- [ARCHITECTURE.md](ARCHITECTURE.md) — DDD 分层与工具清单
+- [docs/symkit-design.zh-CN.md](docs/symkit-design.zh-CN.md)（[英文](docs/symkit-design.md)）— 深度技术设计
 - [docs/symkit-vs-sympy-mcp.md](docs/symkit-vs-sympy-mcp.md) — 与 SymPy-MCP 的能力对比
 - [ROADMAP.md](ROADMAP.md) — 路线图
+- [公式库字段说明](formulas/README.zh-CN.md) — YAML 条目格式
 
 ## 感谢
 
-SymKit 基于 [nsforge-mcp](https://github.com/u9401066/nsforge-mcp) 的成果进一步发展而来。nsforge-mcp 开创了神经符号公式推导的探索方向，其原始中文 README 可参见[此处](https://github.com/u9401066/nsforge-mcp/blob/master/README.zh-TW.md)。
-
-SymKit 可与 [sympy-mcp](https://github.com/sdiehl/sympy-mcp) 搭配使用，后者把 SymPy 包装为通用的 MCP 计算服务。
+SymKit 基于 [nsforge-mcp](https://github.com/u9401066/nsforge-mcp) 的成果发展而来，后者开创了神经符号公式推导的探索方向；也可与 [sympy-mcp](https://github.com/sdiehl/sympy-mcp)（通用 SymPy MCP 服务）搭配使用。
 
 ## 许可证
 
