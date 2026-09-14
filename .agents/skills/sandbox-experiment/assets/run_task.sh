@@ -10,6 +10,13 @@ RUN_ID="$2"
 DATA_DIR="$3"
 MAX_TURNS="${4:-50}"
 WINPWD="$(pwd -W 2>/dev/null || pwd)"
+# An already-absolute DATA_DIR must not be prefixed again, or the generated env
+# becomes "<cwd>//i/<cwd>/..." — a path that silently does not exist (that once
+# looked like a tool bug: lean_status reported a doubled ELAN_HOME).
+case "$DATA_DIR" in
+  /*|[A-Za-z]:*) DATA_PATH="$DATA_DIR" ;;
+  *)            DATA_PATH="$WINPWD/$DATA_DIR" ;;
+esac
 mkdir -p "runs/$RUN_ID" "$DATA_DIR"
 MCP_JSON="$(pwd)/runs/$RUN_ID/.mcp.json"
 cat > "$MCP_JSON" <<EOF
@@ -19,7 +26,7 @@ cat > "$MCP_JSON" <<EOF
       "command": "$WINPWD/.venv/Scripts/symkit-mcp.exe",
       "args": [],
       "env": {
-        "SYMKIT_DATA_DIR": "$WINPWD/$DATA_DIR"
+        "SYMKIT_DATA_DIR": "$DATA_PATH"
       }
     }
   }

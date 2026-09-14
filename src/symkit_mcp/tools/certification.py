@@ -7,7 +7,11 @@ from typing import Any, Literal
 
 from symkit.application.lean_certification import certify_session
 from symkit.infrastructure.lean_batch import LeanBatchChecker
-from symkit.infrastructure.lean_toolchain import describe_environment, detect_status
+from symkit.infrastructure.lean_toolchain import (
+    describe_environment,
+    detect_status,
+    setup_command,
+)
 from symkit_mcp.tools._state import get_session
 
 
@@ -113,11 +117,11 @@ def register_certification_tools(mcp: Any) -> None:
                 "lean_available": False,
                 "reason": status.reason,
                 "setup": (
-                    "Run `symkit-lean-setup` once in a terminal — it ships with this "
-                    "package (same pip install). It downloads elan + Lean 4 + a "
-                    "prebuilt Mathlib cache (one-time, ~1-2 GB, requires network). "
-                    "Re-run session_certify() afterwards; lean_available flips to "
-                    "true when the toolchain is ready."
+                    f"Run the one-time Lean setup once in a terminal: {setup_command()} "
+                    "— it ships with this package (same pip install) and downloads "
+                    "elan + Lean 4 + a prebuilt Mathlib cache (one-time, ~1-2 GB, "
+                    "requires network). Re-run session_certify() afterwards; "
+                    "lean_available flips to true when the toolchain is ready."
                 ),
                 "diagnose": (
                     "Call lean_status() for the resolved paths, the missing layer, "

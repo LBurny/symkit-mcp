@@ -25,6 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reports ready from a leftover stamp. The stamp is advisory only, so a
   workspace copied from another machine stays usable when its stamp is lost.
 
+### Fixed
+
+- **Every Lean hint now names the same setup command.** The `reason` strings
+  embedded a bare `symkit-lean-setup` while `lean_status.next_step` and
+  `session_certify.setup` named a module invocation with the running
+  interpreter — three surfaces, two answers, so a caller had to choose. The
+  hint is now derived from one public `lean_toolchain.setup_command()`, and
+  regression tests plus the lab probe assert the three agree. Found by the
+  `symkit-mcp-test-leanstatus` round.
+- **`lean_status.missing` speaks the report's vocabulary.** It listed `"lake"`
+  while the sibling field is `toolchain`; the entry is now `"lake_binary"`
+  (no `lake` found at all, as distinct from `toolchain`: a lake exists whose
+  elan home lacks the pinned version).
+
 ## [1.8.0] - 2026-09-14
 
 A Lean-certification sandbox round (`symkit-mcp-test-lean`) verified the four

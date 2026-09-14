@@ -49,8 +49,32 @@ def test_certify_reports_unavailable_without_toolchain(
 
     assert result["success"] is False
     assert result["lean_available"] is False
-    assert "symkit-lean-setup" in result["setup"]
+    assert "Lean setup" in result["setup"]
     assert "lean_status()" in result["diagnose"]
+
+
+def test_certify_and_lean_status_agree_on_the_setup_command(
+    fresh_session_manager: Any, monkeypatch: Any
+) -> None:
+    """Both surfaces must name the same command; two different ones (a bare
+    `symkit-lean-setup` vs a module invocation) left the caller to choose
+    (round-leanstatus task-02)."""
+    _ = fresh_session_manager
+    monkeypatch.setattr(
+        certification_tools, "detect_status", lambda: LeanStatus(False, "lake not found")
+    )
+    monkeypatch.setattr(certification_tools, "describe_environment", lambda: _report(
+        LeanStatus(False, "lake not found")
+    ))
+    mcp = _mcp()
+    mcp.tools["session_start"]("certify-agree")
+
+    certify = mcp.tools["session_certify"]()
+    status = mcp.tools["lean_status"]()
+    command = lean_toolchain.setup_command()
+
+    assert command in certify["setup"]
+    assert command in (status["next_step"] or "")
 
 
 def test_lean_status_reports_environment(fresh_session_manager: Any, monkeypatch: Any) -> None:
@@ -71,7 +95,7 @@ def test_lean_status_reports_environment(fresh_session_manager: Any, monkeypatch
     result = mcp.tools["lean_status"]()
 
     assert result["available"] is False
-    assert result["missing"] == ["lake", "workspace"]
+    assert result["missing"] == ["lake_binary", "workspace"]
     assert result["next_step"] and "--yes" in result["next_step"]
 
 

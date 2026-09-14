@@ -23,7 +23,7 @@ def test_unavailable_without_lake(monkeypatch, tmp_path):
     _no_lake(monkeypatch, tmp_path)
     status = lean_toolchain.detect_status()
     assert status.available is False
-    assert "symkit-lean-setup" in status.reason
+    assert lean_toolchain.setup_command() in status.reason
     assert status.lake_path is None
 
 
@@ -53,7 +53,7 @@ def test_lake_present_but_workspace_missing(monkeypatch, tmp_path):
     status = lean_toolchain.detect_status(workspace=workspace)
     assert status.available is False
     assert status.lake_path == str(fake_lake)
-    assert "symkit-lean-setup" in status.reason
+    assert lean_toolchain.setup_command() in status.reason
 
 
 def _install_mathlib(workspace, version: str = "4.24.0", *, built: bool = True) -> None:
@@ -174,9 +174,21 @@ def test_describe_environment_ready_reports_no_next_step(monkeypatch, tmp_path):
 def test_setup_command_does_not_assume_a_path_entry():
     """The next step must work on any machine, so it names the running interpreter
     rather than a console script that may not be on PATH."""
-    command = lean_toolchain._setup_command()
+    command = lean_toolchain.setup_command()
     assert command.startswith(lean_toolchain.sys.executable)
     assert "-m symkit.infrastructure.lean_toolchain" in command
+
+
+def test_reason_and_next_step_quote_the_same_setup_command(monkeypatch, tmp_path):
+    """Every degraded branch must not offer two different commands for the same
+    action: the hint embedded in `reason` has to be the one `next_step` names
+    (round-leanstatus task-02 W-2)."""
+    _no_lake(monkeypatch, tmp_path)
+    status = lean_toolchain.detect_status()
+    report = lean_toolchain.describe_environment(status)
+
+    assert lean_toolchain.setup_command() in status.reason
+    assert lean_toolchain.setup_command() in (report["next_step"] or "")
 
 
 # --- elan installer acquisition (network and runner mocked, nothing downloaded) ---

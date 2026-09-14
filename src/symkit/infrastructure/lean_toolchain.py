@@ -31,7 +31,20 @@ from symkit.domain.paths import user_data_dir
 _STAMP = ".symkit-lean-ready"
 _ELAN_EXE = "lake.exe" if os.name == "nt" else "lake"
 _LEAN_EXE = "lean.exe" if os.name == "nt" else "lean"
-_SETUP_HINT = "run `symkit-lean-setup` once in a terminal"
+
+
+def setup_command() -> str:
+    """The one-time setup command, usable without the console script on PATH.
+
+    Named for the *running* interpreter so it also works from a lab/venv Python
+    where `symkit-lean-setup` was never added to PATH. Every user-facing hint
+    quotes this, so the tool cannot hand out two different commands for the same
+    action (round-leanstatus task-02).
+    """
+    return f"{sys.executable} -m symkit.infrastructure.lean_toolchain --yes"
+
+
+_SETUP_HINT = f"run `{setup_command()}` once in a terminal"
 _USER_AGENT = "symkit-lean-setup"
 # elan is distributed via GitHub Releases; release.lean-lang.org only serves
 # Lean toolchains and 404s (often 403s on the default urllib UA) for elan.
@@ -280,12 +293,20 @@ def detect_status(workspace: Path | None = None) -> LeanStatus:
 
 
 def _missing_layers(status: LeanStatus) -> list[str]:
-    """Names of the layers that keep ``status`` from being certification-ready."""
+    """Names of the layers that keep ``status`` from being certification-ready.
+
+    The names mirror the sibling report keys (``toolchain`` / ``mathlib`` /
+    ``workspace``) so a caller does not have to map an internal path word
+    (``lake``) onto the field vocabulary it just read (round-leanstatus
+    task-02). ``lake_binary`` means no ``lake`` was found at all, which is
+    distinct from ``toolchain`` (a lake exists but its elan home lacks the
+    pinned version).
+    """
     if status.available:
         return []
     missing: list[str] = []
     if status.lake_path is None:
-        missing.append("lake")
+        missing.append("lake_binary")
     if not status.workspace_ready:
         missing.append("workspace")
         return missing
@@ -305,19 +326,14 @@ def _check_toolchain_ownership(status: LeanStatus, missing: list[str]) -> None:
         missing.append("toolchain")
 
 
-def _setup_command() -> str:
-    """Platform-neutral setup command that does not assume the script is on PATH."""
-    return f"{sys.executable} -m symkit.infrastructure.lean_toolchain --yes"
-
-
 def _next_step(status: LeanStatus) -> str | None:
     """A single actionable instruction, or ``None`` when nothing is missing."""
     missing = _missing_layers(status)
     if not missing:
         return None
-    if "lake" in missing:
-        return f"Install Lean first: {_setup_command()}"
-    return f"Run the one-time Lean setup: {_setup_command()}"
+    if "lake_binary" in missing:
+        return f"Install Lean first: {setup_command()}"
+    return f"Run the one-time Lean setup: {setup_command()}"
 
 
 def describe_environment(status: LeanStatus | None = None) -> dict[str, Any]:
