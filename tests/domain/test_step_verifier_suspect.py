@@ -217,6 +217,34 @@ class TestSuspectIdentity:
         assert "suspect_identity" not in result.details
         assert result.message.endswith("output matches the recomputed operator result")
 
+    def test_factor_of_nonzero_difference_is_not_marked(self, verifier):
+        # round-complex task-01 step 12: ``factor(c^2*S - b^2*S)`` ->
+        # ``-(b-c)*(b+c)*S`` is a complete answer, not a failed identity.  A
+        # factorization is never an identity assertion, so it must not carry
+        # the "difference did not reduce to zero" warning.
+        step = _make_step(
+            OperationType.FACTOR,
+            "c**2*Subs(Derivative(f(_xi_1), (_xi_1, 2)), _xi_1, -c*t + x)"
+            " - b**2*Subs(Derivative(f(_xi_1), (_xi_1, 2)), _xi_1, -c*t + x)",
+            "-(b - c)*(b + c)*Subs(Derivative(f(_xi_1), (_xi_1, 2)), _xi_1, -c*t + x)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert "suspect_identity" not in result.details
+        assert "did not reduce to zero" not in result.message
+        assert result.message.endswith("output matches the recomputed operator result")
+
+    def test_simplify_of_same_difference_is_still_marked(self, verifier):
+        # The factor exemption is scoped to FACTOR alone: the same recording
+        # under ``simplify`` still earns the unproven-difference warning.
+        step = _make_step(
+            OperationType.SIMPLIFY,
+            "cos(2*x) - (1 - 2*sin(2*x)**2)",
+            "-8*sin(x)**4 + 6*sin(x)**2",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.details.get("suspect_identity") == "unreduced"
+
 
 class TestSuspectIdentityArchived:
     """The live recorder archives ``input_srepr``; ``safe_load_expression``

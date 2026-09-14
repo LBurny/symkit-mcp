@@ -331,9 +331,11 @@ class StepVerifier:
         # Operator fidelity is what this certifies.  A difference input whose
         # output stays nonzero may be a false identity — but only a numeric
         # substitution may say so; simplification failure alone proves nothing.
+        # A factorization is the answer, not an identity claim: exempt (task-01).
         details: dict[str, Any] = {}
         message = f"{operation.capitalize()} verified: output matches the recomputed operator result"
-        if difference_input and not is_numerically_zero(evaluate_pending(output_expr)):
+        if (difference_input and operation != "factor" and not
+                is_numerically_zero(evaluate_pending(output_expr))):
             kind, phrase = classify_suspect_identity(
                 evaluate_pending(output_expr), asserted=isinstance(input_expr, sp.Equality)
             )
