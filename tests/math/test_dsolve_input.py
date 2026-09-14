@@ -198,3 +198,47 @@ def test_dsolve_applies_session_assumptions_to_ode(fresh_session_manager):
     assert res["success"], res
     assert "sin" in res["expression"] or "cos" in res["expression"], res["expression"]
     assert "sqrt(-k" not in res["expression"]
+
+
+def test_dsolve_refuses_nonterminating_nonlinear_ode(fresh_session_manager):
+    """round-complex: the nonlinear pendulum ``theta'' + (g/l) sin(theta) = 0``
+    has no closed form, and ``sympy.dsolve`` neither solves it nor raises — it
+    spins. The MCP server is a single process, so one such call wedged every
+    other tool for 30+ minutes. It must be refused up front with an actionable
+    message instead of hanging."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="dsolve",
+        expression="diff(theta(t), t, 2) + (g/l)*sin(theta(t))",
+        variable="theta",
+        with_respect_to="t",
+        session=False,
+    )
+    assert not res["success"], res
+    assert "sin" in res["error"], res["error"]
+    assert "terminate" in res["error"] or "closed form" in res["error"], res["error"]
+
+
+def test_dsolve_still_solves_linear_and_separable_odes(fresh_session_manager):
+    """The non-termination guard must be narrow: a linear first-order ODE and a
+    separable power ODE (``y' = y**2``) are solvable and must still return."""
+    _ = fresh_session_manager
+    tools = _tools()
+    linear = tools["math"](
+        operation="dsolve",
+        expression="diff(x(t), t) + k*x(t)",
+        variable="x",
+        with_respect_to="t",
+        session=False,
+    )
+    assert linear["success"], linear
+    assert "exp(" in linear["expression"], linear["expression"]
+    separable = tools["math"](
+        operation="dsolve",
+        expression="diff(y(t), t) - y(t)**2",
+        variable="y",
+        with_respect_to="t",
+        session=False,
+    )
+    assert separable["success"], separable

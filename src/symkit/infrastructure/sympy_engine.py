@@ -50,6 +50,40 @@ def coupled_undefined_functions(
     return sorted(coupled)
 
 
+def nonpolynomial_ode_reason(ode_expr: sp.Basic, dependent: str) -> str | None:
+    """A reason string when ``dsolve`` is likely to hang without bound.
+
+    ``sympy.dsolve`` has no internal time limit, and an unsolvable nonlinear ODE
+    does not raise — it spins. Because the MCP server shares one process, that
+    blocks every other tool for as long as it runs (round-complex: the nonlinear
+    pendulum spun a core for 30+ minutes and stalled the whole server).
+
+    The reliably-detected class is a dependent function under a transcendental
+    (``sin(theta(t))``, ``exp(y(t))``): those integral forms have no closed form
+    and no solver cap. The guard is deliberately narrow — a true bound needs the
+    engine in its own process, which this module does not do.
+    """
+    if not isinstance(ode_expr, sp.Equality):
+        return None
+    funcs = {a.func for a in ode_expr.atoms(AppliedUndef)}
+    target = next((f for f in funcs if f.__name__ == dependent), None)
+    if target is None:
+        return None
+    body = ode_expr.lhs - ode_expr.rhs
+    transcendental = (sp.sin, sp.cos, sp.tan, sp.exp, sp.log, sp.sinh, sp.cosh, sp.tanh)
+    for node in sp.preorder_traversal(body):
+        if isinstance(node, transcendental):
+            for arg in node.args:
+                if any(a.func is target for a in arg.atoms(AppliedUndef)):
+                    return (
+                        f"the dependent function appears inside "
+                        f"{node.func.__name__}(...), a class sympy.dsolve does not "
+                        f"terminate on (it has no closed form). Solve it numerically, "
+                        f"or linearize the nonlinearity first."
+                    )
+    return None
+
+
 def restore_zero_root(
     eq: sp.Basic, v: sp.Symbol, solutions: list[Any]
 ) -> tuple[list[Any], list[str], bool]:

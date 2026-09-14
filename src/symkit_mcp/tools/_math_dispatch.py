@@ -32,6 +32,7 @@ from symkit.infrastructure.numeric_eval import numeric_evalf
 from symkit.infrastructure.sympy_engine import (
     SymPyEngine,
     coupled_undefined_functions,
+    nonpolynomial_ode_reason,
     restore_zero_root,
 )
 from symkit.infrastructure.vector_input import vector_operation
@@ -805,6 +806,13 @@ def _execute_operation_inner(
                         f"{v}({func_var}); systems of ODEs are not supported yet."
                     ),
                 }
+            # sympy.dsolve has no time limit and does not raise on an unsolvable
+            # nonlinear ODE — it spins, and the single-process server then serves
+            # nothing else (round-complex: the nonlinear pendulum wedged the whole
+            # server for 30+ minutes). Refuse the non-terminating class up front.
+            hang_reason = nonpolynomial_ode_reason(ode_expr, v)
+            if hang_reason:
+                return {"success": False, "error": f"dsolve: {hang_reason}"}
             ics_objs: dict[Any, Any] | None = None
             if ics:
                 ics_objs, ics_error = _build_ics_dict(ics, v, func_var)
