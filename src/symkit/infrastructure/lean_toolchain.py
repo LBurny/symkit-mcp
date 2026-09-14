@@ -203,6 +203,32 @@ def _toolchain_installed(lake: Path, workspace: Path) -> bool | None:
     )
 
 
+def _build_status(
+    *,
+    available: bool,
+    reason: str,
+    lake: Path,
+    workspace: Path,
+    mathlib_found: bool,
+    mathlib_ready: bool,
+    stamp_data: dict[str, Any],
+    stamp_present: bool,
+) -> LeanStatus:
+    """Assemble a status carrying the workspace facts every branch reports."""
+    return LeanStatus(
+        available,
+        reason,
+        lake_path=str(lake),
+        workspace=str(workspace),
+        toolchain=stamp_data.get("toolchain"),
+        mathlib_rev=stamp_data.get("mathlib_rev"),
+        mathlib_found=mathlib_found,
+        mathlib_ready=mathlib_ready,
+        workspace_ready=True,
+        stamp_present=stamp_present,
+    )
+
+
 def detect_status(workspace: Path | None = None) -> LeanStatus:
     """Return whether the Lean backend is ready, without touching the network."""
     lake = find_lake()
@@ -210,60 +236,47 @@ def detect_status(workspace: Path | None = None) -> LeanStatus:
         return LeanStatus(False, f"lake not found (PATH, ELAN_HOME, ~/.elan); {_SETUP_HINT}")
     ws = Path(workspace) if workspace is not None else lean_workspace_dir()
     stamp = ws / _STAMP
-    workspace_ready = (ws / "lakefile.toml").exists()
-    stamp_present = stamp.exists()
-    if not workspace_ready:
+    if not (ws / "lakefile.toml").exists():
         return LeanStatus(
             False,
             f"Lean workspace not initialized; {_SETUP_HINT}",
             lake_path=str(lake),
             workspace=str(ws),
         )
-    mathlib_found = _mathlib_found(ws)
-    mathlib_ready = mathlib_found and _mathlib_ready(ws)
+    found = _mathlib_found(ws)
+    ready = found and _mathlib_ready(ws)
+    stamp_data = _read_stamp(stamp) or {}
+    stamp_present = stamp.exists()
+
+    def status(available: bool, reason: str) -> LeanStatus:
+        return _build_status(
+            available=available,
+            reason=reason,
+            lake=lake,
+            workspace=ws,
+            mathlib_found=found,
+            mathlib_ready=ready,
+            stamp_data=stamp_data,
+            stamp_present=stamp_present,
+        )
+
     if _toolchain_installed(lake, ws) is False:
         # Running `lake` here would make elan download this toolchain into the
         # wrong elan home (A3). Tell the user instead of stalling for minutes.
-        return LeanStatus(
+        return status(
             False,
             "the selected lake does not own the pinned Lean toolchain; point "
             f"ELAN_HOME at the elan install that ran `symkit-lean-setup`, or re-run "
             f"it so `lake` resolves the pinned version ({_SETUP_HINT})",
-            lake_path=str(lake),
-            workspace=str(ws),
-            mathlib_found=mathlib_found,
-            mathlib_ready=mathlib_ready,
-            workspace_ready=workspace_ready,
-            stamp_present=stamp_present,
         )
-    data = _read_stamp(stamp) or {}
-    if not mathlib_ready:
-        missing = "dependencies are not fetched" if not mathlib_found else "cache is not built"
-        return LeanStatus(
+    if not ready:
+        missing = "dependencies are not fetched" if not found else "cache is not built"
+        return status(
             False,
             f"Mathlib {missing} in the Lean workspace; re-run `symkit-lean-setup` "
             f"to fetch and build it ({_SETUP_HINT})",
-            toolchain=data.get("toolchain"),
-            mathlib_rev=data.get("mathlib_rev"),
-            lake_path=str(lake),
-            workspace=str(ws),
-            mathlib_found=mathlib_found,
-            mathlib_ready=mathlib_ready,
-            workspace_ready=workspace_ready,
-            stamp_present=stamp_present,
         )
-    return LeanStatus(
-        True,
-        "",
-        toolchain=data.get("toolchain"),
-        mathlib_rev=data.get("mathlib_rev"),
-        lake_path=str(lake),
-        workspace=str(ws),
-        mathlib_found=mathlib_found,
-        mathlib_ready=mathlib_ready,
-        workspace_ready=workspace_ready,
-        stamp_present=stamp_present,
-    )
+    return status(True, "")
 
 
 def _missing_layers(status: LeanStatus) -> list[str]:
