@@ -197,10 +197,39 @@ class TestVerifyDerivation:
 
 
 class TestCheckDimensions:
-    """Dimensional analysis is declared but not implemented."""
+    """Dimensional analysis without and with unit information."""
 
-    def test_reports_inconclusive(self, engine, verifier):
+    def test_without_unit_info_is_inconclusive(self, engine, verifier):
         result = verifier.check_dimensions(engine.parse("x**2"))
 
         assert result.status is VerificationStatus.INCONCLUSIVE
         assert result.dimension_check is None
+
+    def test_inconsistent_expression_with_unit_map_fails(self, engine, verifier):
+        result = verifier.check_dimensions(
+            engine.parse("rho + v"),
+            unit_map={"rho": "kg/m^3", "v": "m/s"},
+        )
+
+        assert result.status is VerificationStatus.FAILED
+        assert result.dimension_check is False
+        assert result.details["dimension_issues"]
+
+    def test_consistent_expression_with_unit_map_is_verified(self, engine, verifier):
+        result = verifier.check_dimensions(
+            engine.parse("rho*v"),
+            unit_map={"rho": "kg/m^3", "v": "m/s"},
+        )
+
+        assert result.status is VerificationStatus.VERIFIED
+        assert result.dimension_check is True
+
+    def test_partial_unit_map_is_inconclusive(self, engine, verifier):
+        result = verifier.check_dimensions(
+            engine.parse("rho + v"),
+            unit_map={"rho": "kg/m^3"},
+        )
+
+        assert result.status is VerificationStatus.INCONCLUSIVE
+        assert result.dimension_check is None
+

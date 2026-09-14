@@ -103,7 +103,8 @@ def test_beam_ode_with_E_and_I_solves_symbolically(fresh_session_manager):
 def test_codegen_declares_E_and_I(fresh_session_manager):
     _ = fresh_session_manager
     tools = _tools()
-    res = tools["generate_sympy_script"](
+    res = tools["generate_output"](
+        format="sympy_script",
         expressions=[{"name": "w_tip", "expr": "P*L**3/(3*E*I)", "description": "tip"}],
         operations=[],
     )
@@ -147,7 +148,11 @@ def test_derive_recommends_freshly_added_formula(fresh_session_manager):
         name="Pendulum period test entry",
         sympy_str="T == 2*pi*sqrt(L/g)",
         latex="T = 2\\pi\\sqrt{L/g}",
-        variables={"T": {"description": "period"}, "L": {}, "g": {}},
+        variables={
+            "T": {"description": "period", "unit": "-"},
+            "L": {"unit": "-"},
+            "g": {"unit": "-"},
+        },
         domain="mechanics",
         tags=["pendulum", "test13"],
     )
@@ -198,7 +203,7 @@ def test_formula_remove_library_entry(fresh_session_manager):
         name="junk entry",
         sympy_str="exp(x)",
         latex="e^x",
-        variables={"x": {}},
+        variables={"x": {"unit": "-"}},
         tags=["junk"],
     )
     assert add["success"], add

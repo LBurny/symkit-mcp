@@ -128,7 +128,7 @@ def register_assumption_tools(mcp: Any) -> None:
 
     @mcp.tool(
         meta={
-            "category": "Assumptions",
+            "category": "Verification",
             "example": "check_assumption_conflicts()",
         }
     )

@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import json
+
 import sympy as sp
 
 from symkit_mcp.tools import _state
@@ -167,3 +169,54 @@ def test_simplify_boolean_output_records_without_crash(fresh_session_manager):
     assert res["expression"] == "True"
     assert res.get("step"), res.get("warnings")
     assert not any("Step recording failed" in w for w in res.get("warnings", []))
+
+
+def test_manual_equation_steps_are_content_checked(fresh_session_manager):
+    """D7 black-box: session_record_step judges the content of a recorded Eq."""
+    _ = fresh_session_manager
+    tools = _tools()
+    tools["session_start"]("d7_manual_identity")
+    good = tools["session_record_step"]("(a+b)**2 = a**2 + 2*a*b + b**2", "correct identity")
+    false = tools["session_record_step"]("(a+b)**2 = a**2 + b**2", "pseudo identity")
+    broken = tools["session_record_step"]("1 = 2", "broken arithmetic")
+    assert good["verification_status"] == "success"
+    assert false["verification_status"] == "pending_verification"
+    assert broken["verification_status"] == "failed"
+    summary = tools["session_verify_session"]()
+    assert summary["failed"] == 1
+    assert summary["failed_steps"] == [3]
+    assert summary["overall"] == "failed"
+
+
+def test_complete_skips_failed_symbolic_tail(fresh_session_manager):
+    """D8 black-box: the headline is the last non-failed step, not the failed tail."""
+    _ = fresh_session_manager
+    tools = _tools()
+    tools["session_start"]("d8_failed_tail")
+    tools["math"](operation="simplify", expression="x + x")
+    tools["math"](operation="simplify", expression="x + x")
+    session = _state.get_session()
+    assert session is not None
+    # Corrupt the tail to a FAILED symbolic result sharing the lineage symbol,
+    # so the legacy representative selection would pick it as the outcome.
+    session.steps[-1].output_expression = "3*x"
+    session.steps[-1].output_srepr = sp.srepr(3 * sp.Symbol("x"))
+    session.steps[-1].verification_result = json.dumps(
+        {"status": "failed", "message": "wrong", "details": {}}
+    )
+    result = tools["session_complete"](auto_save=False)
+    assert result["final_expression"] == "2*x"
+    assert result["final_expression_skipped_failed"] is True
+    assert "step 2" in result["note"]
+
+
+def test_complete_without_failed_step_has_no_fallback_fields(fresh_session_manager):
+    """D8 regression guard: a clean session reports no fallback fields."""
+    _ = fresh_session_manager
+    tools = _tools()
+    tools["session_start"]("d8_clean")
+    tools["math"](operation="simplify", expression="x + x")
+    result = tools["session_complete"](auto_save=False)
+    assert "final_expression_skipped_failed" not in result
+    assert "note" not in result
+    assert result["final_expression"] == "2*x"

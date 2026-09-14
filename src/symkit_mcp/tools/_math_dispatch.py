@@ -28,10 +28,21 @@ from symkit.domain.expression_parser import (
     preprocess_unicode,
 )
 from symkit.domain.value_objects import MathContext
-from symkit.infrastructure.sympy_engine import SymPyEngine
+from symkit.infrastructure.sympy_engine import (
+    SymPyEngine,
+    coupled_undefined_functions,
+    restore_zero_root,
+)
+from symkit.infrastructure.vector_input import vector_operation
 from symkit_mcp.tools._state import get_context, get_session
+from symkit_mcp.tools._unit_context import dimension_operation
 
 _engine = SymPyEngine()
+
+# Call-site names SymPy's namespace silently collapses to a symbol: ``S(t)``
+# (SingletonRegistry) and ``N(t)`` (evalf) both evaluate to ``t``, so a second
+# undefined function vanished before dsolve saw it (r14 task-15).
+_DEGENERATE_CALL_NAMES = ("S", "N")
 
 
 def _engine_failure(operation: str, error: str) -> str:
@@ -55,20 +66,15 @@ def _effective_context(assumption_context: MathContext | None) -> MathContext:
     """Resolve the assumption set a math call actually runs under.
 
     The session's ``AssumptionEngine`` is the source of truth for step- and
-    domain-level assumptions (invariant I3).  Before this merge they were
-    written to the engine and then silently ignored by ``math()``, which read
-    only ``MathContext`` — ``assume_for_step("k positive")`` and the domain
-    defaults had no effect on the computed result.
+    domain-level assumptions (invariant I3); before this merge they were
+    silently ignored by ``math()``, which read only ``MathContext``.
 
     Precedence, weakest to strongest: the engine's merged view (domain defaults
-    < global < session < step), then the explicit context.  A stronger layer
-    *replaces* a symbol's property set rather than unioning with it: unioning
-    let a step-level ``x positive`` linger under a per-call ``x is negative``,
-    which made the two conflict and silently dropped both — ``solve(x**2 - 4)``
-    returned ``x = 2`` for a per-call ``x is negative`` (the correct answer is
-    ``x = -2``).
-
-    The global context is never mutated; the merged view is local to the call.
+    < global < session < step), then the explicit context. A stronger layer
+    *replaces* a symbol's property set rather than unioning with it — unioning
+    made a per-call ``x is negative`` conflict with a step-level ``x positive``
+    and silently dropped both (invariant I3). The global context is never
+    mutated; the merged view is local to the call.
     """
     context = (
         assumption_context if assumption_context is not None else get_context()
@@ -89,9 +95,9 @@ def _effective_context(assumption_context: MathContext | None) -> MathContext:
     return MathContext(assumptions=merged)
 
 
-def _preprocess(expr_str: str) -> str:
+def _preprocess(expr_str: Any) -> Any:
     """Convert Unicode math chars to SymPy-compatible ASCII."""
-    return preprocess_unicode(expr_str)
+    return preprocess_unicode(expr_str) if isinstance(expr_str, str) else expr_str
 
 
 def _apply_context_assumptions(
@@ -143,11 +149,7 @@ def _parse_math_expression(expr_str: str) -> tuple[sp.Expr | None, str | None]:
 def _build_subs_dict(
     substitution: dict[str, Any],
 ) -> tuple[dict[sp.Basic, Any] | None, dict[str, Any] | None]:
-    """Parse a substitution mapping into SymPy objects.
-
-    Shared by the ``substitute`` and ``evalf`` operations. Returns
-    ``(subs, None)`` on success and ``(None, error_dict)`` on failure.
-    """
+    """Parse a substitution mapping into SymPy objects (substitute/evalf)."""
     subs: dict[sp.Basic, Any] = {}
     for k, v in substitution.items():
         key, key_error = _parse_math_expression(str(k))
@@ -172,10 +174,9 @@ def _rekey_subs_to_expression(
 ) -> dict[sp.Basic, Any]:
     """Rebind substitution keys to the symbols actually present in *expr*.
 
-    ``expr`` may have been parsed with context assumptions, so its symbols
-    carry flags (``Symbol('c', positive=True)``) that differ from the plain
-    ``Symbol('c')`` keys built by :func:`_build_subs_dict`.  ``subs`` matches
-    atoms exactly and would silently no-op; rebind each key by name (run-008).
+    Assumption-bearing symbols (``Symbol('c', positive=True)``) do not match
+    the plain keys from :func:`_build_subs_dict`, so ``subs`` would silently
+    no-op; rebind each key by name (run-008).
     """
     rebound: dict[sp.Basic, Any] = {}
     for key, val in subs.items():
@@ -198,12 +199,9 @@ def _build_ics_dict(
 ) -> tuple[dict[Any, Any] | None, dict[str, Any] | None]:
     """Parse an initial-condition mapping into SymPy form for ``dsolve``.
 
-    Accepts ``{"V(0)": "V_0"}`` for the value at a point and ``{"x'(0)":
-    "v_0"}`` (one prime per derivative order) for derivative initial values —
-    second-order ODEs need both (run-018). Keys parse into ``f(point)`` and
-    ``Derivative(f(t), t).subs(t, point)`` (Subs form), exactly what
-    ``sympy.dsolve`` expects. Returns ``(ics, None)`` on success and
-    ``(None, error_dict)`` on failure.
+    Accepts ``{"V(0)": "V_0"}`` and ``{"x'(0)": "v_0"}`` (one prime per
+    derivative order, run-018), parsing keys into ``f(point)`` /
+    ``Derivative(...).subs(...)`` as ``sympy.dsolve`` expects.
     """
     f = sp.Function(func)
     v = sp.Symbol(var)
@@ -247,11 +245,8 @@ def _build_ics_dict(
 def _prefer_representative_solution(solutions: list[Any]) -> Any:
     """Choose the most useful representative root for the ``solution`` field.
 
-    ``all_solutions`` always keeps the full ordered set; this only picks which
-    root is promoted.  Roots provably positive under active symbol assumptions
-    win (run-011/run-012 presented ``-1/sqrt(L*C)`` as THE solution even though
-    L and C carried positive assumptions); otherwise prefer a root that does
-    not obviously extract a minus sign.
+    ``all_solutions`` keeps the full ordered set; roots provably positive under
+    active assumptions win (run-011/run-012), else one without a minus sign.
     """
     for sol in solutions:
         if getattr(sol, "is_positive", None):
@@ -267,15 +262,11 @@ def _parse_ode(
 ) -> tuple[sp.Basic | sp.Equality | None, str | None]:
     """Parse an ODE expression such as ``diff(C, t) + k*C`` into SymPy form.
 
-    Supports ``diff(C, t)`` / ``diff(C(t), t)`` with optional derivative order,
-    and Leibniz notation ``dC/dt`` / ``d^2C/dt^2``. The dependent variable is
-    treated as a SymPy ``Function`` so that ``C(t)`` is not rewritten as an
-    implicit multiplication ``C*t`` by the parser.
-
-    Returns ``(expr, None)`` on success and ``(None, error)`` otherwise. Input
-    without any derivative of ``func`` is rejected loudly: before this check,
-    ``R*C*dV/dt + V`` parsed ``dV``/``dt`` as plain symbols and dsolve returned
-    an algebraic rearrangement disguised as an ODE solution (run-012).
+    Supports ``diff(C, t)`` / ``diff(C(t), t)`` with optional order and Leibniz
+    ``dC/dt`` / ``d^2C/dt^2``; the dependent variable is a SymPy ``Function``
+    so ``C(t)`` is not rewritten as ``C*t``. Input without any derivative of
+    ``func`` is rejected loudly (run-012: ``R*C*dV/dt + V`` returned an
+    algebraic rearrangement disguised as an ODE solution).
     """
     _NOTATION_HINT = (
         f"Accepted notations: 'diff({func},{var})', 'diff({func},{var},N)', "
@@ -327,12 +318,17 @@ def _parse_ode(
     # here. ``parse_expression_string`` already protects reserved names, binds
     # other call sites (e.g. a forcing term ``f(t)``) to undefined functions,
     # splits ``=`` into ``Eq``, and folds unevaluated divisions; the only extra
-    # binding this operation needs is ``func`` itself as a Function.
+    # binding this operation needs is ``func`` itself as a Function, plus the
+    # reserved call names SymPy would otherwise evaluate away.
+    local_dict = {func: sp.Function(func)}
+    for name in _DEGENERATE_CALL_NAMES:
+        if name != func and re.search(rf"(?<![A-Za-z0-9_.]){name}\s*\(", result_str):
+            local_dict[name] = sp.Function(name)
     expr, error = parse_expression_string(
         result_str,
         convert_equation=True,
         preprocess=False,  # result_str is already unicode/Leibniz-processed
-        local_dict={func: sp.Function(func)},
+        local_dict=local_dict,
     )
     if expr is None:
         return None, f"Cannot parse ODE. {_NOTATION_HINT}"
@@ -366,7 +362,7 @@ _ENGINE_OPS = {
 }
 
 ALL_OPS = sorted(_SYNTACTIC_OPS | _ENGINE_OPS |
-                 {"simplify", "solve", "substitute", "parse", "evalf"})
+                 {"simplify", "solve", "substitute", "parse", "evalf", "dimension"})
 
 
 # ── Parameter-consumption audit ─────────────────────────────────────────
@@ -386,10 +382,12 @@ _KNOB_DEFAULTS: dict[str, Any] = {
     "upper": None,
     "method": "auto",
     "ics": None,
+    "units": None,
 }
 
 _PARAM_USE: dict[str, frozenset[str]] = {
     "parse": frozenset(),
+    "dimension": frozenset({"units"}),
     "evalf": frozenset({"substitution"}),
     "simplify": frozenset({"method"}),
     "expand": frozenset(),
@@ -441,7 +439,7 @@ def _ignored_param_warnings(operation: str, provided: dict[str, Any]) -> list[st
 
 def _execute_operation(
     operation: str,
-    expr_str: str,
+    expr_str: Any,
     *,
     variable: str | None = None,
     with_respect_to: str | None = None,
@@ -453,18 +451,12 @@ def _execute_operation(
     upper: str | None = None,
     method: str = "auto",
     ics: dict[str, Any] | None = None,
+    units: dict[str, str] | None = None,
     assumption_context: MathContext | None = None,
 ) -> dict[str, Any]:
-    """Execute a single math operation and return result dict.
-
-    Success dicts include the internal keys ``_input_obj``/``_result_obj``
-    with the live SymPy objects; callers must pop them before responding.
-    Parameters that do not apply to the requested operation produce explicit
-    entries in ``warnings`` (fail-loud; nothing is silently ignored).
-
-    ``assumption_context`` overrides the shared context for this call — used
-    by per-call ``assumptions`` with ``session=false`` so stateless calls are
-    side-effect free.
+    """Execute a single math operation and return its result dict.
+    Inapplicable parameters produce ``warnings`` entries (fail-loud);
+    ``assumption_context`` scopes assumptions to this call.
     """
     provided = {
         "variable": variable,
@@ -477,6 +469,7 @@ def _execute_operation(
         "upper": upper,
         "method": method,
         "ics": ics,
+        "units": units,
     }
     result = _execute_operation_inner(
         operation,
@@ -491,6 +484,7 @@ def _execute_operation(
         upper=upper,
         method=method,
         ics=ics,
+        units=units,
         assumption_context=assumption_context,
     )
     warnings = _ignored_param_warnings(operation, provided)
@@ -501,7 +495,7 @@ def _execute_operation(
 
 def _execute_operation_inner(
     operation: str,
-    expr_str: str,
+    expr_str: Any,
     *,
     variable: str | None = None,
     with_respect_to: str | None = None,
@@ -513,13 +507,10 @@ def _execute_operation_inner(
     upper: str | None = None,
     method: str = "auto",
     ics: dict[str, Any] | None = None,
+    units: dict[str, str] | None = None,
     assumption_context: MathContext | None = None,
 ) -> dict[str, Any]:
-    """Execute a single math operation and return result dict.
-
-    Success dicts include the internal keys ``_input_obj``/``_result_obj``
-    with the live SymPy objects; callers must pop them before responding.
-    """
+    """Execute one operation; see :func:`_execute_operation` for the contract."""
     preprocessed = _preprocess(expr_str)
     context = _effective_context(assumption_context)
 
@@ -545,18 +536,12 @@ def _execute_operation_inner(
     result: Any = None
 
     # ── SYNTACTIC OPERATIONS ──
-    if operation == "expand":
+    if operation in _SYNTACTIC_OPS and operation not in ("collect", "apart"):
         parsed = _require_parse_with_assumptions(preprocessed)
         if isinstance(parsed, dict):
             return parsed
         input_obj = parsed
-        result = sp.expand(parsed)
-    elif operation == "factor":
-        parsed = _require_parse_with_assumptions(preprocessed)
-        if isinstance(parsed, dict):
-            return parsed
-        input_obj = parsed
-        result = sp.factor(parsed)
+        result = getattr(sp, operation)(parsed)
     elif operation == "collect":
         if not variable:
             return {"success": False, "error": "collect requires variable parameter"}
@@ -566,12 +551,6 @@ def _execute_operation_inner(
         input_obj = parsed
         var = _resolve_variable_symbol(parsed, variable, context)
         result = sp.collect(parsed, var)
-    elif operation == "cancel":
-        parsed = _require_parse_with_assumptions(preprocessed)
-        if isinstance(parsed, dict):
-            return parsed
-        input_obj = parsed
-        result = sp.cancel(parsed)
     elif operation == "apart":
         parsed = _require_parse_with_assumptions(preprocessed)
         if isinstance(parsed, dict):
@@ -579,36 +558,6 @@ def _execute_operation_inner(
         input_obj = parsed
         var = _resolve_variable_symbol(parsed, variable or "x", context)
         result = sp.apart(parsed, var)
-    elif operation == "together":
-        parsed = _require_parse_with_assumptions(preprocessed)
-        if isinstance(parsed, dict):
-            return parsed
-        input_obj = parsed
-        result = sp.together(parsed)
-    elif operation == "trigsimp":
-        parsed = _require_parse_with_assumptions(preprocessed)
-        if isinstance(parsed, dict):
-            return parsed
-        input_obj = parsed
-        result = sp.trigsimp(parsed)
-    elif operation == "powsimp":
-        parsed = _require_parse_with_assumptions(preprocessed)
-        if isinstance(parsed, dict):
-            return parsed
-        input_obj = parsed
-        result = sp.powsimp(parsed)
-    elif operation == "radsimp":
-        parsed = _require_parse_with_assumptions(preprocessed)
-        if isinstance(parsed, dict):
-            return parsed
-        input_obj = parsed
-        result = sp.radsimp(parsed)
-    elif operation == "combsimp":
-        parsed = _require_parse_with_assumptions(preprocessed)
-        if isinstance(parsed, dict):
-            return parsed
-        input_obj = parsed
-        result = sp.combsimp(parsed)
 
     # ── PARSE ONLY ──
     elif operation == "parse":
@@ -699,8 +648,12 @@ def _execute_operation_inner(
                     "_result_obj": result,
                 }
             v = _resolve_variable_symbol(parsed, variable, context)
-            eq = parsed if isinstance(parsed, sp.Equality) else parsed
-            solutions = sp.solve(eq, v)
+            eq = parsed
+            solutions = list(sp.solve(eq, v))
+            # Assumptions can cancel a factor that is nonzero in the symbol's
+            # domain, silently dropping the zero root of a factored equation
+            # (r14 task-15: I positive hid I*(beta*S/N - gamma) = 0 at I = 0).
+            solutions, filtered, restored = restore_zero_root(eq, v, solutions)
             if not solutions:
                 return {"success": False, "error": f"No solution found for {variable}"}
             sol = _prefer_representative_solution(solutions)
@@ -717,6 +670,16 @@ def _execute_operation_inner(
                     "solution is numerically truncated. Use exact fractions "
                     "(e.g. 1/2 instead of 0.5) for exact symbolic results."
                 )
+            if filtered:
+                warnings.append(
+                    "Solutions omitted by the active assumptions on "
+                    f"{variable}: {', '.join(filtered)}."
+                )
+            if restored:
+                warnings.append(
+                    f"The trivial root 0 was excluded by the assumptions on "
+                    f"{variable} and has been restored."
+                )
             return {
                 "success": True,
                 "expression": str(result),
@@ -724,6 +687,7 @@ def _execute_operation_inner(
                 "solution": str(sol),
                 "solution_latex": sp.latex(sol),
                 "all_solutions": [str(s) for s in solutions],
+                "filtered_by_assumptions": filtered,
                 "warnings": warnings,
                 "operation": operation,
                 "_input_obj": input_obj,
@@ -760,6 +724,26 @@ def _execute_operation_inner(
         assert subs is not None
         input_obj = expr
         result = expr.subs(_rekey_subs_to_expression(expr, subs)).doit()
+        if getattr(result, "atoms", None) and result.atoms(sp.nan, sp.zoo):
+            # A singular substitution must not come back as success carrying
+            # nan (r14 task-10: zeta=1 in the underdamped closed form).
+            return {
+                "success": False,
+                "error": (
+                    "Substitution is undefined here (nan/zoo): the expression "
+                    "is singular at this value. The underdamped second-order "
+                    "closed form (1/sqrt(1 - zeta**2)) is undefined at zeta=1; "
+                    "critical damping needs the separate limit or reduced-"
+                    "denominator form."
+                ),
+            }
+
+    # ── DIMENSIONAL ANALYSIS ──
+    elif operation == "dimension":
+        return dimension_operation(preprocessed, units, get_session())
+
+    elif operation in ("curl", "divergence"):
+        return vector_operation(operation, expr_str, variable, context)
 
     # ── ENGINE-BASED OPERATIONS ──
     elif operation in _ENGINE_OPS:
@@ -806,6 +790,22 @@ def _execute_operation_inner(
                         f"{', '.join(applied)}. Pass {suggestion} instead."
                     ),
                 }
+            # A second undefined function coupled to the dependent one (sharing
+            # an additive term) makes the single equation underdetermined —
+            # SymPy used to return a fake closed form silently (r14 task-15).
+            coupled = coupled_undefined_functions(
+                ode_expr, v, sorted(set(applied) - {v})
+            )
+            if coupled:
+                names = ", ".join(f"{n}({func_var})" for n in coupled)
+                return {
+                    "success": False,
+                    "error": (
+                        f"coupled or underdetermined ODE: found undefined "
+                        f"function(s) {names} besides the dependent variable "
+                        f"{v}({func_var}); systems of ODEs are not supported yet."
+                    ),
+                }
             ics_objs: dict[Any, Any] | None = None
             if ics:
                 ics_objs, ics_error = _build_ics_dict(ics, v, func_var)
@@ -822,14 +822,10 @@ def _execute_operation_inner(
             )
             input_obj = ode_expr
             out = _engine.dsolve(ode_obj, v, func_var, context, ics=ics_objs)
-        elif operation in ("gradient", "divergence", "curl", "laplacian"):
-            coords = [c.strip() for c in (v or "x,y,z").split(",")]
+        elif operation in ("gradient", "laplacian"):
+            coords = [c.strip() for c in (variable or "x,y,z").split(",")]  # not v: it defaults to "x" (D11)
             if operation == "gradient":
                 out = _engine.gradient(expr_obj, coords, context)
-            elif operation == "divergence":
-                out = _engine.divergence(expr_obj, coords, context)
-            elif operation == "curl":
-                out = _engine.curl(expr_obj, coords, context)
             else:
                 out = _engine.laplacian(expr_obj, coords, context)
         elif operation in ("det", "inv", "eigenvals", "eigenvects"):

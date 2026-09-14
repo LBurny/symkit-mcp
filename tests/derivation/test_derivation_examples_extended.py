@@ -249,7 +249,8 @@ class TestCodeGeneration:
         mcp = MockMCP()
         _register_all_tools(mcp)
 
-        result = mcp.tools["generate_python_function"](
+        result = mcp.tools["generate_output"](
+            format="python",
             name="tension",
             description="Calculate tension",
             parameters=[
@@ -273,7 +274,8 @@ class TestCodeGeneration:
         mcp = MockMCP()
         _register_all_tools(mcp)
 
-        result = mcp.tools["generate_latex_derivation"](
+        result = mcp.tools["generate_output"](
+            format="latex",
             title="Kinematics",
             steps=[
                 {"description": "Define velocity", "latex": "v = \\frac{dx}{dt}"},

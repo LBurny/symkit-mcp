@@ -7,7 +7,7 @@ Provides:
 - tool_categories(): Categorized tool index
 - tool_recommend(): Recommend tools based on current session/task
 
-These tools sit above the 59 low-level tools and make SymKit easier
+These tools sit above the 44 low-level tools and make SymKit easier
 to use for both end users and LLM agents.
 """
 
@@ -33,6 +33,20 @@ from symkit.domain.formula_recommender import (
     create_default_external_adapters,
 )
 from symkit_mcp.tools._state import get_manager, set_session
+
+# Descriptions surfaced by tool_categories(); keys match the meta category labels.
+_CATEGORY_DESCRIPTIONS: dict[str, str] = {
+    "Unified Math": "Mathematica-style single-entry math operations",
+    "Assumptions": "Multi-level assumption engine management",
+    "Verification": "Step, session, and assumption verification",
+    "Symbol Semantics": "Register and query symbol meanings",
+    "Formula Library": "Local formula library search, curation, and maintenance",
+    "Session Management": "Create, resume, and control derivation sessions",
+    "Output": "Generate executable code and reports from derivations",
+    "High-Level Orchestration": "Goal-driven derivation and intent routing",
+    "Meta": "Tool discovery and recommendations",
+    "Other": "",
+}
 
 
 def _slugify(name: str) -> str:
@@ -425,9 +439,9 @@ def register_orchestration_tools(mcp: Any) -> None:
         else:
             tool_chain = [
                 {
-                    "tool": "intent_execute",
-                    "reason": "Intent was not recognized; try rephrasing or use tool_recommend",
-                    "example": f'intent_execute("{intent}")',
+                    "tool": "tool_categories",
+                    "reason": "Intent not recognized; use the tool index instead of re-invoking intent_execute",
+                    "example": "tool_categories()",
                 }
             ]
 
@@ -462,12 +476,7 @@ def register_orchestration_tools(mcp: Any) -> None:
         """
         return _list_patterns()
 
-    @mcp.tool(
-        meta={
-            "category": "High-Level Orchestration",
-            "example": "tool_categories()",
-        }
-    )
+    @mcp.tool(meta={"category": "Meta", "example": "tool_categories()"})
     def tool_categories() -> dict[str, Any]:
         """
         List SymKit tools organized by category. The index is built live from
@@ -476,15 +485,7 @@ def register_orchestration_tools(mcp: Any) -> None:
         Returns:
             Categorized tool index with descriptions and examples.
         """
-        descriptions = {
-            "High-Level Orchestration": "Goal-driven derivation and intent routing",
-            "Unified Math": "Mathematica-style single-entry math operations",
-            "Assumptions": "Multi-level assumption engine management",
-            "Symbol Semantics": "Register and query symbol meanings",
-            "Session Management": "Create, resume, and control derivation sessions",
-            "Formula Search": "Local formula library lookup and editing",
-            "Code Generation": "Generate executable code and reports",
-        }
+        descriptions = _CATEGORY_DESCRIPTIONS
         try:
             tools_map = mcp._tool_manager._tools  # noqa: SLF001
             grouped: dict[str, list[str]] = {}
@@ -509,29 +510,16 @@ def register_orchestration_tools(mcp: Any) -> None:
                     {
                         "name": "High-Level Orchestration",
                         "description": descriptions["High-Level Orchestration"],
-                        "tools": [
-                            "derive",
-                            "intent_execute",
-                            "list_patterns",
-                            "tool_categories",
-                            "tool_recommend",
-                        ],
+                        "tools": ["derive", "intent_execute", "list_patterns"],
                     },
-                    {
-                        "name": "Unified Math",
-                        "description": descriptions["Unified Math"],
-                        "tools": ["math", "assume", "show_assumptions"],
-                    },
+                    {"name": "Unified Math", "description": descriptions["Unified Math"], "tools": ["math"]},
+                    {"name": "Assumptions", "description": descriptions["Assumptions"], "tools": ["assume", "show_assumptions"]},
+                    {"name": "Meta", "description": descriptions["Meta"], "tools": ["tool_categories", "tool_recommend"]},
                 ],
                 "total_tools": None,
             }
 
-    @mcp.tool(
-        meta={
-            "category": "High-Level Orchestration",
-            "example": 'tool_recommend("simplify a polynomial")',
-        }
-    )
+    @mcp.tool(meta={"category": "Meta", "example": 'tool_recommend("simplify a polynomial")'})
     def tool_recommend(
         task: str,
         domain: str = "general",
@@ -583,19 +571,19 @@ def register_orchestration_tools(mcp: Any) -> None:
                 "rationale": "Solve equation or expression for a variable",
                 "example": 'math("solve", "<equation>", variable="x")',
             })
+        elif any(k in task_lower for k in ("dimension", "量纲", "unit")):
+            recommendations.append({
+                "tool": "math",
+                "operation": "dimension",
+                "rationale": "Check dimensional consistency of the expression",
+                "example": 'math("dimension", "<expression>", units={"<symbol>": "<unit>"})',
+            })
         elif any(k in task_lower for k in ("verify", "验证", "check")):
             recommendations.append({
                 "tool": "math",
                 "operation": "simplify",
                 "rationale": "Simplify the difference of two expressions to verify equality",
                 "example": 'math("simplify", "<expr1> - <expr2>", session=False)',
-            })
-        elif any(k in task_lower for k in ("dimension", "量纲", "unit")):
-            recommendations.append({
-                "tool": "math",
-                "operation": "simplify",
-                "rationale": "Simplify the expression; perform manual dimensional analysis on the result",
-                "example": 'math("simplify", "<expression>", session=False)',
             })
         elif any(k in task_lower for k in ("session", "会话", "show")):
             recommendations.append({

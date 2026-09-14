@@ -39,3 +39,31 @@ class TestOutcomeReporting:
         # The raw current expression stays visible, but under its own name.
         assert show["latex"] == "0.333333333333333"
         assert show["result_expression"] == "a**2 + 2*a*b + b**2"
+
+    def test_zero_self_check_is_the_outcome_for_all_sources(
+        self, fresh_session_manager
+    ):
+        """r14 task-08: the closing step outputs ``0`` but used to be skipped.
+
+        ``session_show.result_expression`` and ``session_complete.final_expression``
+        must report the zero convergence step, not the earlier unevaluated
+        symbolic step.
+        """
+        _ = fresh_session_manager
+        tools = _tools()
+        tools["session_start"](name="zero-convergence")
+        tools["session_load_formula"](expression="c*x + t", formula_id="f1")
+        tools["math"](
+            operation="simplify",
+            expression="c*x + t - (c*x + t)",
+            session=True,
+        )
+        tools["session_add_note"](note="residual is exactly zero")
+
+        show = tools["session_show"]()
+        complete = tools["session_complete"](
+            auto_save=False, require_target_match=False
+        )
+
+        assert show["result_expression"] == complete["final_expression"] == "0"
+        assert show["result_latex"] == complete["final_latex"]

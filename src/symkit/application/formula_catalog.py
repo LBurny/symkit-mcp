@@ -7,9 +7,12 @@ index store, and the file source. All index mutations flow through
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+
+import yaml
 
 from symkit.domain.formula_index import (
     TIER_CURATED,
@@ -21,9 +24,25 @@ from symkit.domain.formula_index import (
     RankedResult,
     SyncReport,
 )
-from symkit.domain.formula_library import FormulaEntry
+from symkit.domain.formula_library import MODELED_FIELDS, FormulaEntry
 from symkit.domain.formula_ranker import rank_hits
-from symkit.infrastructure.formula_identity import slugify
+from symkit.infrastructure.formula_identity import content_hash, slugify, structural_hash
+
+# Identifier tokens worth probing the text channel with; shorter names (single
+# physics variables like ``v``, ``g``) carry no retrieval signal.
+_IDENTIFIER_RE = re.compile(r"[^\W\d]\w*", re.UNICODE)
+_TEXT_TOKEN_MIN = 3
+# Ranked text hits below this score are noise, not "similar" formulas.
+_TEXT_SCORE_THRESHOLD = 0.5
+
+
+def _text_probe(expression_str: str) -> str:
+    """Extract discriminative identifier tokens from an expression string."""
+    tokens = [
+        tok for tok in _IDENTIFIER_RE.findall(expression_str)
+        if len(tok) >= _TEXT_TOKEN_MIN
+    ]
+    return " ".join(dict.fromkeys(tokens))
 
 
 class FormulaFileSource(Protocol):
@@ -31,6 +50,25 @@ class FormulaFileSource(Protocol):
 
     def scan(self, root: Path) -> list[Path]: ...
     def load(self, path: Path, tier: str) -> IndexedFormula | None: ...
+
+
+def _promotable_extra(src: IndexedFormula) -> dict[str, Any]:
+    """Metadata the index does not model, read back from the staging YAML.
+
+    ``promote`` rewrites the entry through :class:`FormulaEntry`, which models
+    only part of a stored entry. Without this passthrough the rewrite dropped
+    ``verified: true`` — along with assumptions, limitations, derivation_steps
+    and session_ids — from the promoted copy.
+    """
+    if not src.source_path:
+        return {}
+    try:
+        data = yaml.safe_load(Path(src.source_path).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {key: value for key, value in data.items() if key not in MODELED_FIELDS}
 
 
 @dataclass
@@ -121,6 +159,55 @@ class FormulaCatalog:
         self.ensure_fresh()
         return self.store.stats()
 
+    def find_similar(
+        self,
+        expression_str: str,
+        *,
+        limit: int = 3,
+        exclude_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Find formulas similar to ``expression_str``.
+
+        Returns ``[{"id", "name", "tier", "score", "match"}]`` where ``match``
+        is ``"structural"`` (alpha-invariant fingerprint hit) or ``"text"``
+        (FTS fallback on discriminative expression tokens). ``exclude_id`` and
+        entries whose ``content_hash`` equals the probe's are never returned.
+        """
+        self.ensure_fresh()
+        digest = structural_hash(expression_str)
+        own_content = content_hash(expression_str)
+        seen: set[str] = set()
+        results: list[dict[str, Any]] = []
+
+        def _skip(f: IndexedFormula) -> bool:
+            return f.id == exclude_id or (bool(own_content) and f.content_hash == own_content)
+
+        if digest:
+            for f in self.store.find_by_structural_hash(digest):
+                if _skip(f):
+                    continue
+                seen.add(f.id)
+                results.append(
+                    {"id": f.id, "name": f.name, "tier": f.tier,
+                     "score": 1.0, "match": "structural"}
+                )
+        if len(results) < limit:
+            probe = _text_probe(expression_str)
+            if probe:
+                ranked = rank_hits(self.store.search(probe), limit=limit + len(seen) + 10)
+                for r in ranked:
+                    if len(results) >= limit:
+                        break
+                    f = r.formula
+                    if f.id in seen or _skip(f) or r.score < _TEXT_SCORE_THRESHOLD:
+                        continue
+                    seen.add(f.id)
+                    results.append(
+                        {"id": f.id, "name": f.name, "tier": f.tier,
+                         "score": round(r.score, 4), "match": "text"}
+                    )
+        return results[:limit]
+
     # ── writes ───────────────────────────────────────────────────────────
 
     def add_entry(self, entry: FormulaEntry) -> IndexedFormula:
@@ -193,8 +280,9 @@ class FormulaCatalog:
             tags=list(tags) if tags is not None else list(src.tags),
             variables=dict(src.variables),
             references=list(src.references),
+            extra=_promotable_extra(src),
         )
-        write_entry_yaml(self.curated_dir, entry)
+        write_entry_yaml(self.curated_dir, entry, curated=True)
         if src.source_path:
             staging_path = Path(src.source_path)
             try:

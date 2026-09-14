@@ -140,6 +140,46 @@ def test_dsolve_ics_derivative_initial_condition(fresh_session_manager):
     assert "v_0" in res["expression"]
 
 
+def test_dsolve_rejects_coupled_ode_with_extra_undefined_function(
+    fresh_session_manager,
+):
+    """r14 task-15: the SIR infection equation names a second undefined
+    function ``S(t)``. SymPy's namespace silently rewrote ``S(t)`` to ``t``
+    (``SingletonRegistry.__call__``), so dsolve returned a fake closed form
+    ``Eq(I(t), C1*exp(t*(-gamma + beta*t/(2*N))))`` with success=true. An
+    undefined function sharing a term with the dependent variable couples a
+    second equation in; that must fail loud, naming ``S(t)``."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="dsolve",
+        expression="Derivative(I(t),t) - beta*S(t)*I(t)/N + gamma*I(t)",
+        variable="I",
+        with_respect_to="t",
+        session=False,
+    )
+    assert not res["success"], res
+    assert "S(t)" in res["error"], res
+    assert "system" in res["error"].lower()
+
+
+def test_dsolve_still_accepts_additive_forcing_function(fresh_session_manager):
+    """The coupling check must not reject a non-homogeneous ODE whose extra
+    undefined function is a forcing term (``f(t)`` alone in an additive
+    term); dsolve solves that shape and the answer must keep ``f(t)``."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="dsolve",
+        expression="Derivative(v(t), t) = -k*v(t) + f(t)",
+        variable="v",
+        with_respect_to="t",
+        session=False,
+    )
+    assert res["success"], res
+    assert "f(t)" in res["expression"], res["expression"]
+
+
 def test_dsolve_applies_session_assumptions_to_ode(fresh_session_manager):
     """Regression (run-018): _parse_ode ignored context assumptions, so dsolve
     of m*x'' + k*x with k,m positive returned the complex-root form

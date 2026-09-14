@@ -59,7 +59,7 @@ SymKit is a **domain-agnostic** general-purpose formula derivation engine suitab
 - **Human-AI Collaboration**: Supports inserting assumptions, limitations, observations, and correction suggestions into the derivation.
 - **LaTeX Friendly**: Natively supports LaTeX input, subscript symbols, Greek letters, and physical star superscripts (e.g., `\beta^*`).
 
-The external contract is a set of 47 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
+The external contract is a set of 45 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
 
 ---
 
@@ -133,6 +133,10 @@ Responsible for business rules, entities, and domain services. Key files:
 | `src/symkit/domain/value_objects.py` | `MathContext`, `VerificationResult`, `StepStatus`, etc. |
 | `src/symkit/domain/entities.py` | `Expression` and other data classes. |
 | `src/symkit/domain/services.py` | `SymbolicEngine`, `Verifier`, `FormulaRepository` protocols. |
+| `src/symkit/domain/final_result.py` | Equation-identity verdict for manually recorded steps and headline selection that skips failed tail steps. |
+| `src/symkit/domain/units.py` / `src/symkit/domain/dimensional_analysis.py` | Unit parsing and dimensional-consistency checking: dimension vectors, arithmetic/function propagation, and problem diagnostics (pure domain logic). |
+| `src/symkit/domain/lean_types.py` | Shared contracts for the Lean certification lane: `LeanStatement` / `LeanOutcome` value objects, the `LeanChecker` protocol, `UntranslatableError`. |
+| `src/symkit/domain/lean_translation.py` | SymPy → Lean 4 translation of the rational fragment (+−*/integer powers); variable denominators require explicit nonzero assumptions. |
 
 ### 4.2 Application Layer
 
@@ -142,6 +146,7 @@ Coarse-grained use cases that coordinate Domain and Infrastructure without conta
 |---|---|
 | `src/symkit/application/use_cases.py` | `CalculateUseCase`, `SimplifyUseCase`, `DeriveUseCase`, `VerifyUseCase`. |
 | `src/symkit/application/formula_catalog.py` | `FormulaCatalog`: reconciles the YAML layers with the index via a manifest diff and serves all search and curation operations. |
+| `src/symkit/application/lean_certification.py` | `certify_session` use case: replays a session's algebraic-equality steps through `LeanChecker`, storing outcomes under each step's `details.lean`; never mutates existing verdicts. |
 
 ### 4.3 Infrastructure Layer
 
@@ -153,7 +158,8 @@ Technical implementation details:
 | `src/symkit/infrastructure/derivation_repository.py` | YAML-persisted `DerivationRepository` (the staging store). |
 | `src/symkit/infrastructure/formula_index_store.py` | SQLite FTS5 index store (trigram tokenizer; a rebuildable cache over the YAML layers). |
 | `src/symkit/infrastructure/formula_files.py` | YAML layer scanning, loading, and writing for the formula catalog. |
-| `src/symkit/infrastructure/formula_identity.py` | Content-hash identity (`content_hash`) and deterministic staging ids. |
+| `src/symkit/infrastructure/formula_identity.py` | Content-hash identity (`content_hash`) and deterministic staging ids, plus the alpha-invariant structural fingerprint used by `similar_to`. |
+| `src/symkit/infrastructure/vector_input.py` | Normalizes `curl`/`divergence` input (comma components, 3-element list, 3x1 Matrix, `N.i/N.j/N.k`) into a `CoordSys3D` field; scalar input fails loudly instead of becoming a silent zero field. |
 | `src/symkit/infrastructure/staging_prune.py` | Quarantines junk staging entries (test scaffolding residue) into `_quarantine/`. |
 | `src/symkit/infrastructure/adapters/scipy_constants.py` | SciPy CODATA physical constants adapter. |
 | `src/symkit/infrastructure/adapters/wikidata_formulas.py` | Wikidata SPARQL formula search adapter. |
@@ -163,7 +169,7 @@ Technical implementation details:
 
 ### 4.4 MCP Tool Layer
 
-Exposes 47 MCP tools; each module focuses on one capability area:
+Exposes 45 MCP tools; each module focuses on one capability area:
 
 | File | Responsibility |
 |---|---|
@@ -343,18 +349,19 @@ When rolling back, deleting, or inserting notes, `DerivationSession` no longer d
 
 ### 8.1 Tool Categories
 
-SymKit exposes 47 MCP tools organized into 8 categories:
+SymKit exposes 45 MCP tools organized into 9 categories:
 
-| Tool Module | Representative Tools | Count | Purpose |
+| Category | Representative Tools | Count | Purpose |
 |---|---|---|---|
-| `math` | `math()` | 1 | Unified computation entry |
-| `session` | `session_start`, `session_show`, `session_complete`, ... | 17 | Unified derivation session workflow |
-| `assumptions` | `assume`, `show_assumptions`, `unassume`, `clear_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 8 | Global and step-level assumption management |
-| `formula` | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories`, `formula_promote`, `formula_reindex`, `formula_stats` | 8 | Indexed formula library search, curation, and external search |
-| `symbols` | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 | Symbol semantics management |
-| `codegen` | `generate_python_function`, `generate_latex_derivation`, `generate_derivation_report`, `generate_sympy_script` | 4 | Code/report generation |
-| `orchestration` | `derive()`, `intent_execute()`, `list_patterns()` | 3 | High-level automation orchestration |
-| `meta` | `tool_categories()`, `tool_recommend()` | 2 | Tool discovery and recommendation |
+| Unified Math | `math()` | 1 | Unified computation entry (33 operations) |
+| Assumptions | `assume`, `show_assumptions`, `unassume`, `clear_assumptions`, `assume_for_step`, `list_assumptions`, `clear_step_assumptions` | 7 | Global and step-level assumption management |
+| Verification | `session_verify_step`, `session_verify_session`, `session_certify`, `check_assumption_conflicts` | 4 | Step/session verification, assumption-conflict detection, optional Lean 4 + Mathlib kernel certification |
+| Symbol Semantics | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 | Symbol semantics management |
+| Formula Library | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories`, `formula_promote`, `formula_reindex`, `formula_stats` | 8 | Indexed formula library search, curation, and external search |
+| Session Management | `session_start`, `session_show`, `session_complete`, ... | 15 | Unified derivation session workflow |
+| Output | `generate_output` (`format` = `markdown_report` / `latex` / `python` / `sympy_script`) | 1 | Code/report generation |
+| High-Level Orchestration | `derive()`, `intent_execute()`, `list_patterns()` | 3 | High-level automation orchestration |
+| Meta | `tool_categories()`, `tool_recommend()` | 2 | Tool discovery and recommendation |
 
 `math()` consolidates functionality previously scattered across many tools into a single entry point, preventing LLMs from getting lost among many similar tools.
 
@@ -372,6 +379,7 @@ SymKit exposes 47 MCP tools organized into 8 categories:
 | Matrix | `det`, `inv`, `eigenvals`, `eigenvects` |
 | Integral Transforms | `laplace`, `ilaplace`, `fourier`, `ifourier` |
 | Numeric | `evalf` |
+| Dimensional analysis | `dimension` |
 
 Important parameters:
 

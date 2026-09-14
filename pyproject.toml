@@ -60,6 +60,7 @@ dev = [
 
 [project.scripts]
 symkit-mcp = "symkit_mcp.server:main"
+symkit-lean-setup = "symkit.infrastructure.lean_toolchain:main"
 
 [project.urls]
 Homepage = "https://github.com/LBurny/symkit-mcp"
@@ -138,4 +139,5 @@ testpaths = ["tests"]
 addopts = "-v --cov=src --cov-report=term-missing"
 markers = [
     "e2e: End-to-end MCP smoke tests",
+    "lean: requires a working Lean 4 + Mathlib toolchain (auto-skipped otherwise)",
 ]

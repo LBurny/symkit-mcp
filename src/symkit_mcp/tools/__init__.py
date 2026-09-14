@@ -8,6 +8,7 @@ Unified tool surface:
 - symbols.py: Symbol registry and semantic checks
 - assumptions.py: Multi-level assumption management
 - orchestration.py: High-level derive() / intent routing
+- certification.py: Lean kernel certification (session_certify)
 
 Design Principles:
 1. math() is the primary tool — LLMs only need to know ONE tool name for math.
@@ -21,6 +22,7 @@ Design Principles:
 from typing import Any
 
 from symkit_mcp.tools.assumptions import register_assumption_tools
+from symkit_mcp.tools.certification import register_certification_tools
 from symkit_mcp.tools.codegen import register_codegen_tools
 from symkit_mcp.tools.formula import register_formula_tools
 from symkit_mcp.tools.math import register_math_tools
@@ -52,3 +54,6 @@ def register_all_tools(mcp: Any) -> None:
 
     # 📐 Multi-level assumption tools
     register_assumption_tools(mcp)
+
+    # 🔬 Lean kernel certification
+    register_certification_tools(mcp)

@@ -5,6 +5,237 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Dimensional analysis in `math()` and the verification chain.** New
+  `math("dimension", expr, units={...})` operation (32 → 33 operations) reports
+  `consistent` / `dimensionless` / `dimensions` / `issues`; with no unit
+  information it returns `consistent: null` instead of guessing. The response
+  also carries `result_dimension`, the net dimension of the whole expression
+  (e.g. `R*C` → `{time: 1}`), so "is this a time?" is answered directly. Unit
+  sources, strongest first: explicit `units`, units declared on loaded-formula
+  variables, then `register_symbol(unit=...)` defaults. `session_verify_step`
+  and `session_verify_session` now run the check automatically whenever the
+  session has unit information — a step with a definite mismatch becomes
+  `failed` — while unit-free sessions keep their previous behaviour.
+  `tool_recommend` routes "dimension"/"量纲"/"unit" to the new operation (the
+  branch previously sat behind "check" and was unreachable).
+
+- **Formula write-path governance.** `formula_add` now requires every variable
+  to carry a non-empty `unit`, with `"-"` as the explicit dimensionless/unknown
+  sentinel (a missing or empty unit is rejected instead of silently written);
+  unparseable unit strings only warn and are stored verbatim. `formula_add` and
+  `session_complete(auto_save=True)` now return `similar_to` when the library
+  already holds a structurally or textually similar formula (alpha-invariant
+  fingerprint first, FTS fallback second), so duplicate Bernoulli-style entries
+  surface at write time. Auto-save backfills variable units from the session
+  unit context (`register_symbol` defaults + loaded-formula variables) instead
+  of writing empty strings. `formula_promote` persists `curated: true`,
+  `formula_get` exposes the `curated` flag, and `formula_stats` reports
+  alpha-invariant `structural_duplicate_groups` alongside content-hash
+  `duplicate_groups`. (`verified` still means the step verifier ran; `curated`
+  means an explicit human promotion.)
+
+- **Optional Lean 4 kernel certification.** A new `session_certify` tool
+  (Verification category; tool count 44 → 45) re-proves the algebraic-equality
+  (`simplify`/`expand`/`factor`/`combine` inside the rational fragment) with
+  the Lean 4 + Mathlib kernel (`ring`/`field_simp`) and attaches the outcome
+  to each step's verification record under `details.lean`. Existing verdicts
+  are never modified and `unproven` never means "wrong"; disagreements with
+  the heuristic verifier are surfaced as `discrepancies`. The lane ships with
+  zero new Python dependencies and degrades gracefully: without a toolchain
+  every tool behaves exactly as before, and `symkit-lean-setup` performs the
+  one-time elan + toolchain + Mathlib install into a managed workspace under
+  the user data dir. Variable denominators require an explicit
+  `nonzero`/`positive` assumption, so side conditions become checkable rather
+  than implicit. `scripts/lean_oracle.py` re-runs the lane over persisted
+  sessions and reports verifier disagreements (exit 1 on a likely StepVerifier
+  false negative).
+
+### Changed
+
+- **Tool taxonomy reorganized.** All tools now carry a
+  `meta={"category": ...}` label from a fixed set of nine categories (Unified
+  Math, Assumptions, Verification, Symbol Semantics, Formula Library, Session
+  Management, Output, High-Level Orchestration, Meta). Previously 18 tools had
+  no category and appeared under an undescribed "Other"; `formula_search` sat
+  outside the "Formula Search" category that only held `formula_remove`;
+  `assume` / `show_assumptions` were mislabelled as Unified Math; and the
+  verification tools were mixed into Session Management. `tool_categories` now
+  reads its descriptions from a module-level table covering every category.
+
+### Removed
+
+- **BREAKING: the four `generate_*` tools are replaced by one `generate_output`
+  tool.** `generate_python_function`, `generate_latex_derivation`,
+  `generate_derivation_report`, and `generate_sympy_script` are removed — they
+  were four output formats of the same operation, and choosing among them was
+  needless model overhead. Call `generate_output(format=..., ...)` with
+  `format` set to `"markdown_report"`, `"latex"`, `"python"`, or
+  `"sympy_script"`. The old tools' parameters are flattened into optional
+  arguments; the selected format's required parameters must be supplied, and a
+  missing one returns `{"success": false, "error": ...}` naming it rather than
+  raising. For the same inputs the artifact is byte-for-byte identical to the
+  old tool's output. Tool count drops from 47 to 44; the `Output` category now
+  holds this one tool.
+
+### Fixed
+
+- **Operator-glued search queries recalled nothing.** `formula_search` now
+  splits query tokens on non-word characters, so `v*L*rho/mu` recalls the
+  spaced `rho * v * L / mu` entry instead of returning zero hits (the trigram
+  FTS index cannot index sub-3-character tokens, and the LIKE fallback was
+  skipped whenever a long token existed).
+- **Exact expression matches could be outranked.** A query that parses as an
+  expression now also matches against the alpha-invariant structural
+  fingerprint (`structural` match kind, ranked just below an exact id hit),
+  so an exactly-matching formula is no longer buried under tier/verified
+  boosts.
+- **Reserved names broke fingerprint rename-invariance.** `structural_hash`
+  now parses via `parse_user_expression`, so formulas using `E`/`I`/`pi` as
+  ordinary variables (energy, current, …) fingerprint identically under
+  renaming; the index schema version bumps to 4 and rebuilds automatically.
+  `content_hash` (staging-id identity) is unchanged.
+- **Structural fingerprints were not fully rename-invariant.** The
+  alpha-renaming order followed SymPy's name-sorted canonical form, so a
+  rename that changed alphabetical ranks (e.g. `rho*v*L/mu` →
+  `q1*q2*q3/q4`) changed the fingerprint and the `similar_to` structural
+  channel silently missed renamed clones. Fingerprints are now derived from
+  a name-independent structural signature (occurrence-path ordering), so any
+  alpha-renaming collides; schema version bumps to 5 and rebuilds on open.
+- **Lean setup downloaded elan from a dead URL.** `symkit-lean-setup` pointed
+  at `release.lean-lang.org/elan/...` (404). It now fetches the platform's
+  `elan-init` archive from the official `leanprover/elan` GitHub releases
+  (zip/tar.gz per OS/arch, extracted without path traversal), sends an
+  explicit User-Agent (some CDNs reject the urllib default), honors
+  `ELAN_HOME` in `find_lake` for portable/CI installs, names the attempted
+  URL on download failure, and surfaces the `lean --version` stderr tail
+  when version detection fails (e.g. an untrusted TLS root during toolchain
+  download) instead of a bare "could not parse". The `session_certify`
+  degradation hint now states what the installer does (one-time ~1–2 GB
+  download, requires network).
+- **Dimensional analysis treated literal zero as dimensionless.** A recorded
+  ODE step like `Eq(C*R*v_C'(t) + v_C(t) - V, 0)` was judged dimensionally
+  inconsistent because the right side `0` is dimensionless — flipping a
+  correct derivation to `failed`. A literal-zero equation side is now
+  dimension-polymorphic; genuine mismatches (`v^2 = v0^2 + 2*a*t`) still
+  fail.
+- **Derivative-aware dimensions.** The dimension checker reduces
+  `Derivative` terms (`dim(dF/dt) = dim(F)/dim(t)`), resolves an applied
+  function `x(t)` to its symbol's unit, and names the actual blocker when
+  inconclusive (derivative vs non-integer exponent) instead of always
+  blaming exponents.
+- **`curl`/`divergence` silently returned 0 for non-vector input.**
+  `math("curl", "F1(x,y,z)*i + F2(x,y,z)*j + F3(x,y,z)*k")` parsed `i/j/k`
+  as scalar symbols and returned a zero vector with `success: true`;
+  list/Matrix inputs raised raw `AttributeError`/`TypeError`. Non-vector
+  input now fails with guidance on the accepted forms (comma-separated
+  components, a 3-element list or Matrix, or `N.i/N.j/N.k` notation — which
+  also lets `gradient` output feed back into `curl`).
+- **`gradient`/`laplacian` ignored their default coordinate set.** Without an
+  explicit `variable=`, both operators reused the single-variable default
+  (`x`) as their coordinate list, so `math("gradient", "f(x,y,z)")` returned
+  only the x-component — `Derivative(f(N.x, y, z), N.x)*N.i` — with `y`/`z`
+  left as plain symbols rather than basis coordinates. They now fall back to
+  `x, y, z` as documented.
+- **The Lean lane's first real-kernel run exposed two header bugs (D12/D13).**
+  The setup smoke test proved `(1 : ℝ) + 1 = 2` under only
+  `Mathlib.Tactic.Ring`, whose transitive imports carry no Real algebra
+  instances, so `symkit-lean-setup` always failed at its final check and could
+  never write the readiness stamp. And the certification header (FieldSimp +
+  Ring) omitted `Mathlib.Data.Real.Basic`, so every rendered `(x : ℝ)`
+  theorem failed `OfNat ℝ n` instance synthesis and steps the heuristic
+  verifier had verified came back `lean_unproven`. The smoke now proves two
+  ℚ goals under the exact imports the certification lane uses, and the
+  certification header imports `Mathlib.Data.Real.Basic`; the first true
+  end-to-end kernel certification run proves the algebraic steps
+  (`proven: 2`, `discrepancies: []`).
+- **A `verified` simplify step no longer implies the asserted identity holds.**
+  A poisoned 10-step chain (coefficient/sign/formula errors) received the
+  byte-identical `10/10 verified` as the clean chain: the verifier only
+  checks that the recorded output equals the recomputed operator result.
+  Steps whose recorded input is a difference (`A − B`) and whose output is
+  not zero now carry `details.suspect_identity` with an explicit message
+  that the asserted identity appears FALSE; neutral verdicts read "output
+  matches the recomputed operator result". A lazily-returned `Integral`
+  (input ≡ output) is no longer stamped "verified by numeric quadrature" —
+  it is inconclusive.
+- **Correct steps failed on `Subs` forms.** Re-running `doit()` on an
+  already-evaluated `Subs` drops SymPy 1.14's substitution binding, so a
+  correct chain-rule step was judged failed and a fully-correct session
+  reported `overall: "failed"`. Pending evaluation now skips `doit()` on
+  `Subs` and canonicalizes anonymous dummies so equivalent forms cancel.
+- **Unregistered symbols no longer inherit domain-default units.** The
+  symbol registry's per-domain convenience table (`k` → rate constant 1/h,
+  `p` → pascal, …) leaked into the session unit map, so a physically-correct
+  `k = π/L` was flagged dimensionally inconsistent. Units now come only from
+  explicit `units=`, `register_symbol(unit=...)` and formula variables;
+  unknown symbols stay inconclusive instead of being assigned invented
+  dimensions.
+- **Matrix powers and nested `.inv()` crashed or mis-parsed.** `Matrix**n`
+  reached SymPy's assumption system as an unevaluated `Pow` and raised
+  "unsupported operand type(s) for +: 'ImmutableDenseMatrix' and 'int'" —
+  integer matrix powers are now folded at parse time (negative powers via
+  `inv()`, non-square/singular become structured errors). `A.inv()` nested
+  in a larger expression crashed the `evaluate=False` transformer
+  ("'Attribute' object has no attribute 'id'"); attribute chains now fall
+  back to evaluated parsing. `ifourier` degenerated to a constant when the
+  input and output variables shared a name; it now falls back to a dual
+  variable and errors structurally when the declared variable is absent.
+- **`dsolve` silently forged a solution for coupled systems.** `S` is a SymPy
+  singleton (`sp.S(t)` evaluates to `t`), so `S(t)` was rewritten to plain
+  `t` before dsolve and a plausible-looking but wrong closed form came back
+  with `success: true`. Degenerate call names are now bound as undefined
+  functions, and an undefined function appearing in the same additive term
+  as the dependent variable is rejected as a coupled/underdetermined system
+  (additive forcing terms like `f(t)` remain supported). `solve` no longer
+  silently drops the zero root filtered away by assumptions and discloses
+  assumption-filtered roots via `filtered_by_assumptions`; substitute/`ilaplace`
+  results containing `nan`/`zoo` are structured errors naming the
+  critical-damping case instead of returning `nan`.
+- **A zero-convergence step is now the headline.** `final_expression`,
+  `show.result_expression` and `show.latex` picked different steps when the
+  chain converged to `0` (the constant was skipped in favour of a symbolic
+  intermediate step); an exact zero now wins, so all three sources agree.
+  Goal extraction no longer produces phantom target variables — derivative
+  tokens (`u_tt`), differential-notation fragments (`d` of `d f/dv`) and
+  applied function names are stripped, extraction is narrowed against the
+  chain's real free symbols, and `target_reached` becomes true when any
+  verified step covers the targets (a final `0` included).
+- **Round-15 follow-ups.** `suspect_identity` is graded: a difference that a
+  random rational substitution proves nonzero is `"numeric"` ("the asserted
+  identity is FALSE"), while a difference the simplifier merely cannot reduce
+  (unevaluated `Derivative`, `-E + exp(1)`) is `"unreduced"` ("identity
+  unproven, not disproven") — no more false alarms on true identities;
+  `session_verify_session`/`session_complete` aggregate
+  `suspect_identity_steps` so the signal survives the summary. `limit` now
+  `doit()`s embedded derivatives and fails structurally on the
+  non-evaluable remainder instead of silently treating them as constants.
+  The dimension guard catches inconsistent **products/quotients** of
+  mis-declared units (previously only sums were checked; `L/R` with
+  `L = henry/second` returned a false green). The Lean lane now passes
+  session assumptions into theorems (`x ≠ 0`/`x > 0` binders), supports
+  product-form compound denominators with per-factor hypotheses, fixes a
+  tactic-indentation bug that made every `field_simp` step unsolvable, and
+  emits deterministic, actionable `untranslatable` reasons — the r15
+  task-14 chain went from `proven: 0` to **`proven: 3/3`** on the real
+  kernel. `evalf` no longer returns spurious imaginary parts on pure real
+  integers, and giant-integer results no longer silently drop their step.
+- **Manually recorded equations are content-checked.** A custom step whose
+  expression is an equation now gets an identity check: sides equal under
+  assumptions → verified; differing by a nonzero constant → failed
+  ("equation is false"); otherwise inconclusive with the residual shown
+  ("not an identity: the sides differ by 2*a*b"), so a mis-stated identity
+  is visibly flagged while definitions and model equations stay inconclusive
+  rather than failed. Math-operation steps over equation inputs additionally
+  record `details.equation_identity`.
+- **The headline result no longer quotes a failed step.**
+  `session_complete`'s `final_expression` is the last non-failed step; when
+  failed tail steps are skipped, the response adds
+  `final_expression_skipped_failed: true` with a note naming the step.
+
 ## [1.6.2] - 2026-09-12
 
 Engineering baseline: the rules the project already declared are now enforced
@@ -572,3 +803,51 @@ Validated end-to-end by a black-box regression harness (headless MCP client, byt
 - Initial project structure
 - SymPy engine integration
 - Core domain entities and value objects
+
+### Fixed
+
+- **Dimensional analysis (sandbox round 13, all verified through MCP stdio)**
+  - `register_symbol(unit=...)` was silently ignored for every name the built-in
+    registry already ships a default for: `k` (thermal conductivity) analysed as
+    the pharmacokinetic rate constant `1/h`, `V` (velocity) as the volume of
+    distribution `L`, plus `rho`, `p`, `T`, `nu`, `mu`. User registrations now
+    take precedence over built-in domain defaults.
+  - A manually recorded step was judged with the *previous* step's expression
+    (`session_record_step` archives the prior expression in `input_srepr`), so
+    `T_w + T_in` — two temperatures added — failed with an unrelated `exp(x)`
+    complaint and dragged the whole chain to `overall: failed`. Recorded steps
+    are now checked on their own expression only.
+  - Fractional exponents made the checker bail out: engineering correlations
+    such as `Nu == 0.027*Re**0.8*Pr**(1/3)*D` slipped through, and the report
+    claimed unknown symbols while listing none. A dimensionless base now stays
+    dimensionless under any exponent, and the message distinguishes an unknown
+    unit from a form the checker cannot reduce.
+  - `"-"` (the marker the write path asks callers to use for a dimensionless
+    quantity) was read as *unknown*, leaving every dimensionless correlation
+    unverifiable. `-`, `1`, `dimensionless` and `unitless` now assert
+    dimensionless.
+  - A matrix step crashed `session_verify_session` outright
+    (`'MutableDenseMatrix' object has no attribute 'is_number'`).
+
+- **`generate_output`** returned the raw exception text
+  `Error executing tool generate_output: 'result_var'` when a step item lacked a
+  key its renderer indexes. Nested `steps`/`parameters`/`expressions`/
+  `operations` items are now validated and reported as actionable errors.
+
+- **`formula_promote`** silently rewrote promoted entries through a partial
+  model: a `verified: true` staging formula became `verified: false`, and
+  assumptions, limitations, derivation_steps and session_ids were dropped.
+  Unmodeled keys are now carried through the load/save round trip.
+
+- **`formula_add`** rejected `variables={}` while its own error text promised
+  "can be empty {}" (the guard was `if not variables`). With units now mandatory
+  per variable, a formula with no free symbols could not be added at all.
+
+- **`intent_execute`** answered an unrecognized intent with
+  `intent_execute("<the same text>")` — non-terminating for a caller that
+  follows the recommendation, and contradicting its own rationale. It now
+  points at `tool_categories` instead.
+
+- **Formula-derivation symbols `Q` (heat) and `O`** failed to parse
+  (`Q = m*cp*dT` → `SympifyError: <AssumptionKeys object at 0x...>`); both are
+  now protected as variables, while `O(x**2)` keeps its Big-O meaning.

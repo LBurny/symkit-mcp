@@ -1,9 +1,4 @@
-"""StepVerifier — Assumption-aware step-level verification engine.
-
-Combines SymPy symbolic verification, reverse-operation verification, and
-AssumptionEngine assumption management to provide explainable verification
-conclusions for each derivation step in DerivationSession.
-"""
+"""StepVerifier — assumption-aware, explainable per-step verification engine."""
 
 from __future__ import annotations
 
@@ -23,58 +18,31 @@ from symkit.domain.expr_io import evaluated_form, substitution_pairs
 from symkit.domain.expression_parser import (
     parse_expression_string,
 )
+from symkit.domain.final_result import (
+    classify_suspect_identity,
+    equation_identity,
+    evaluate_pending,
+    extract_order_from_command,
+    extract_variable_from_command,
+    is_difference_form,
+    matching_variable,
+    recorded_step_verdict,
+    residual_verdict,
+)
+from symkit.domain.final_result import (
+    is_numerically_zero as is_numerically_zero,
+)
 from symkit.domain.symbol_registry import SymbolRegistry
 from symkit.domain.value_objects import VerificationResult, VerificationStatus
 
 if TYPE_CHECKING:
     from symkit.domain.derivation_session import DerivationStep
 
-
-# Numeric residual tolerance for symbolic verification. Symbolic derivation
-# diffs are dimensionless algebraic residuals; machine-precision noise from
-# float inputs must not flip a correct step to FAILED.
-_NUM_ZERO_TOL = 1e-9
-
-
-def _evaluate_pending(expr: sp.Basic) -> sp.Basic:
-    """Evaluate unevaluated operations (``Derivative``/``Integral``/``Sum``).
-
-    A ``simplify`` step whose input is an unevaluated derivative is correct when
-    the output is that derivative's value, but ``simplify`` does not reduce the
-    difference to zero: SymPy evaluates the ``Derivative`` and then fails to
-    apply the trig identity to what is left, so an identically zero residual was
-    reported as a changed value and the whole chain became ``failed``
-    (task-15 step 12).  ``doit()`` first, and the difference collapses to 0.
-    """
-    try:
-        return expr.doit()
-    except Exception:  # pragma: no cover - doit may fail on exotic objects
-        return expr
-
-
-def is_numerically_zero(diff: sp.Basic) -> bool:
-    """True if ``diff`` is exactly zero, or numerically zero within tolerance.
-
-    Symbolic differences must simplify to exact zero; purely numeric ones are
-    compared in floating point with an absolute tolerance of 1e-9.  Matrix-valued
-    differences are checked entrywise: ``Matrix == 0`` is not a Python truth
-    value and ``complex(matrix.evalf())`` raises, so a zero-matrix difference was
-    reported as changing the expression (2026-09-12 black-box round).  Symbolic
-    matrix expressions are expanded first, which also absorbs a stray
-    ``Identity`` term.
-    """
-    if isinstance(diff, sp.MatrixExpr) and not isinstance(diff, sp.MatrixBase):
-        diff = diff.as_explicit()
-    if isinstance(diff, sp.MatrixBase):
-        return all(is_numerically_zero(entry) for entry in diff)
-    if diff == 0:
-        return True
-    if diff.free_symbols:
-        return False
-    try:
-        return abs(complex(diff.evalf())) < _NUM_ZERO_TOL
-    except (TypeError, ValueError):
-        return False
+# An archived difference whose negated term carries symbols, but is neither a
+# bare symbol (``-E``) nor a purely numeric product (``-1*(-3)**2``).
+_ARCHIVE_DIFFERENCE = re.compile(
+    r"Mul\(Integer\(-1\),\s*(?!Integer\()(?!Mul\(Integer)(?!Symbol\()\S"
+)
 
 
 class StepVerifier:
@@ -82,10 +50,6 @@ class StepVerifier:
 
     def __init__(self, symbol_registry: SymbolRegistry | None = None) -> None:
         self.symbol_registry = symbol_registry
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Public API
-    # ═══════════════════════════════════════════════════════════════════════════
 
     def verify_step(
         self,
@@ -97,26 +61,17 @@ class StepVerifier:
 
         Args:
             step: The step to verify.
-            prior_expr: The step's input expression (preferred). If not provided, will try to parse from step.input_expressions.
-            assumption_engine: The current session's assumption engine, used for assumption-awareness and conflict detection.
-
-        Returns:
-            VerificationResult containing status, message, and details.
+            prior_expr: The step's input expression (preferred); otherwise parsed from step.input_expressions.
+            assumption_engine: The session's assumption engine, for assumption-awareness and conflict detection.
         """
         from symkit.domain.derivation_session import OperationType
 
-        assumptions = (
-            assumption_engine.get_assumptions() if assumption_engine else {}
-        )
-        conflicts = (
-            assumption_engine.detect_conflicts() if assumption_engine else []
-        )
+        assumptions = assumption_engine.get_assumptions() if assumption_engine else {}
+        conflicts = assumption_engine.detect_conflicts() if assumption_engine else []
 
         op = step.operation
         if op == OperationType.CUSTOM:
-            return self._inconclusive_with_conflicts(
-                "Custom step: no automatic verification available", conflicts
-            )
+            return self._verify_custom(step, assumptions, conflicts)
 
         parsed_input = self._parse_step_input(step, assumptions)
         input_expr = parsed_input if parsed_input is not None else prior_expr
@@ -131,11 +86,18 @@ class StepVerifier:
             )
 
         warnings = self._collect_warnings(input_expr, output_expr, assumptions)
+        identity_details: dict[str, Any] = {}
+        if isinstance(input_expr, sp.Equality) and op.value in ("simplify", "expand", "factor"):
+            identity_details = {"equation_identity": equation_identity(input_expr)}
 
         if op == OperationType.LOAD_FORMULA:
             result = VerificationResult.success("Formula loaded successfully")
         elif op in (OperationType.SIMPLIFY, OperationType.EXPAND, OperationType.FACTOR):
-            result = self._verify_equality(input_expr, output_expr, op.value)
+            # srepr loading flattens -(A - B); inspect the archive directly (task-11).
+            diff_form = is_difference_form(input_expr)
+            if step.input_srepr:
+                diff_form = diff_form or bool(_ARCHIVE_DIFFERENCE.search(step.input_srepr))
+            result = self._verify_equality(input_expr, output_expr, op.value, diff_form)
         elif op == OperationType.DIFFERENTIATE:
             result = self._verify_differentiation(step, input_expr, output_expr, assumptions)
         elif op == OperationType.INTEGRATE:
@@ -169,6 +131,7 @@ class StepVerifier:
             details["warnings"] = warnings
         if conflicts:
             details["assumption_conflicts"] = conflicts
+        details.update(identity_details)
         if details:
             result = VerificationResult(
                 status=result.status,
@@ -181,9 +144,25 @@ class StepVerifier:
 
         return result
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Parsing and assumption-awareness
-    # ═══════════════════════════════════════════════════════════════════════════
+    def _verify_custom(
+        self,
+        step: DerivationStep,
+        assumptions: dict[str, dict[str, bool]],
+        conflicts: list[dict[str, Any]],
+    ) -> VerificationResult:
+        """Content-check a manually recorded step (see ``recorded_step_verdict``)."""
+        expr = self._parse_archived(step.output_expression, step.output_srepr, assumptions)
+        status, message = recorded_step_verdict(expr)
+        if status == VerificationStatus.VERIFIED and conflicts:
+            return VerificationResult.failure(
+                "Step is mathematically consistent but assumptions are contradictory",
+                assumption_conflicts=conflicts,
+                original_message=message,
+            )
+        details: dict[str, Any] = {}
+        if conflicts:
+            details["assumption_conflicts"] = conflicts
+        return VerificationResult(status=status, message=message, details=details)
 
     def _parse(
         self,
@@ -210,13 +189,9 @@ class StepVerifier:
     ) -> sp.Basic | None:
         """Rebuild an archived expression, preferring the machine-readable srepr.
 
-        The display string does not always round-trip: ``str(E)``/``str(I)``
-        re-parse to plain Symbols because the parser protects those names as
-        user variables (run-020), and ``str(Symbol('mu_{t}'))`` is not valid
-        Python. Re-parsing the display string therefore produced false FAILED
-        verdicts (invariant I2). Records written before srepr archiving existed
-        have no ``srepr_str`` and fall back to the assumption-aware string
-        parse.
+        Display strings do not always round-trip (``str(E)``/``str(I)`` parse
+        back to protected Symbols), so re-parsing produced false FAILED verdicts
+        (invariant I2). Legacy records fall back to the string parse.
         """
         if srepr_str:
             from symkit.domain.expr_io import safe_load_expression
@@ -233,11 +208,8 @@ class StepVerifier:
     ) -> sp.Basic:
         """Bind assumptions onto the free symbols of an srepr-loaded object.
 
-        Symbols archived in a step may predate (or omit) the session's current
-        assumptions; without this the verifier would compare
-        ``Symbol('k', positive=True)`` against a plain ``Symbol('k')`` and
-        report a spurious mismatch. Only free symbols are touched, so constants
-        such as ``I``/``E`` are never rebound.
+        Archived symbols may predate the session's assumptions; only free
+        symbols are rebound, so constants are never touched.
         """
         return apply_assumptions(expr, assumptions)
 
@@ -248,9 +220,7 @@ class StepVerifier:
     ) -> sp.Basic | None:
         """Reconstruct the input SymPy object from the step's input expressions.
 
-        The archived ``input_srepr`` is authoritative when present (it is the
-        live object the operation actually ran on); the string keys below are
-        the fallback for legacy records.
+        ``input_srepr`` is authoritative when present; string keys fall back.
         """
         if step.input_srepr:
             loaded = self._parse_archived(
@@ -290,11 +260,8 @@ class StepVerifier:
     ) -> dict[str, sp.Symbol]:
         """Symbol table for parsing ``expression`` under ``assumptions``.
 
-        Only names that are free symbols of the expression are bound, and each
-        binding goes through :func:`resolve_assumed_symbol` — the single
-        constructor shared with the engine and the math dispatcher (invariant
-        I3).  Conflicting assumption sets yield a plain Symbol rather than a
-        SymPy error.
+        Only free symbol names are bound, via the shared
+        :func:`resolve_assumed_symbol` constructor (invariant I3).
         """
         # First pass: parse without assumptions, only to collect symbol names
         try:
@@ -320,24 +287,18 @@ class StepVerifier:
         apply and the substitution silently becomes a no-op)."""
         return resolve_assumed_symbol(name, assumptions.get(name, {}))
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Operation-level verification
-    # ═══════════════════════════════════════════════════════════════════════════
-
     def _verify_equality(
         self,
-        input_expr: sp.Basic,
-        output_expr: sp.Basic,
+        input_expr: sp.Basic, output_expr: sp.Basic,
         operation: str,
+        difference_input: bool = False,
     ) -> VerificationResult:
         """Verify that simplify/expand/factor preserves the expression value."""
         out_bool = self._boolean_value(output_expr)
         if out_bool is not None:
-            # simplify may resolve an input equation to a plain True/False
-            # (Python bool, not BooleanTrue) when the caller's assumptions make
-            # it decidable.  The verifier often cannot see those per-call
-            # assumptions, so treat an unconfirmable boolean claim as
-            # INCONCLUSIVE rather than crashing or false-failing (run-008).
+            # simplify may collapse an equation to a plain True/False when the
+            # caller's assumptions decide it; the verifier cannot see those, so
+            # an unconfirmable boolean claim is INCONCLUSIVE (run-008).
             if isinstance(input_expr, sp.Equality):
                 diff = sp.simplify(input_expr.lhs - input_expr.rhs)
                 if is_numerically_zero(diff):
@@ -353,9 +314,8 @@ class StepVerifier:
                 )
             in_bool = self._boolean_value(input_expr)
             if in_bool is not None:
-                # Under session assumptions the parser itself may collapse an
-                # Eq to a boolean before recording (run-016): input True →
-                # output True is trivially value-preserving; a flip is a bug.
+                # Under session assumptions the parser may collapse an Eq to a
+                # boolean before recording (run-016): a flip is a bug.
                 if in_bool == out_bool:
                     return VerificationResult.success(
                         f"{operation.capitalize()} verified: boolean value preserved"
@@ -372,26 +332,26 @@ class StepVerifier:
 
         diff = sp.simplify(
             self._difference(
-                _evaluate_pending(input_expr), _evaluate_pending(output_expr)
+                evaluate_pending(input_expr), evaluate_pending(output_expr)
             )
         )
-        if is_numerically_zero(diff):
-            return VerificationResult.success(
-                f"{operation.capitalize()} verified: expressions are equal"
+        # Operator fidelity is what this certifies.  A difference input whose
+        # output stays nonzero may be a false identity — but only a numeric
+        # substitution may say so; simplification failure alone proves nothing.
+        details: dict[str, Any] = {}
+        message = f"{operation.capitalize()} verified: output matches the recomputed operator result"
+        if difference_input and not is_numerically_zero(evaluate_pending(output_expr)):
+            kind, phrase = classify_suspect_identity(evaluate_pending(output_expr))
+            details["suspect_identity"] = kind
+            message += f", but {phrase}"
+        if is_numerically_zero(diff) or is_numerically_zero(
+            sp.simplify(sp.expand(self._difference(input_expr, output_expr)))
+        ):
+            return VerificationResult(
+                status=VerificationStatus.VERIFIED, message=message, details=details
             )
-
-        # Try comparing after expansion
-        diff_expanded = sp.simplify(
-            sp.expand(self._difference(input_expr, output_expr))
-        )
-        if is_numerically_zero(diff_expanded):
-            return VerificationResult.success(
-                f"{operation.capitalize()} verified after expansion"
-            )
-
         return VerificationResult.failure(
-            f"{operation.capitalize()} changes expression value",
-            difference=str(diff),
+            f"{operation.capitalize()} changes expression value", difference=str(diff)
         )
 
     def _verify_differentiation(
@@ -402,24 +362,23 @@ class StepVerifier:
         _assumptions: dict[str, dict[str, bool]],
     ) -> VerificationResult:
         """Verify differentiation by reverse integration."""
-        var = self._extract_variable_from_command(step.sympy_command, "differentiate")
+        var = extract_variable_from_command(step.sympy_command, "differentiate")
         if var is None:
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
                 message="Could not determine differentiation variable",
             )
 
-        var_sym = sp.Symbol(var)
-        # No free-symbol shortcut here: `diff(2*x, x) = 2` has a constant
-        # output and is correct. Reverse integration below handles both that
-        # and `diff(5, x) = 0` — integrating 2 gives 2*x, integrating 0 gives a
-        # constant — so deciding from "output has no free symbols" was simply
-        # wrong and rejected correct steps (2026-09-12 black-box round).
+        # Match the symbol the archived expression carries; a bare Symbol(name)
+        # is a different object under assumptions and the integral stays zero.
+        var_sym = matching_variable(var, input_expr, output_expr)
+        # No free-symbol shortcut: `diff(2*x, x) = 2` is correct despite having
+        # no free symbols; reverse integration handles that case (2026-09-12).
 
-        # Reverse integration, repeated for each differentiation order:
-        # integrating `2` once recovers `2*x`, twice recovers `x**2`.
+        # Repeat reverse integration for each differentiation order, so
+        # integrating `2` once recovers `2*x` and twice recovers `x**2`.
         integral = output_expr
-        for _ in range(self._extract_order_from_command(step.sympy_command)):
+        for _ in range(extract_order_from_command(step.sympy_command)):
             integral = sp.integrate(integral, var_sym)
         diff = sp.simplify(integral - input_expr)
         if diff.free_symbols <= {var_sym} and is_numerically_zero(
@@ -444,8 +403,7 @@ class StepVerifier:
         output_expr: sp.Basic,
         assumptions: dict[str, dict[str, bool]],
     ) -> VerificationResult:
-        """Verify integration: reverse differentiation for indefinite integrals,
-        numeric quadrature for definite ones."""
+        """Verify integration by reverse differentiation or numeric quadrature."""
         definite = re.search(
             r"integrate\(expr,\s*\(\s*(\w+)\s*,\s*([^,]+),\s*([^)]+)\)",
             step.sympy_command,
@@ -455,14 +413,14 @@ class StepVerifier:
                 definite, input_expr, output_expr, assumptions
             )
 
-        var = self._extract_variable_from_command(step.sympy_command, "integrate")
+        var = extract_variable_from_command(step.sympy_command, "integrate")
         if var is None:
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
                 message="Could not determine integration variable",
             )
 
-        var_sym = sp.Symbol(var)
+        var_sym = matching_variable(var, input_expr, output_expr)
         derivative = sp.diff(output_expr, var_sym)
         diff = sp.simplify(derivative - input_expr)
         if is_numerically_zero(diff):
@@ -470,6 +428,20 @@ class StepVerifier:
                 status=VerificationStatus.VERIFIED,
                 message="Integration verified by differentiation",
                 reverse_check=True,
+            )
+        status = residual_verdict(evaluate_pending(diff))
+        if status == VerificationStatus.VERIFIED:
+            return VerificationResult(
+                status=status,
+                message="Integration verified by numeric substitution",
+                reverse_check=True,
+            )
+        if status == VerificationStatus.INCONCLUSIVE:
+            return VerificationResult(
+                status=status,
+                message="Reverse differentiation did not match; numeric substitution inconclusive",
+                details={"derivative": str(derivative), "expected": str(input_expr)},
+                reverse_check=False,
             )
 
         return VerificationResult.failure(
@@ -488,15 +460,18 @@ class StepVerifier:
     ) -> VerificationResult:
         """Verify a definite integral by numeric quadrature with valued parameters.
 
-        Reverse differentiation is meaningless here: the result no longer
-        depends on the integration variable, so d/dx of a correct constant
-        result is 0 and the indefinite check false-FAILED correct work
-        (run-011's Maxwell-Boltzmann moment).  Parameters are valued with
-        small primes (same policy as limit verification); disagreement yields
-        INCONCLUSIVE, never FAILED — quadrature of improper or oscillatory
-        integrals can legitimately mislead, and FAILED is reserved for
-        symbolic proof of error.
+        Disagreement yields INCONCLUSIVE, never FAILED (run-011).
         """
+        if input_expr == output_expr:
+            # An inert Integral returned unchanged: quadrature would compare the
+            # expression with itself and certify nothing (task-02).
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message=(
+                    "integral was returned unevaluated; numeric quadrature "
+                    "compared an expression with itself"
+                ),
+            )
         var = self._assumed_symbol(match.group(1), assumptions)
         lo = self._parse(match.group(2).strip(), assumptions)
         hi = self._parse(match.group(3).strip(), assumptions)
@@ -625,6 +600,19 @@ class StepVerifier:
             return VerificationResult.success(
                 "Solution verified by substitution back into original equation"
             )
+        # The residual may be identically zero yet not simplify (nested powers);
+        # substitution decides between a false solution and an unproven one.
+        status = residual_verdict(evaluate_pending(diff))
+        if status == VerificationStatus.VERIFIED:
+            return VerificationResult.success(
+                "Solution verified by numeric substitution back into original equation"
+            )
+        if status == VerificationStatus.INCONCLUSIVE:
+            return VerificationResult(
+                status=status,
+                message="Solution not confirmed by symbolic or numeric substitution",
+                details={"residual": str(diff)},
+            )
 
         return VerificationResult.failure(
             "Solution does not satisfy the original equation",
@@ -670,7 +658,10 @@ class StepVerifier:
                 status=VerificationStatus.INCONCLUSIVE,
                 message="evalf input/output is not purely numeric",
             )
-        tol = 1e-12 * max(1.0, abs(expected))
+        # Quadrature of an inert Integral is less accurate than evalf of a
+        # closed form; comparing the two needs a relative tolerance (task-18).
+        quadrature = input_expr.has(sp.Integral) or output_expr.has(sp.Integral)
+        tol = (1e-6 if quadrature else 1e-12) * max(1.0, abs(expected))
         if abs(expected - actual) < tol:
             return VerificationResult.success("Numeric evaluation verified")
         return VerificationResult.failure(
@@ -688,9 +679,8 @@ class StepVerifier:
     ) -> VerificationResult:
         """Verify a limit by numeric spot-checks near the point.
 
-        A disagreeing probe yields INCONCLUSIVE rather than FAILED: numeric
-        probing can legitimately disagree for slowly-converging limits, and
-        FAILED is reserved for symbolic proof of error.
+        A disagreeing probe yields INCONCLUSIVE, never FAILED: probing can
+        mislead for slowly-converging limits.
         """
         match = re.search(r"limit\(expr,\s*(\w+),\s*([^)]+)\)", step.sympy_command)
         if not match:
@@ -771,10 +761,6 @@ class StepVerifier:
                 message="Numeric spot-check not possible",
             )
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Helpers
-    # ═══════════════════════════════════════════════════════════════════════════
-
     def _boolean_value(self, value: sp.Basic) -> bool | None:
         """Return the truth value of boolean-looking outputs (plain or SymPy)."""
         if isinstance(value, (BooleanTrue, BooleanFalse, bool)):
@@ -797,26 +783,6 @@ class StepVerifier:
                 return sp.Integer(0) if left_bool else sp.Integer(1)
             return left - (right.lhs - right.rhs)
         return left - right
-
-    def _extract_variable_from_command(
-        self, command: str, operation: str
-    ) -> str | None:
-        """Extract the operation variable from sympy_command."""
-        if operation == "differentiate":
-            # diff(expr, x, 2) or diff(expr, x)
-            match = re.search(r"diff\(expr,\s*(\w+)(?:,\s*\d+)?\)", command)
-            return match.group(1) if match else None
-        if operation == "integrate":
-            # integrate(expr, x) or integrate(expr, (x, 0, 1))
-            match = re.search(r"integrate\(expr,\s*(?:\(\s*)?(\w+)", command)
-            return match.group(1) if match else None
-        return None
-
-    @staticmethod
-    def _extract_order_from_command(command: str) -> int:
-        """The differentiation order in ``diff(expr, x, 2)``; 1 when omitted."""
-        match = re.search(r"diff\(expr,\s*\w+\s*,\s*(\d+)\s*\)", command)
-        return int(match.group(1)) if match else 1
 
     def _collect_warnings(
         self,
@@ -856,11 +822,6 @@ class StepVerifier:
             message=message,
             details=details,
         )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Serialization helpers
-# ═══════════════════════════════════════════════════════════════════════════════
 
 
 def verification_result_to_json(result: VerificationResult) -> str:

@@ -58,7 +58,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 - **人机协同**：支持在推导中插入假设、限制、观察、修正建议等非计算性知识。
 - **LaTeX 友好**：原生支持 LaTeX 输入、下标符号、希腊字母和物理星号上标（如 `\beta^*`）。
 
-项目的对外主契约是 47 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
+项目的对外主契约是 45 个 MCP 工具，其中 `math()` 负责快速无状态/有状态计算，`session_start()` / `session_show()` / `session_complete()` 提供交互式推导会话，`derive()` 提供高层自动化入口。
 
 ---
 
@@ -132,6 +132,10 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | `src/symkit/domain/value_objects.py` | `MathContext`、`VerificationResult`、`StepStatus` 等。 |
 | `src/symkit/domain/entities.py` | `Expression` 等数据类。 |
 | `src/symkit/domain/services.py` | `SymbolicEngine`、`Verifier`、`FormulaRepository` 协议。 |
+| `src/symkit/domain/final_result.py` | 手工记录等式的同一性判定，以及跳过 failed 尾步的最终表达式选取。 |
+| `src/symkit/domain/units.py` / `src/symkit/domain/dimensional_analysis.py` | 单位解析与量纲一致性检查：量纲向量、四则运算/函数传播规则、问题诊断（纯领域逻辑）。 |
+| `src/symkit/domain/lean_types.py` | Lean 认证通道的共享契约：`LeanStatement` / `LeanOutcome` 值对象、`LeanChecker` 协议、`UntranslatableError`。 |
+| `src/symkit/domain/lean_translation.py` | SymPy → Lean 4 表达式翻译（有理式片段：+−*/整数次幂）；变量分母要求显式非零假设。 |
 
 ### 4.2 Application 层
 
@@ -141,6 +145,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 |---|---|
 | `src/symkit/application/use_cases.py` | `CalculateUseCase`、`SimplifyUseCase`、`DeriveUseCase`、`VerifyUseCase`。 |
 | `src/symkit/application/formula_catalog.py` | `FormulaCatalog`：以 manifest 差量对账 YAML 各层与索引，并统一提供检索与策展操作。 |
+| `src/symkit/application/lean_certification.py` | `certify_session` 用例：重放会话中的代数等式步骤并经 `LeanChecker` 复核，结果写入步骤 `details.lean`；从不改动既有判定。 |
 
 ### 4.3 Infrastructure 层
 
@@ -152,7 +157,8 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 | `src/symkit/infrastructure/derivation_repository.py` | YAML 持久化的 `DerivationRepository`（staging 存储层）。 |
 | `src/symkit/infrastructure/formula_index_store.py` | SQLite FTS5 索引存储（trigram 分词；YAML 各层之上的可重建缓存）。 |
 | `src/symkit/infrastructure/formula_files.py` | 公式目录的 YAML 各层扫描、加载与写盘。 |
-| `src/symkit/infrastructure/formula_identity.py` | 内容哈希标识（`content_hash`）与确定性 staging id。 |
+| `src/symkit/infrastructure/vector_input.py` | `curl`/`divergence` 输入归一：逗号分量串 / 3 元列表 / 3x1 矩阵 / `N.i,N.j,N.k` 统一为 `CoordSys3D` 场；标量输入显式报错而非静默成零场。 |
+| `src/symkit/infrastructure/formula_identity.py` | 内容哈希标识（`content_hash`）与确定性 staging id，以及 `similar_to` 所用的 α-不变结构指纹。 |
 | `src/symkit/infrastructure/staging_prune.py` | 把暂存层垃圾条目（测试脚手架残留）移入 `_quarantine/`。 |
 | `src/symkit/infrastructure/adapters/scipy_constants.py` | SciPy CODATA 物理常数适配器。 |
 | `src/symkit/infrastructure/adapters/wikidata_formulas.py` | Wikidata SPARQL 公式检索适配器。 |
@@ -162,7 +168,7 @@ SymKit 是**领域无关**的通用公式推导引擎，适用于物理、工程
 
 ### 4.4 MCP Tool 层
 
-对外暴露 47 个 MCP 工具，每个模块聚焦一类能力：
+对外暴露 45 个 MCP 工具，每个模块聚焦一类能力：
 
 | 文件 | 主要职责 |
 |---|---|
@@ -342,18 +348,19 @@ timestamp: str
 
 ### 8.1 工具分类
 
-SymKit 共暴露 47 个 MCP 工具，按功能分为 8 类：
+SymKit 共暴露 45 个 MCP 工具，按功能分为 9 类：
 
-| 工具模块 | 代表工具 | 数量 | 定位 |
+| 类别 | 代表工具 | 数量 | 定位 |
 |---|---|---|---|
-| `math` | `math()` | 1 | 统一计算入口 |
-| `session` | `session_start`、`session_show`、`session_complete` 等 | 17 | 统一推导会话工作流 |
-| `assumptions` | `assume`、`show_assumptions`、`unassume`、`clear_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 8 | 全局与步骤级假设管理 |
-| `formula` | `formula_search`、`formula_get`、`formula_add`、`formula_remove`、`formula_categories`、`formula_promote`、`formula_reindex`、`formula_stats` | 8 | 索引化公式库检索、策展与外部检索 |
-| `symbols` | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 | 符号语义管理 |
-| `codegen` | `generate_python_function`、`generate_latex_derivation`、`generate_derivation_report`、`generate_sympy_script` | 4 | 代码/报告生成 |
-| `orchestration` | `derive()`、`intent_execute()`、`list_patterns()` | 3 | 高层自动化编排 |
-| `meta` | `tool_categories()`、`tool_recommend()` | 2 | 工具发现与推荐 |
+| Unified Math | `math()` | 1 | 统一计算入口（33 个操作） |
+| Assumptions | `assume`、`show_assumptions`、`unassume`、`clear_assumptions`、`assume_for_step`、`list_assumptions`、`clear_step_assumptions` | 7 | 全局与步骤级假设管理 |
+| Verification | `session_verify_step`、`session_verify_session`、`session_certify`、`check_assumption_conflicts` | 4 | 步骤/会话验证、假设冲突检测、可选 Lean 4 + Mathlib 内核认证 |
+| Symbol Semantics | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 | 符号语义管理 |
+| Formula Library | `formula_search`、`formula_get`、`formula_add`、`formula_remove`、`formula_categories`、`formula_promote`、`formula_reindex`、`formula_stats` | 8 | 索引化公式库检索、策展与外部检索 |
+| Session Management | `session_start`、`session_show`、`session_complete` 等 | 15 | 统一推导会话工作流 |
+| Output | `generate_output`（`format` = `markdown_report` / `latex` / `python` / `sympy_script`） | 1 | 代码/报告生成 |
+| High-Level Orchestration | `derive()`、`intent_execute()`、`list_patterns()` | 3 | 高层自动化编排 |
+| Meta | `tool_categories()`、`tool_recommend()` | 2 | 工具发现与推荐 |
 
 `math()` 已覆盖以前分散在多个工具中的功能，统一为单一入口，避免 LLM 在众多旧工具中迷失。
 
@@ -371,6 +378,7 @@ SymKit 共暴露 47 个 MCP 工具，按功能分为 8 类：
 | 矩阵 | `det`、`inv`、`eigenvals`、`eigenvects` |
 | 积分变换 | `laplace`、`ilaplace`、`fourier`、`ifourier` |
 | 数值求值 | `evalf` |
+| 量纲分析 | `dimension` |
 
 重要参数：
 

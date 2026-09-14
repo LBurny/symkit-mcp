@@ -172,5 +172,58 @@ class TestToolRecommendTool:
         assert result["success"] is True
         assert any(r["tool"] == "intent_execute" for r in result["recommendations"])
 
+    def test_recommend_dimension(self):
+        mcp = MockMCP()
+        orchestration.register_orchestration_tools(mcp)
+        tool_recommend = mcp.tools["tool_recommend"]
+
+        result = tool_recommend("check dimensional consistency of rho + v")
+
+        assert result["success"] is True
+        assert any(
+            r["tool"] == "math" and r.get("operation") == "dimension"
+            for r in result["recommendations"]
+        )
+
+    def test_recommend_check_equality_still_simplifies(self):
+        mcp = MockMCP()
+        orchestration.register_orchestration_tools(mcp)
+        tool_recommend = mcp.tools["tool_recommend"]
+
+        result = tool_recommend("check equality of two expressions")
+
+        assert result["success"] is True
+        assert any(
+            r["tool"] == "math" and r.get("operation") == "simplify"
+            for r in result["recommendations"]
+        )
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestRouterFallbacksTerminate:
+    """A router fallback must not recommend the router itself.
+
+    ``intent_execute`` answered an unrecognized intent with
+    ``intent_execute("<the same text>")`` — literally non-terminating for a
+    caller that follows the recommendation, and contradicting its own rationale
+    ("try rephrasing or use tool_recommend").
+    """
+
+    def _intent(self):
+        mcp = MockMCP()
+        orchestration.register_orchestration_tools(mcp)
+        return mcp.tools["intent_execute"]
+
+    def test_unrecognized_intent_does_not_self_recommend(self):
+        result = self._intent()("请帮我看看那个东西")
+        chain = result["recommended_tool_chain"]
+        assert [t["tool"] for t in chain] != ["intent_execute"]
+        assert chain[0]["tool"] == "tool_categories"
+        assert "intent_execute" not in chain[0]["example"]
+
+    def test_recognized_intent_still_routes(self):
+        result = self._intent()("verify the previous step")
+        assert result["intent_type"] == "verify"
+        assert result["recommended_tool_chain"][0]["tool"] != "intent_execute"

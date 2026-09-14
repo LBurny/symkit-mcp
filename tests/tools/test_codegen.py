@@ -1,4 +1,4 @@
-"""Tests for codegen tools: generate_derivation_report.
+"""Tests for the merged ``generate_output`` codegen tool.
 
 Regression for black-box run-001/run-002 findings:
 - ``verification`` counts (int) were rejected by a bool-only schema;
@@ -20,8 +20,9 @@ class TestGenerateDerivationReport:
         _ = fresh_manager
         mcp = MockMCP()
         codegen.register_codegen_tools(mcp)
-        tool = mcp.tools["generate_derivation_report"]
+        tool = mcp.tools["generate_output"]
         result = tool(
+            format="markdown_report",
             problem="terminal velocity",
             given={"m": "mass (kg)"},
             steps=[{
@@ -45,8 +46,8 @@ class TestGenerateDerivationReport:
         _ = fresh_manager
         mcp = MockMCP()
         codegen.register_codegen_tools(mcp)
-        tool = mcp.tools["generate_derivation_report"]
-        result = tool(problem="p", given={}, steps=[],
+        tool = mcp.tools["generate_output"]
+        result = tool(format="markdown_report", problem="p", given={}, steps=[],
                       results={}, verification={"verified": True})
         assert result["success"] is True
         assert "verified: ✅" in result["report"]
@@ -56,8 +57,9 @@ class TestReportVerificationRendering:
         _ = fresh_manager
         mcp = MockMCP()
         codegen.register_codegen_tools(mcp)
-        tool = mcp.tools["generate_derivation_report"]
+        tool = mcp.tools["generate_output"]
         result = tool(
+            format="markdown_report",
             problem="p",
             given={},
             steps=[],
@@ -72,8 +74,9 @@ class TestReportVerificationRendering:
         _ = fresh_manager
         mcp = MockMCP()
         codegen.register_codegen_tools(mcp)
-        tool = mcp.tools["generate_derivation_report"]
+        tool = mcp.tools["generate_output"]
         result = tool(
+            format="markdown_report",
             problem="p",
             given={"rho": "1.225 kg/m^3", "C_d": "0.47"},
             steps=[],
@@ -92,8 +95,9 @@ class TestGenerateSympyScript:
         _ = fresh_manager
         mcp = MockMCP()
         codegen.register_codegen_tools(mcp)
-        tool = mcp.tools["generate_sympy_script"]
+        tool = mcp.tools["generate_output"]
         result = tool(
+            format="sympy_script",
             expressions=[
                 {"name": "omega", "expr": "sqrt(k/m)", "description": "angular frequency"},
                 {"name": "T", "expr": "2*pi*sqrt(m/k)", "description": "period"},
@@ -109,8 +113,9 @@ class TestGenerateSympyScript:
         _ = fresh_manager
         mcp = MockMCP()
         codegen.register_codegen_tools(mcp)
-        tool = mcp.tools["generate_sympy_script"]
+        tool = mcp.tools["generate_output"]
         result = tool(
+            format="sympy_script",
             expressions=[
                 {"name": "omega", "expr": "sqrt(k/m)", "description": "angular frequency"},
             ],
@@ -125,8 +130,9 @@ class TestGenerateSympyScript:
         _ = fresh_manager
         mcp = MockMCP()
         codegen.register_codegen_tools(mcp)
-        tool = mcp.tools["generate_sympy_script"]
+        tool = mcp.tools["generate_output"]
         result = tool(
+            format="sympy_script",
             expressions=[],
             operations=[{"op": "solve", "input": "m*x**2 - k", "for": "x"}],
         )
@@ -139,3 +145,84 @@ def _declared_symbols(script: str) -> set[str]:
     if match is None:
         return set()
     return set(match.group(1).split())
+
+
+class TestGenerateOutputValidation:
+    """The merged tool reports contract errors instead of raising."""
+
+    def _tool(self):
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        return mcp.tools["generate_output"]
+
+    def test_unknown_format_lists_valid_formats(self, fresh_manager):
+        _ = fresh_manager
+        result = self._tool()(format="pdf")
+        assert result["success"] is False
+        assert "pdf" in result["error"]
+        for name in ("markdown_report", "latex", "python", "sympy_script"):
+            assert name in result["error"]
+
+    def test_missing_required_parameter_names_it(self, fresh_manager):
+        _ = fresh_manager
+        result = self._tool()(format="latex", title="T")
+        assert result["success"] is False
+        assert "steps" in result["error"]
+        assert "final_result" in result["error"]
+
+    def test_optional_parameter_accepted_for_other_format(self, fresh_manager):
+        _ = fresh_manager
+        result = self._tool()(format="latex", title="T", steps=[], final_result="x",
+                              problem="ignored")
+        assert result["success"] is True
+        assert "\\section{T}" in result["latex"]
+
+
+class TestNestedItemValidation:
+    """A missing key inside a step/item must be a structured error, not a KeyError.
+
+    Sandbox round 13: ``generate_output(format="python")`` with steps lacking
+    ``result_var`` returned the raw exception text
+    ``Error executing tool generate_output: 'result_var'`` — and the "requires:"
+    error implied the documented parameters were sufficient.
+    """
+
+    def _tool(self):
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        return mcp.tools["generate_output"]
+
+    def test_python_step_missing_result_var_is_structured(self):
+        result = self._tool()(
+            format="python", name="f", description="d",
+            parameters=[{"name": "x", "type": "float", "description": "in"}],
+            steps=[{"description": "d", "expression": "2*x"}],
+            return_vars=["y"],
+        )
+        assert result["success"] is False
+        assert "result_var" in result["error"]
+        assert "steps item 1" in result["error"]
+
+    def test_python_parameter_missing_name_is_structured(self):
+        result = self._tool()(
+            format="python", name="f", description="d",
+            parameters=[{"type": "float"}],
+            steps=[{"description": "d", "expression": "2*x", "result_var": "y"}],
+            return_vars=["y"],
+        )
+        assert result["success"] is False
+        assert "parameters item 1" in result["error"]
+
+    def test_sympy_script_expression_missing_keys_is_structured(self):
+        result = self._tool()(format="sympy_script", expressions=[{"name": "a"}], operations=[])
+        assert result["success"] is False
+        assert "expr" in result["error"]
+
+    def test_well_formed_python_still_succeeds(self):
+        result = self._tool()(
+            format="python", name="f", description="d",
+            parameters=[{"name": "x", "type": "float", "description": "in"}],
+            steps=[{"description": "d", "expression": "2*x", "result_var": "y"}],
+            return_vars=["y"],
+        )
+        assert result["success"] is True, result.get("error")

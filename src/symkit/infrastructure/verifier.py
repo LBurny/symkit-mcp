@@ -6,6 +6,7 @@ Concrete implementation of the Verifier interface.
 
 import sympy as sp
 
+from symkit.domain.dimensional_analysis import check_expression_dimensions
 from symkit.domain.entities import Derivation, Expression
 from symkit.domain.services import Verifier
 from symkit.domain.value_objects import MathContext, VerificationResult, VerificationStatus
@@ -96,19 +97,53 @@ class BasicVerifier(Verifier):
 
     def check_dimensions(
         self,
-        expr: Expression,  # noqa: ARG002 - not yet implemented
-        expected_dimension: str | None = None,  # noqa: ARG002 - not yet implemented
+        expr: Expression,
+        expected_dimension: str | None = None,  # noqa: ARG002 - reserved
+        *,
+        unit_map: dict[str, str] | None = None,
     ) -> VerificationResult:
         """
-        Check dimensional consistency.
+        Check dimensional consistency of ``expr`` against ``unit_map``.
 
-        Note: Full dimensional analysis requires unit tracking,
-        which is not yet implemented.
+        ``unit_map`` maps symbol names to display unit strings (for example
+        ``{"rho": "kg/m^3"}``). Without it there is nothing to check against,
+        so the result is INCONCLUSIVE with ``dimension_check=None``. With unit
+        information, a definite mismatch is FAILED and a coherent expression is
+        VERIFIED; symbols lacking units keep the verdict INCONCLUSIVE.
         """
-        # Placeholder - would need unit system integration
+        if not unit_map or expr.sympy_expr is None:
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message="No unit information available for dimensional analysis",
+                dimension_check=None,
+            )
+        report = check_expression_dimensions(expr.sympy_expr, unit_map)
+        details: dict[str, object] = {}
+        if report.issues:
+            details["dimension_issues"] = report.issues
+        if report.unknown_symbols:
+            details["dimension_unknown_symbols"] = report.unknown_symbols
+        if report.dimensions:
+            details["dimensions"] = report.dimensions
+
+        if report.consistent is False:
+            return VerificationResult(
+                status=VerificationStatus.FAILED,
+                message="Dimensional inconsistency detected",
+                details=details,
+                dimension_check=False,
+            )
+        if report.consistent is True:
+            return VerificationResult(
+                status=VerificationStatus.VERIFIED,
+                message="Dimensions are consistent",
+                details=details,
+                dimension_check=True,
+            )
         return VerificationResult(
             status=VerificationStatus.INCONCLUSIVE,
-            message="Dimensional analysis not yet implemented",
+            message="Dimensions could not be determined for all symbols",
+            details=details,
             dimension_check=None,
         )
 

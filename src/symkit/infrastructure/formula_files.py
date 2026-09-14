@@ -52,6 +52,7 @@ def load_indexed(path: Path, tier: str) -> IndexedFormula | None:
         tier=tier,
         content_hash=content_hash(entry.sympy_str or entry.latex),
         verified=bool(data.get("verified", False)),
+        curated=bool(data.get("curated", False)),
         application_context=str(data.get("application_context", "") or ""),
         derivation_steps=[str(s) for s in (data.get("derivation_steps") or [])],
     )
@@ -59,16 +60,20 @@ def load_indexed(path: Path, tier: str) -> IndexedFormula | None:
     return indexed
 
 
-def write_entry_yaml(root: Path, entry: FormulaEntry) -> Path:
+def write_entry_yaml(root: Path, entry: FormulaEntry, *, curated: bool = False) -> Path:
     """Persist an entry as ``<root>/<category>/<id>.yaml``; return the path.
 
+    ``curated`` is written only when true so existing files keep their shape.
     Raises :class:`UnsafeFormulaPathError` before touching the filesystem if
     the id or category would escape ``root``.
     """
     target_path = safe_entry_path(root, entry.category, entry.id)
     target_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = entry.to_dict()
+    if curated:
+        payload["curated"] = True
     with target_path.open("w", encoding="utf-8") as f:
-        yaml.dump(entry.to_dict(), f, allow_unicode=True, sort_keys=False)
+        yaml.dump(payload, f, allow_unicode=True, sort_keys=False)
     entry.source_path = target_path
     return target_path
 

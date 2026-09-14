@@ -17,7 +17,9 @@ TIER_CURATED = "curated"
 # Representative precedence inside a duplicate group (lower wins).
 TIER_ORDER = {TIER_CURATED: 0, TIER_SEED: 1, TIER_STAGING: 2}
 
-MATCH_KINDS = ("exact_id", "exact_name", "exact_alias", "fts", "like", "browse")
+MATCH_KINDS = (
+    "exact_id", "exact_name", "exact_alias", "structural", "fts", "like", "browse",
+)
 
 # Generic domain nouns carried over from the legacy library scorer
 # (``FormulaLibrary._STOPWORDS``): they appear in many formula names, so they
@@ -68,6 +70,7 @@ class IndexedFormula:
     variables: dict[str, dict[str, Any]] = field(default_factory=dict)
     references: list[str] = field(default_factory=list)
     verified: bool = False
+    curated: bool = False
     application_context: str = ""
     derivation_steps: list[str] = field(default_factory=list)
     source_path: str = ""
@@ -82,6 +85,7 @@ class IndexedFormula:
         tier: str,
         content_hash: str,
         verified: bool = False,
+        curated: bool = False,
         application_context: str = "",
         derivation_steps: list[str] | None = None,
     ) -> IndexedFormula:
@@ -101,6 +105,7 @@ class IndexedFormula:
             variables=dict(entry.variables),
             references=list(entry.references),
             verified=verified,
+            curated=curated,
             application_context=application_context,
             derivation_steps=list(derivation_steps or []),
             source_path=str(entry.source_path or ""),
@@ -167,6 +172,7 @@ class FormulaIndexStore(Protocol):
     def remove_ids(self, ids: list[str]) -> None: ...
     def get(self, formula_id: str) -> IndexedFormula | None: ...
     def all(self) -> list[IndexedFormula]: ...
+    def find_by_structural_hash(self, digest: str) -> list[IndexedFormula]: ...
     def search(
         self,
         query: str,

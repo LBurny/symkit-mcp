@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import sympy as sp
 
 from symkit.domain.assumption_engine import AssumptionEngine, AssumptionLevel
 from symkit.domain.derivation_session import DerivationStep, OperationType
@@ -141,6 +142,33 @@ class TestStepVerifierDefiniteIntegrate:
         )
         result = verifier.verify_step(step, prior_expr=None)
         assert result.status == VerificationStatus.INCONCLUSIVE
+
+    def test_unevaluated_integral_is_not_falsely_verified(self, verifier):
+        # task-02: Integrate returned the inert Integral unchanged (input ==
+        # output); asserting it was "verified by numeric quadrature" compared
+        # the expression with itself. It must be INCONCLUSIVE.
+        inert = "Integral(sin(x)**n, (x, 0, pi/2))"
+        step = _make_step(
+            OperationType.INTEGRATE,
+            {"original": inert},
+            inert,
+            sympy_command="integrate(expr, (x, 0, pi/2))",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.INCONCLUSIVE
+        assert not result.is_verified
+        assert "unevaluated" in result.message
+
+    def test_evaluated_definite_integral_still_verified(self, verifier):
+        # Input is genuinely the integrand and output is the closed value.
+        step = _make_step(
+            OperationType.INTEGRATE,
+            {"original": "sin(x)"},
+            "1",
+            sympy_command="integrate(expr, (x, 0, pi/2))",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
 
 class TestStepVerifierSubstitute:
     def test_substitute(self, verifier):
@@ -283,5 +311,123 @@ class TestFloatTolerance:
 
     def test_real_mismatch_still_fails(self, verifier):
         step = _make_step(OperationType.SIMPLIFY, {"original": "x"}, "x + 1")
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.FAILED
+
+
+# Round-15 false-failure regressions (task-09 B2 / task-18 C-04).
+#
+# * reverse differentiation of ``integrate(1/V)`` used a bare ``Symbol("V")``
+#   while the archived expression carried ``V`` with assumptions, so
+#   ``d/dV log(V)`` collapsed to ``0`` and a correct step failed;
+# * a correct adiabatic ``solve`` whose residual is identically zero but does
+#   not simplify must not be failed;
+# * ``evalf`` compared a lower-precision quadrature of an inert ``Integral``
+#   against a more accurate closed form and rejected it.
+
+
+def _false_failure_step(
+    operation: OperationType,
+    input_expr: sp.Basic,
+    output_expr: sp.Basic,
+    sympy_command: str = "",
+    key: str = "original",
+) -> DerivationStep:
+    return DerivationStep(
+        step_number=1,
+        operation=operation,
+        description="false-failure regression step",
+        input_expressions={key: str(input_expr)},
+        output_expression=str(output_expr),
+        output_latex="",
+        sympy_command=sympy_command,
+        input_srepr=sp.srepr(input_expr),
+        output_srepr=sp.srepr(output_expr),
+    )
+
+
+class TestIntegrateReverseDifferentiation:
+    def test_log_integral_with_assumed_variable_verifies(self, verifier):
+        var = sp.Symbol("V", positive=True)
+        engine = AssumptionEngine(domain=MathDomain.GENERAL)
+        engine.assume("V", "positive")
+        step = _false_failure_step(
+            OperationType.INTEGRATE,
+            sp.Integer(1) / var,
+            sp.log(var),
+            sympy_command="integrate(expr, V)",
+        )
+        result = verifier.verify_step(step, assumption_engine=engine)
+        assert result.status == VerificationStatus.VERIFIED
+        assert result.reverse_check is True
+
+    def test_wrong_integral_still_fails(self, verifier):
+        var = sp.Symbol("V")
+        step = _false_failure_step(
+            OperationType.INTEGRATE,
+            sp.Integer(1) / var,
+            var**2,
+            sympy_command="integrate(expr, V)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.FAILED
+
+
+class TestSolveNumericFallback:
+    def test_adiabatic_solve_residual_does_not_fail(self, verifier):
+        # task-09: the residual is identically zero but simplify cannot collapse
+        # the nested power ``(x**(1/(g-1)))**(g-1)``.
+        th, tc, g, v2, v3 = sp.symbols("T_h T_c gamma V2 V3", positive=True)
+        solution = (tc * v3 ** (g - 1) / th) ** (1 / (g - 1))
+        equation = sp.Eq(th * v2 ** (g - 1) - tc * v3 ** (g - 1), 0)
+        output = sp.Eq(v2, solution)
+        step = _false_failure_step(
+            OperationType.SOLVE,
+            equation,
+            output,
+            sympy_command="solve(expr, V2)",
+            key="equation",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status in (
+            VerificationStatus.VERIFIED,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        assert result.status != VerificationStatus.FAILED
+
+    def test_wrong_solution_still_fails(self, verifier):
+        equation = sp.Eq(sp.Symbol("x") - 2, 0)
+        output = sp.Eq(sp.Symbol("x"), 5)
+        step = _false_failure_step(
+            OperationType.SOLVE,
+            equation,
+            output,
+            sympy_command="solve(expr, x)",
+            key="equation",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.FAILED
+
+
+class TestEvalfQuadratureTolerance:
+    def test_quadrature_of_inert_integral_within_relative_tolerance(self, verifier):
+        x = sp.Symbol("x")
+        inert = sp.Integral(sp.sin(x), (x, 0, sp.pi / 2))
+        step = _false_failure_step(
+            OperationType.EVALF,
+            inert,
+            sp.Float("1.000000001"),
+            sympy_command="evalf(expr)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+
+    def test_plain_numeric_mismatch_still_fails(self, verifier):
+        step = _false_failure_step(
+            OperationType.EVALF,
+            sp.Integer(2),
+            sp.Integer(3),
+            sympy_command="evalf(expr)",
+        )
         result = verifier.verify_step(step, prior_expr=None)
         assert result.status == VerificationStatus.FAILED

@@ -24,10 +24,22 @@ import sympy as sp
 
 from symkit.domain.assumption_binding import apply_assumptions
 from symkit.domain.assumption_engine import AssumptionEngine
-from symkit.domain.derivation_goal import DerivationGoal, parse_target_expression
+from symkit.domain.derivation_goal import (
+    DerivationGoal,
+    narrow_target_variables,
+    parse_target_expression,
+    target_variables_reached,
+)
 from symkit.domain.derivation_pattern import DerivationPattern
 from symkit.domain.derivation_planner import DerivationPlanner
 from symkit.domain.expr_io import safe_load_expression
+from symkit.domain.final_result import (
+    candidate_names,
+    headline_fallback,
+    suspect_identity_steps,
+    suspect_identity_warning,
+    symbol_names,
+)
 from symkit.domain.formula import Formula, FormulaParser, FormulaSource, ParseError
 from symkit.domain.formula_recommender import (
     FormulaRecommender,
@@ -369,10 +381,6 @@ class DerivationSession:
             self.save()
 
         return step
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # Core operations
-    # ═══════════════════════════════════════════════════════════════════════
 
     def load_formula(
         self,
@@ -887,28 +895,17 @@ class DerivationSession:
     def representative_expression(self) -> sp.Basic | None:
         """The step output that best represents this derivation's outcome.
 
-        Numeric closing steps (evalf probes, residual checks) legitimately move
-        the current expression to a float or ``0``; a formula saved from that
-        trailing constant is useless (run-008 saved ``3.15594676761190`` and
-        run-009 would have saved ``0``).
+        Numeric closing steps (evalf probes) move the current expression to a
+        float or ``0``; a trailing constant is useless (run-008), but an exact
+        ``0`` convergence self-check *is* the conclusion (r14 task-08).
 
         Selection order:
 
-        1. The last symbolic step output that *involves a goal target
-           variable* — a free symbol name, an applied-function name (``V(t)``
-           satisfies target ``"V"``), or the lhs of an Equality (run-011/
-           run-012: unrelated post-derivation probes were saved instead).
-           CUSTOM steps (manual ``session_record_step`` entries) are eligible
-           here: the final binding ``Eq(v_rms, ...)`` is often recorded by
-           hand (run-015), and target matching is a strong enough signal.
-        2. The last symbolic step output in the derivation *lineage*: walking
-           forward from the first symbolic step, a step joins the lineage when
-           it shares at least one symbol with it.  Steps introducing only
-           disjoint symbols are tangential probes (run-013: the agent derived
-           ``sqrt(3*k_B*T/m)`` without ever naming it ``v_rms``, so target
-           matching could not fire, and the ``exp(x)`` limit probe won).
-           CUSTOM steps are excluded here — notes must not extend the lineage.
-        3. The last symbolic step output at all, then the current expression.
+        1. An exact constant-zero output.
+        2. The last symbolic output involving a goal target variable — free
+           symbol, applied-function name, Equality lhs, or CUSTOM final binding
+           (run-011/012/015).
+        3. The last lineage output, else the last symbolic output, else the current expression.
         """
         targets: list[str] = []
         if self.goal is not None and self.goal.target_variables:
@@ -920,16 +917,20 @@ class DerivationSession:
             out = safe_load_expression(
                 step.output_expression, step.output_srepr
             )
-            if out is None or not out.free_symbols:
+            if out is None:
                 continue
-            candidates.append((out, self._symbol_names(out), is_custom))
+            if not out.free_symbols:
+                if out == 0:
+                    return out
+                continue
+            candidates.append((out, symbol_names(out), is_custom))
 
         if not candidates:
             return self.current_expression
 
         if targets:
             for out, _names, _is_custom in reversed(candidates):
-                if set(targets) & self._candidate_names(out, _names):
+                if set(targets) & candidate_names(out, _names):
                     return out
 
         lineage: set[str] = set()
@@ -943,22 +944,6 @@ class DerivationSession:
         if lineage_members:
             return lineage_members[-1]
         return candidates[-1][0]
-
-    @staticmethod
-    def _symbol_names(expr: sp.Basic) -> set[str]:
-        """Names of free symbols plus applied-function names (``V(t)`` → ``V``)."""
-        from sympy.core.function import AppliedUndef
-
-        names = {str(s) for s in expr.free_symbols}
-        names.update(str(f.func) for f in expr.atoms(AppliedUndef))
-        return names
-
-    @classmethod
-    def _candidate_names(cls, expr: sp.Basic, names: set[str]) -> set[str]:
-        """Candidate name set extended with the Equality lhs (string form)."""
-        if isinstance(expr, sp.Equality):
-            names = names | {str(expr.lhs)}
-        return names
 
     def verify_step(self, step_number: int) -> dict[str, Any]:
         """Re-verify a single step.
@@ -1014,6 +999,7 @@ class DerivationSession:
             "inconclusive": 0,
             "failed_steps": [],
             "inconclusive_steps": [],
+            "suspect_identity_steps": [],
             "assumption_conflicts": self.assumption_engine.detect_conflicts(),
         }
 
@@ -1051,11 +1037,13 @@ class DerivationSession:
         else:
             summary["overall"] = "inconclusive"
 
-        return summary
+        # Disclose flagged identities without touching the failed-driven overall.
+        flagged = suspect_identity_steps(self.steps)
+        summary["suspect_identity_steps"] = flagged
+        if flagged:
+            summary["warnings"] = [suspect_identity_warning(flagged)]
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # Goal awareness
-    # ═══════════════════════════════════════════════════════════════════════
+        return summary
 
     def set_goal(self, goal: DerivationGoal) -> None:
         """Set the derivation goal."""
@@ -1126,6 +1114,24 @@ class DerivationSession:
             return is_numerically_zero(sp.simplify(current - target))
         except Exception:
             return False
+
+    def _target_coverage(self, current: sp.Basic) -> tuple[list[str], set[str], bool]:
+        symbols: list[set[str]] = []
+        verified: list[set[str]] = []
+        for step in self.steps:
+            out = safe_load_expression(step.output_expression, step.output_srepr)
+            if out is None or not out.free_symbols:
+                continue
+            names = {str(s) for s in out.free_symbols}
+            symbols.append(names)
+            try:
+                if verification_result_from_json(step.verification_result).is_verified:
+                    verified.append(names)
+            except (TypeError, ValueError):
+                continue
+        targets = narrow_target_variables(self.goal.target_variables if self.goal else [], symbols)
+        seen = {str(s) for s in current.free_symbols} | set().union(*symbols)
+        return targets, set(targets) - seen, target_variables_reached(targets, verified)
 
     def compute_progress(self) -> dict[str, Any]:
         """Compute progress of the current expression relative to the goal."""
@@ -1209,25 +1215,19 @@ class DerivationSession:
             else:
                 gaps.append("No initial expression to compare")
 
-        # Variable coverage: a target variable counts as covered when it appears
-        # in ANY step output or the current expression, not just the final one
-        # (intermediate-step symbols were falsely reported missing — run-002).
-        if self.goal.target_variables:
-            step_vars: set[str] = {str(s) for s in current.free_symbols}
-            for step in self.steps:
-                out = safe_load_expression(step.output_expression, step.output_srepr)
-                if out is not None:
-                    step_vars |= {str(s) for s in out.free_symbols}
-            missing = set(self.goal.target_variables) - step_vars
+        # Target coverage: narrowed to the chain's symbols; any verified step
+        # covering every target marks the goal reached even when final is 0.
+        targets, missing, reached = self._target_coverage(current)
+        if targets:
             if missing:
                 gaps.append(f"Missing target variables: {', '.join(sorted(missing))}")
-            elif not matches:
+            else:
+                matches = matches or reached
                 score = max(score, 0.7)
             if not self.goal.target_expression and not (
                 self.goal.target_form or ""
             ).startswith("solve_for_"):
-                covered = 1.0 - len(missing) / max(len(self.goal.target_variables), 1)
-                score = max(score, 0.7 * covered)
+                score = max(score, 0.7 * (1.0 - len(missing) / max(len(targets), 1)))
 
         return {
             "has_goal": True,
@@ -1237,17 +1237,9 @@ class DerivationSession:
             "remaining_gaps": gaps,
         }
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # Session management
-    # ═══════════════════════════════════════════════════════════════════════
-
     def get_steps(self) -> list[dict[str, Any]]:
         """Get all steps."""
         return [s.to_dict() for s in self.steps]
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # Step CRUD operations
-    # ═══════════════════════════════════════════════════════════════════════
 
     def get_step(self, step_number: int) -> dict[str, Any]:
         """
@@ -1512,10 +1504,8 @@ class DerivationSession:
     def complete(self, require_target_match: bool = False) -> dict[str, Any]:
         """Complete the derivation.
 
-        Args:
-            require_target_match: If True, the derivation will only be marked as
-                COMPLETED when the current expression matches the goal target.
-                Otherwise it is paused and the call reports a failure.
+        With ``require_target_match`` the session pauses (and reports failure)
+        unless the current expression matches the goal target.
         """
         if self.current_expression is None:
             return {
@@ -1523,19 +1513,19 @@ class DerivationSession:
                 "error": "No result expression. Perform some derivation steps first.",
             }
 
-        outcome = self.outcome_expression()
         verification_summary = self.verify_derivation()
+        outcome, headline_fields = headline_fallback(
+            self.outcome_expression(), self.steps, verification_summary.get("failed_steps") or []
+        )
         progress = self.compute_progress()
         target_reached = bool(progress.get("matches_target"))
 
         warnings: list[str] = []
         if not target_reached:
             warnings.append("Current expression does not match the derivation target.")
-        if verification_summary.get("overall") != "verified":
-            warnings.append(
-                f"Verification status is '{verification_summary.get('overall')}'; "
-                "review the derivation before using it."
-            )
+        overall = verification_summary.get("overall")
+        if overall != "verified":
+            warnings.append(f"Verification status is '{overall}'; review the derivation before using it.")
 
         if require_target_match and not target_reached:
             self.status = SessionStatus.PAUSED
@@ -1554,6 +1544,7 @@ class DerivationSession:
                 "progress": progress,
                 "target_reached": target_reached,
                 "warnings": warnings,
+                **headline_fields,
             }
 
         self.status = SessionStatus.COMPLETED
@@ -1575,6 +1566,7 @@ class DerivationSession:
             "progress": progress,
             "target_reached": target_reached,
             "warnings": warnings,
+            **headline_fields,
             "provenance": {
                 "created_at": self.created_at,
                 "completed_at": self.updated_at,

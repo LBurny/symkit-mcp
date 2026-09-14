@@ -238,6 +238,12 @@ class DerivationGoal:
         # stripped first — otherwise the trailing "'s" surfaces as a ghost
         # single-letter variable ``s`` (run-021).
         text = re.sub(r"\b([A-Za-z]+)'[sS]\b", r"\1", text)
+        # Expression notation, not target variables (r14 task-06/07/08 phantoms):
+        # differential operators (``d f/dv``), derivative subscripts (``u_tt``,
+        # ``u_xx``), and applied-function names (``u(x,t)``).
+        text = re.sub(r"\b[A-Za-z]\s*\w*\s*/\s*d\s*[A-Za-z]+", " ", text)
+        text = re.sub(r"\b[A-Za-z]_([A-Za-z])\1+\b", " ", text)
+        text = re.sub(r"\b[A-Za-z]+\s*(?=\()", " ", text)
         ascii_candidates = re.findall(
             r"\b([a-zA-Z](?:_[a-zA-Z0-9]+)?|[a-zA-Z][a-zA-Z0-9]+(?:_[a-zA-Z0-9]+)+)\b",
             text,
@@ -289,6 +295,39 @@ class DerivationGoal:
             if kw in lowered:
                 found.append(kw)
         return found
+
+
+def narrow_target_variables(
+    targets: list[str], step_symbols: list[set[str]]
+) -> list[str]:
+    """Narrow goal targets to symbols the derivation chain actually manipulates.
+
+    Prose extraction produced phantom targets — derivative tokens (``u_tt``),
+    function names, stray articles — that left progress at 0 while every step
+    verified (r14 task-06/07/08).  Keep only targets appearing as a free symbol
+    in the first non-empty step symbol set; when that intersection is empty
+    (e.g. a derived name), fall back to the union of all sets.  Targets found
+    nowhere in the chain are left untouched so an explicit override keeps its
+    meaning.
+    """
+    if not targets or not step_symbols:
+        return targets
+    first = next((symbols for symbols in step_symbols if symbols), set())
+    narrowed = [t for t in targets if t in first]
+    if narrowed:
+        return narrowed
+    union: set[str] = set()
+    for symbols in step_symbols:
+        union |= symbols
+    return [t for t in targets if t in union] or targets
+
+
+def target_variables_reached(
+    targets: list[str], step_symbols: list[set[str]]
+) -> bool:
+    """True when a single step's free symbols cover every target name."""
+    wanted = set(targets)
+    return bool(wanted) and any(wanted <= symbols for symbols in step_symbols)
 
 
 def parse_target_expression(expr_str: str) -> sp.Basic | None:

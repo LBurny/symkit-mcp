@@ -28,6 +28,11 @@ from symkit.infrastructure.derivation_repository import (
     get_repository,
 )
 from symkit.infrastructure.formula_identity import staging_id
+from symkit_mcp.tools import _unit_context
+from symkit_mcp.tools._formula_governance import (
+    build_auto_variables,
+    similar_to,
+)
 from symkit_mcp.tools._session_views import (
     render_empty_session,
     render_session_header,
@@ -304,7 +309,7 @@ def register_session_tools(mcp: Any) -> None:
             result["warnings"] = [unknown_pattern_warning(pattern, session.pattern.value)]
         return result
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Session Management"})
     def session_resume(session_id: str) -> dict[str, Any]:
         """
         Resume a suspended derivation session
@@ -339,7 +344,7 @@ def register_session_tools(mcp: Any) -> None:
         "message": "Session resumed. Continue with math(session=True).",
     }
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Session Management"})
     def session_status() -> dict[str, Any]:
         """Get the current session status."""
         session = get_session()
@@ -558,13 +563,7 @@ def register_session_tools(mcp: Any) -> None:
             all_assumptions = list(session.goal.assumptions) if session.goal else []
             for step in session.steps:
                 all_assumptions.extend(step.assumptions)
-            # Deduplicate while preserving order
-            seen: set[str] = set()
-            unique_assumptions = []
-            for a in all_assumptions:
-                if a not in seen:
-                    seen.add(a)
-                    unique_assumptions.append(a)
+            unique_assumptions = list(dict.fromkeys(all_assumptions))
             lines.append(f"\n**All recorded assumptions:** {', '.join(unique_assumptions) if unique_assumptions else 'None'}")
         elif focus == "steps":
             lines.append("\n_Focus on steps shown above._")
@@ -592,7 +591,7 @@ def register_session_tools(mcp: Any) -> None:
             "display_text": display_text,
         }
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Session Management"})
     def session_complete(
         description: str = "",
         application_context: str = "",
@@ -674,10 +673,7 @@ def register_session_tools(mcp: Any) -> None:
                     name=session.name,
                     expression=str(saved_expr),
                     latex=sp.latex(saved_expr),
-                    variables={
-                        str(s): {"description": "", "unit": ""}
-                        for s in saved_expr.free_symbols
-                    },
+                    variables=build_auto_variables(saved_expr, session),
                     derived_from=list(session.formulas.keys()),
                     derivation_steps=[step["description"] for step in result["steps"]],
                     assumptions=_as_str_list(assumptions),
@@ -705,16 +701,19 @@ def register_session_tools(mcp: Any) -> None:
                 warnings.append(f"Completed but save failed: {e}")
 
         set_session(None)
-        if saved_path:
+        if saved_path and saved_expression_str:
             result["saved_to"] = str(saved_path)
             result["saved_id"] = saved_id
             result["saved_expression"] = saved_expression_str
             result["message"] = f"Derivation completed and saved to {saved_path}"
+            similar = similar_to(saved_expression_str, saved_id)
+            if similar:
+                result["similar_to"] = similar
         if warnings:
             result["warnings"] = warnings
         return result
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Session Management"})
     def session_rollback(to_step: int) -> dict[str, Any]:
         """
         Roll back to the specified step
@@ -733,7 +732,7 @@ def register_session_tools(mcp: Any) -> None:
             return {"success": False, "error": "No active session."}
         return session.rollback_to_step(to_step)
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Session Management"})
     def session_abort() -> dict[str, Any]:
         """
         Suspend the current derivation (session is saved to disk)
@@ -753,7 +752,7 @@ def register_session_tools(mcp: Any) -> None:
             "session_id": session_id,
         }
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Session Management"})
     def session_add_note(
         note: str,
         note_type: str = "observation",
@@ -781,7 +780,7 @@ def register_session_tools(mcp: Any) -> None:
             related_variables=_as_str_list(related_variables),
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Session Management"})
     def session_list() -> dict[str, Any]:
         """List all saved derivation sessions."""
         manager = get_manager()
@@ -843,7 +842,7 @@ def register_session_tools(mcp: Any) -> None:
             result.setdefault("warnings", []).append(
                 f"Unknown source '{unknown_source}'; recorded as '{formula_source.value}'."
             )
-        return result
+        return _unit_context.with_unit_warnings(session, result)
 
     @mcp.tool(
         meta={
@@ -1041,7 +1040,7 @@ def register_session_tools(mcp: Any) -> None:
 
     @mcp.tool(
         meta={
-            "category": "Session Management",
+            "category": "Verification",
             "example": "session_verify_step(1)",
         }
     )
@@ -1062,11 +1061,11 @@ def register_session_tools(mcp: Any) -> None:
             }
         if step_number <= 0:
             step_number = len(session.steps)
-        return session.verify_step(step_number)
+        return _unit_context.verify_step_with_dimensions(session, step_number)
 
     @mcp.tool(
         meta={
-            "category": "Session Management",
+            "category": "Verification",
             "example": "session_verify_session()",
         }
     )
@@ -1082,5 +1081,6 @@ def register_session_tools(mcp: Any) -> None:
                 "success": False,
                 "error": "No active session. Use session_start() first.",
             }
+        _unit_context.apply_dimension_checks(session)
         summary = _verification_summary(session)
         return {"success": True, **summary}

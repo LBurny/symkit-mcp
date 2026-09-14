@@ -369,3 +369,24 @@ class TestStrRoundTrip:
         assert err2 is None, err2
         assert e2 is not None
         assert sp.srepr(e1) == sp.srepr(e2)
+
+
+class TestEngineeringSymbolNames:
+    """Q (heat) and O must work as variables, like E/I already do.
+
+    ``Q`` is a SymPy assumptions singleton and ``O`` the Big-O class; without
+    reserved-name protection ``Q = m*cp*dT`` failed with a raw
+    ``AssumptionKeys object at 0x...`` message.
+    """
+
+    def test_heat_symbol_q_parses(self) -> None:
+        expr, error = parse_user_expression("Q - m*cp*dT")
+        assert error is None, error
+        assert expr is not None
+        assert {s.name for s in expr.free_symbols} >= {"Q", "m", "cp", "dT"}
+
+    def test_big_o_still_means_big_o(self) -> None:
+        expr, error = parse_user_expression("O(x**2)")
+        assert error is None, error
+        assert expr is not None
+        assert "O(" in str(expr)  # call site keeps SymPy's Big-O semantics

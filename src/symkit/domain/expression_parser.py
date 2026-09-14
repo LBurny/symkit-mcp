@@ -44,97 +44,33 @@ TRANSFORMATIONS = standard_transformations + (
 # These were previously duplicated in math.py, derivation.py and expression.py.
 _UNICODE_REPLACEMENTS: dict[str, str] = {
     # Greek lowercase
-    "α": "alpha",
-    "β": "beta",
-    "γ": "gamma",
-    "δ": "delta",
-    "ε": "epsilon",
-    "ζ": "zeta",
-    "η": "eta",
-    "θ": "theta",
-    "ι": "iota",
-    "κ": "kappa",
-    "λ": "lambda",
-    "μ": "mu",
-    "ν": "nu",
-    "ξ": "xi",
-    "ο": "omicron",
-    "π": "pi",
-    "ρ": "rho",
-    "σ": "sigma",
-    "τ": "tau",
-    "υ": "upsilon",
-    "φ": "phi",
-    "χ": "chi",
-    "ψ": "psi",
-    "ω": "omega",
+    "α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta",
+    "ε": "epsilon", "ζ": "zeta", "η": "eta", "θ": "theta",
+    "ι": "iota", "κ": "kappa", "λ": "lambda", "μ": "mu",
+    "ν": "nu", "ξ": "xi", "ο": "omicron", "π": "pi",
+    "ρ": "rho", "σ": "sigma", "τ": "tau", "υ": "upsilon",
+    "φ": "phi", "χ": "chi", "ψ": "psi", "ω": "omega",
     # Greek uppercase
-    "Α": "Alpha",
-    "Β": "Beta",
-    "Γ": "Gamma",
-    "Δ": "Delta",
-    "Ε": "Epsilon",
-    "Ζ": "Zeta",
-    "Η": "Eta",
-    "Θ": "Theta",
-    "Ι": "Iota",
-    "Κ": "Kappa",
-    "Λ": "Lambda",
-    "Μ": "Mu",
-    "Ν": "Nu",
-    "Ξ": "Xi",
-    "Ο": "Omicron",
-    "Π": "Pi",
-    "Ρ": "Rho",
-    "Σ": "Sigma",
-    "Τ": "Tau",
-    "Υ": "Upsilon",
-    "Φ": "Phi",
-    "Χ": "Chi",
-    "Ψ": "Psi",
-    "Ω": "Omega",
+    "Α": "Alpha", "Β": "Beta", "Γ": "Gamma", "Δ": "Delta",
+    "Ε": "Epsilon", "Ζ": "Zeta", "Η": "Eta", "Θ": "Theta",
+    "Ι": "Iota", "Κ": "Kappa", "Λ": "Lambda", "Μ": "Mu",
+    "Ν": "Nu", "Ξ": "Xi", "Ο": "Omicron", "Π": "Pi",
+    "Ρ": "Rho", "Σ": "Sigma", "Τ": "Tau", "Υ": "Upsilon",
+    "Φ": "Phi", "Χ": "Chi", "Ψ": "Psi", "Ω": "Omega",
     # Common math symbols
-    "∞": "oo",
-    "∂": "d",
-    "∇": "nabla",
-    "±": "+-",
-    "∓": "-+",
-    "×": "*",
-    "÷": "/",
-    "≤": "<=",
-    "≥": ">=",
-    "≠": "!=",
-    "≈": "~",
-    "≡": "==",
-    "√": "sqrt",
-    "'": "_prime",
-    "^": "**",
+    "∞": "oo", "∂": "d", "∇": "nabla", "±": "+-", "∓": "-+",
+    "×": "*", "÷": "/", "≤": "<=", "≥": ">=", "≠": "!=",
+    "≈": "~", "≡": "==", "√": "sqrt", "'": "_prime", "^": "**",
 }
 
 _SUPERSCRIPTS: dict[str, str] = {
-    "⁰": "0",
-    "¹": "1",
-    "²": "2",
-    "³": "3",
-    "⁴": "4",
-    "⁵": "5",
-    "⁶": "6",
-    "⁷": "7",
-    "⁸": "8",
-    "⁹": "9",
+    "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+    "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
 }
 
 _SUBSCRIPTS: dict[str, str] = {
-    "₀": "0",
-    "₁": "1",
-    "₂": "2",
-    "₃": "3",
-    "₄": "4",
-    "₅": "5",
-    "₆": "6",
-    "₇": "7",
-    "₈": "8",
-    "₉": "9",
+    "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+    "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
 }
 
 # Names that SymPy exposes as functions/classes in the default namespace.
@@ -225,14 +161,14 @@ _RESERVED_NAMES: frozenset[str] = frozenset({
     "Beta",
     "Gamma",
     "Lambda",
-    # In a formula-derivation tool, ``E`` and ``I`` are overwhelmingly
-    # variables (Young's modulus, energy, moment of inertia, current), not
-    # Euler's number and the imaginary unit.  SymPy's parser otherwise
-    # silently captures them as constants, which produced a *verified* but
-    # semantically wrong cantilever-beam solution in run-020.  Users who need
-    # the constants can write ``exp(1)`` / ``1j``.
+    # ``E``/``I`` are variables here, not Euler's number / the imaginary unit:
+    # SymPy silently captured them, yielding a *verified* but wrong cantilever
+    # solution (run-020).  ``Q`` (assumptions key holder) and ``O`` (Big-O) sit
+    # in the same trap; ``O(x**2)`` still means Big-O.  Constants: exp(1), 1j.
     "E",
     "I",
+    "Q",
+    "O",
 })
 
 # Constants that should keep their native SymPy meaning. We intentionally do NOT
@@ -592,6 +528,64 @@ def _split_eq_args(expr_str: str) -> tuple[str, str] | None:
     return None
 
 
+def _parse_unevaluated(expr: str, local_dict: dict[str, Any]) -> Any:
+    """Parse with ``evaluate=False``, tolerating SymPy's attribute-chain bug.
+
+    SymPy's ``EvaluateFalseTransformer.flatten`` assumes every operand of a
+    binary operation is a ``Name``/``Call`` and reads ``arg.id``; an attribute
+    method chain such as ``Matrix(...).inv() - Matrix(...).inv()`` therefore
+    raises ``AttributeError: 'Attribute' object has no attribute 'id'``.
+    Attribute chains have no unevaluated form, so fall back to normal
+    evaluation for the whole expression.
+    """
+    try:
+        return parse_expr(
+            expr, local_dict=local_dict, transformations=TRANSFORMATIONS,
+            evaluate=False,
+        )
+    except AttributeError as exc:
+        if "object has no attribute 'id'" not in str(exc):
+            raise
+        return parse_expr(
+            expr, local_dict=local_dict, transformations=TRANSFORMATIONS,
+        )
+
+
+def _evaluate_matrix_powers(expr: sp.Basic) -> sp.Basic:
+    """Fold ``Matrix(...)**n`` powers the parser left as unevaluated ``Pow``.
+
+    ``parse_expr(evaluate=False)`` keeps a matrix power as a bare ``Pow`` whose
+    base is a ``MatrixBase``.  SymPy's assumption machinery then calls
+    ``base - 1`` while probing ``is_zero`` (e.g. for
+    ``Matrix**-1 - Matrix**-1``) and dies with ``unsupported operand type(s)
+    for +: 'ImmutableDenseMatrix' and 'int'``.  Evaluate integer powers here so
+    downstream operations always see a real matrix; unsupported powers fail
+    loud instead of crashing later.
+    """
+    if not isinstance(expr, sp.Basic):
+        return expr
+
+    def _is_matrix_pow(node: sp.Basic) -> bool:
+        return isinstance(node, sp.Pow) and isinstance(node.base, sp.MatrixBase)
+
+    def _replace(node: sp.Basic) -> sp.Basic:
+        assert isinstance(node, sp.Pow)
+        if not node.exp.is_Integer:
+            raise ValueError(
+                f"Matrix power with non-integer exponent '{node.exp}' is not "
+                "supported; use an integer exponent."
+            )
+        try:
+            return node.base.pow(int(node.exp))
+        except Exception as exc:
+            reason = str(exc) or type(exc).__name__
+            raise ValueError(
+                f"Matrix power with exponent {node.exp} is not supported: {reason}"
+            ) from exc
+
+    return expr.replace(_is_matrix_pow, _replace)
+
+
 def parse_expression_string(
     expr_str: str,
     *,
@@ -665,12 +659,7 @@ def parse_expression_string(
             return None, _format_parse_error(exc)
 
     try:
-        expr = parse_expr(
-            processed,
-            local_dict=merged_local_dict,
-            transformations=TRANSFORMATIONS,
-            evaluate=False,
-        )
+        expr = _parse_unevaluated(processed, merged_local_dict)
         # A list-of-lists literal is a matrix (``[[a,b],[c,d]]``).  Matrix
         # operations accepted this shape while ``parse`` rejected it
         # (run-020); unify on ``sp.Matrix``.
@@ -680,7 +669,9 @@ def parse_expression_string(
             and all(isinstance(row, list) for row in expr)
         ):
             expr = sp.Matrix(expr)
-        return _rationalize_unevaluated_divisions(expr), None
+        return _rationalize_unevaluated_divisions(
+            _evaluate_matrix_powers(expr)
+        ), None
     except Exception as exc:  # pragma: no cover - parser raises many types
         return None, _format_parse_error(exc)
 

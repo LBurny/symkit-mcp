@@ -98,22 +98,23 @@ User: Calculate and verify ∫(x² + 3x) dx.
 → Verify: d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 47 MCP tools, one coherent workflow
+## 45 MCP tools, one coherent workflow
 
-SymKit exposes **47 MCP tools** across 8 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
+SymKit exposes **45 MCP tools** across 9 categories. Everything routes through a few high-level tools while power users can drop down to individual steps.
 
 | Category | Tools | Count |
 |---|---|---|
 | **Unified Math** | `math` | 1 |
-| **Session Management** | `session_start`, `session_show`, `session_rollback`, `session_complete`, ... | 17 |
-| **Assumptions** | `assume`, `show_assumptions`, `unassume`, `clear_assumptions`, `assume_for_step`, `list_assumptions`, `check_assumption_conflicts`, `clear_step_assumptions` | 8 |
-| **Formula Search** | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories`, `formula_promote`, `formula_reindex`, `formula_stats` | 8 |
-| **Symbol Registry** | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 |
-| **Code Generation** | `generate_python_function`, `generate_latex_derivation`, `generate_derivation_report`, `generate_sympy_script` | 4 |
-| **Derivation & Orchestration** | `derive`, `intent_execute`, `list_patterns` | 3 |
-| **Tool Discovery** | `tool_categories`, `tool_recommend` | 2 |
+| **Session Management** | `session_start`, `session_show`, `session_rollback`, `session_complete`, ... | 15 |
+| **Verification** | `session_verify_step`, `session_verify_session`, `session_certify`, `check_assumption_conflicts` | 4 |
+| **Assumptions** | `assume`, `show_assumptions`, `assume_for_step`, `list_assumptions`, `clear_step_assumptions`, `unassume`, `clear_assumptions` | 7 |
+| **Formula Library** | `formula_search`, `formula_get`, `formula_add`, `formula_promote`, `formula_remove`, `formula_reindex`, `formula_stats`, `formula_categories` | 8 |
+| **Symbol Semantics** | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 |
+| **Output** | `generate_output` (`format` = `markdown_report` / `latex` / `python` / `sympy_script`) | 1 |
+| **High-Level Orchestration** | `derive`, `intent_execute`, `list_patterns` | 3 |
+| **Meta** | `tool_categories`, `tool_recommend` | 2 |
 
-The `math()` tool alone covers 32 symbolic operations — calculus, ODEs, matrices, vector analysis, integral transforms — and can write its result directly into a derivation session.
+The `math()` tool alone covers 33 symbolic operations — calculus, ODEs, matrices, vector analysis, integral transforms, dimensional analysis — and can write its result directly into a derivation session.
 
 ## Formula library
 
@@ -162,9 +163,13 @@ A derivation in SymKit is a chain of immutable, verifiable steps. You can:
 - **Read** — `session_get_steps`, `session_show`
 - **Annotate** — `session_add_note`
 - **Rollback** — `session_rollback`
-- **Verify** — `session_verify_step`, `session_verify_session`
+- **Verify** — `session_verify_step`, `session_verify_session`, `session_certify`
 
 Expressions are never edited in place. If something goes wrong, roll back to the last good state and continue. This keeps the entire derivation reproducible.
+
+### Optional: Lean 4 kernel certification
+
+`session_certify` re-proves the session's algebraic-equality steps (`simplify` / `expand` / `factor` / `combine` in the rational fragment) with the Lean 4 + Mathlib kernel and records the outcome under each step's `details.lean`. It never changes existing verification verdicts, and `unproven` only means the automation could not close the goal. The feature needs no extra Python packages; run `symkit-lean-setup` once to install the Lean toolchain, and steps dividing by a variable require an explicit `assume(x, nonzero)`-style assumption first.
 
 ## Works with the MCP ecosystem
 
@@ -344,7 +349,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # SymPy engine, adapters, persistence
 │   └── symkit_mcp/          # MCP server layer
 │       ├── server.py
-│       └── tools/           # 47 MCP tools
+│       └── tools/           # 45 MCP tools
 ├── formulas/                # Seed formula library (source tree)
 ├── tests/                   # 643 tests
 └── pyproject.toml

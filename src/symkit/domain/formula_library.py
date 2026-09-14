@@ -39,6 +39,12 @@ from symkit.domain.paths import (
     user_library_dir,
 )
 
+MODELED_FIELDS = frozenset({
+    "id", "name", "sympy_str", "expression", "latex", "domain", "category",
+    "description", "aliases", "tags", "variables", "references", "source_path",
+    "extra",
+})
+
 
 @dataclass
 class FormulaEntry:
@@ -56,6 +62,12 @@ class FormulaEntry:
     variables: dict[str, dict[str, Any]] = field(default_factory=dict)
     references: list[str] = field(default_factory=list)
     source_path: Path | None = None
+    # Keys the entry does not model (verified/verified_at/verification_method,
+    # assumptions, limitations, derivation_steps, derived_from, session_ids,
+    # application_context, ...). Carried through ``from_dict`` → ``to_dict`` so a
+    # rewrite (notably ``formula_promote``) does not silently discard them: the
+    # staging→curated copy used to drop ``verified: true``.
+    extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], source_path: Path | None = None) -> FormulaEntry:
@@ -78,11 +90,20 @@ class FormulaEntry:
             variables=dict(data.get("variables", {}) or {}),
             references=list(data.get("references", []) or []),
             source_path=source_path,
+            extra={
+                key: value
+                for key, value in data.items()
+                if key not in MODELED_FIELDS
+            },
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to a dictionary suitable for YAML output."""
-        return {
+        """Serialize to a dictionary suitable for YAML output.
+
+        Unmodeled keys are re-emitted after the modeled ones so a load→save
+        round trip is lossless.
+        """
+        payload: dict[str, Any] = {
             "id": self.id,
             "name": self.name,
             "aliases": self.aliases,
@@ -95,6 +116,8 @@ class FormulaEntry:
             "variables": self.variables,
             "references": self.references,
         }
+        payload.update(self.extra)
+        return payload
 
     @property
     def search_text(self) -> str:

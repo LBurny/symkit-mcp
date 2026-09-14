@@ -55,7 +55,7 @@ class TestFreshness:
             name="Drag force",
             sympy_str="F_d == 1/2 * rho * v**2 * C_d * A",
             latex="F_d = \\frac{1}{2} \\rho v^2 C_d A",
-            variables={"F_d": {"description": "drag force"}},
+            variables={"F_d": {"description": "drag force", "unit": "N"}},
             category="fluid_dynamics",
         )
         assert added["success"], added
@@ -67,7 +67,7 @@ class TestFreshness:
         mcp = catalog_env.mcp
         mcp.tools["formula_add"](
             id="temp_f", name="Temp formula", sympy_str="a+b", latex="a+b",
-            variables={"a": {}}, category="general",
+            variables={"a": {"unit": "-"}}, category="general",
         )
         removed = mcp.tools["formula_remove"]("temp_f")
         assert removed["success"], removed
@@ -143,7 +143,7 @@ class TestUnsafeIdRejected:
     def test_add_rejects_traversal_id(self, catalog_env, bad_id):
         res = catalog_env.mcp.tools["formula_add"](
             id=bad_id, name="Evil", sympy_str="x = 1", latex="x = 1",
-            variables={"x": {}}, category="lab",
+            variables={"x": {"unit": "-"}}, category="lab",
         )
         assert res["success"] is False, res
         assert "escape" in res["error"].lower() or "unsafe" in res["error"].lower()
@@ -154,7 +154,7 @@ class TestUnsafeIdRejected:
     def test_add_rejects_traversal_category(self, catalog_env):
         res = catalog_env.mcp.tools["formula_add"](
             id="ok_id", name="Evil cat", sympy_str="x = 1", latex="x = 1",
-            variables={"x": {}}, category="../../outside",
+            variables={"x": {"unit": "-"}}, category="../../outside",
         )
         assert res["success"] is False, res
         assert not (catalog_env.curated.parent / "outside").exists()

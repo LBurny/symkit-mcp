@@ -1,6 +1,6 @@
 """Unified Math Tool — SymKit's core computation tool
 
-A single `math()` tool supports 32 mathematical operations,
+A single `math()` tool supports 33 mathematical operations,
 similar to Mathematica's function-call style.
 
 Design:
@@ -43,6 +43,61 @@ def _parse_assumption_clause(a: str) -> tuple[str, dict[str, bool]] | None:
     return None
 
 
+def _apply_call_assumptions(
+    assumptions: list[str] | None, session: bool
+) -> tuple[MathContext | None, dict[str, dict[str, bool]], list[str]]:
+    """Scope per-call assumptions; persist them when ``session=True``.
+
+    With session=true the assumptions persist into the shared context AND the
+    session's assumption engine (so the step verifier can see them); with
+    session=false they apply to THIS call only — the shared context is left
+    untouched, keeping stateless calls side-effect free (run-013).
+    """
+    warnings: list[str] = []
+    applied: dict[str, dict[str, bool]] = {}
+    if not assumptions:
+        return None, applied, warnings
+    ctx = get_context()
+    for clause_text in assumptions:
+        clause = _parse_assumption_clause(clause_text)
+        if clause is None:
+            warnings.append(
+                f"Could not parse assumption '{clause_text}'. "
+                "Use 'x is positive' or 'x positive'."
+            )
+            continue
+        var_name, props_dict = clause
+        ctx = ctx.with_assumption(var_name, **props_dict)
+        applied[var_name] = props_dict
+    if session:
+        set_context(ctx)
+        sess = get_session()
+        if sess is not None:
+            for var_name, props_dict in applied.items():
+                sess.assumption_engine.assume(
+                    var_name, *props_dict, level=AssumptionLevel.SESSION
+                )
+    return ctx, applied, warnings
+
+
+def _render_dimension_display(result: dict[str, Any]) -> str:
+    """Render the ``dimension`` operation's verdict as display text."""
+    status = result.get("consistent")
+    if status is True:
+        label = "✅ dimensionally consistent"
+    elif status is False:
+        label = "❌ dimensionally inconsistent"
+    else:
+        label = "⚠️ dimensionally inconclusive"
+    lines = [f"🔹 **DIMENSION** result: {label}"]
+    issues = result.get("issues") or []
+    if issues:
+        lines.extend(f"- {issue}" for issue in issues)
+    elif result.get("message"):
+        lines.append(f"- {result['message']}")
+    return "\n".join(lines)
+
+
 def register_math_tools(mcp: Any) -> None:
     """Register the unified math() tool and supporting tools."""
 
@@ -66,6 +121,7 @@ def register_math_tools(mcp: Any) -> None:
         assumptions: list[str] | None = None,
         method: str = "auto",
         ics: dict[str, str] | None = None,
+        units: dict[str, str] | None = None,
         session: bool = True,
         description: str = "",
         notes: str = "",
@@ -73,7 +129,7 @@ def register_math_tools(mcp: Any) -> None:
         """
         Run mathematical operations (unified Mathematica-style tool).
 
-        SymKit's core tool: one entry point for the 32 operations below,
+        SymKit's core tool: one entry point for the 33 operations below,
         covering derivation, calculation, solving, and transformation.
 
         **Supported operations (operation):**
@@ -82,6 +138,7 @@ def register_math_tools(mcp: Any) -> None:
         |------|------|------|
         | Parse | `parse` | Parse expression and extract symbols |
         | Numeric | `evalf` | Numeric floating-point evaluation |
+        | Dimension | `dimension` | Check dimensional consistency (units optional) |
         | Simplify | `simplify` | General simplification |
         | | `expand` | Expand polynomial |
         | | `factor` | Factorization |
@@ -132,6 +189,9 @@ def register_math_tools(mcp: Any) -> None:
             method: Simplification method "auto", "trig", "radical", "expand_then_simplify"
             ics: Initial conditions for dsolve {"V(0)": "V_0"} — keys are the
                 dependent function applied to a point, values are expressions
+            units: Unit mapping for the `dimension` operation {"rho": "kg/m^3"}.
+                Explicit units take priority over session formula units and
+                registered symbol default units.
             session: True=record to derivation session, False=stateless computation
             description: Description of this step (used when recording to session)
             notes: Human insight (used when recording to session)
@@ -163,37 +223,12 @@ def register_math_tools(mcp: Any) -> None:
         """
         preprocessed = _preprocess(expression)
 
-        # Per-call assumption scoping: with session=true the assumptions
-        # persist into the shared context AND the session's assumption engine
-        # (so the step verifier can see them); with session=false they apply
-        # to THIS call only — the shared context is left untouched, keeping
-        # stateless calls side-effect free (run-013).  Cross-session globals
-        # are set explicitly via assume().
-        assumption_warnings: list[str] = []
-        applied_assumptions: dict[str, dict[str, bool]] = {}
-        call_context: MathContext | None = None
-        if assumptions:
-            ctx = get_context()
-            for a in assumptions:
-                clause = _parse_assumption_clause(a)
-                if clause is None:
-                    assumption_warnings.append(
-                        f"Could not parse assumption '{a}'. "
-                        "Use 'x is positive' or 'x positive'."
-                    )
-                    continue
-                var_name, props_dict = clause
-                ctx = ctx.with_assumption(var_name, **props_dict)
-                applied_assumptions[var_name] = props_dict
-            call_context = ctx
-            if session:
-                set_context(ctx)
-                sess = get_session()
-                if sess is not None:
-                    for var_name, props_dict in applied_assumptions.items():
-                        sess.assumption_engine.assume(
-                            var_name, *props_dict, level=AssumptionLevel.SESSION
-                        )
+        # Per-call assumption scoping (see _apply_call_assumptions).
+        (
+            call_context,
+            applied_assumptions,
+            assumption_warnings,
+        ) = _apply_call_assumptions(assumptions, session)
 
         # Execute the operation
         result = _execute_operation(
@@ -208,6 +243,7 @@ def register_math_tools(mcp: Any) -> None:
             upper=upper,
             method=method,
             ics=ics,
+            units=units,
             assumption_context=call_context,
         )
 
@@ -227,9 +263,13 @@ def register_math_tools(mcp: Any) -> None:
 
         # Build display text
         if result["success"]:
-            latex_str = result.get("latex", "")
-            op_tag = operation.upper()
-            display = f"🔹 **{op_tag}** result:\n\n$${latex_str}$$"
+            if operation == "dimension":
+                display = _render_dimension_display(result)
+            else:
+                display = (
+                    f"🔹 **{operation.upper()}** result:\n\n"
+                    f"$${result.get('latex', '')}$$"
+                )
             result["display_text"] = display
 
             # Record to derivation session if requested
@@ -317,7 +357,7 @@ def register_math_tools(mcp: Any) -> None:
 
     @mcp.tool(
         meta={
-            "category": "Unified Math",
+            "category": "Assumptions",
             "example": 'assume({"x": "positive", "t": "real"})',
         }
     )
@@ -374,7 +414,7 @@ def register_math_tools(mcp: Any) -> None:
 
     @mcp.tool(
         meta={
-            "category": "Unified Math",
+            "category": "Assumptions",
             "example": "show_assumptions()",
         }
     )

@@ -1,0 +1,219 @@
+"""Regression tests for the simplify/expand ``suspect_identity`` semantics.
+
+Black-box round 14 (task-11): the per-step verifier only checked operator
+fidelity — that ``simplify``/``expand`` faithfully rewrote its recorded input —
+so a recorded difference ``A - B`` whose simplification came out nonzero
+(``-8*sin(x)**4 + 6*sin(x)**2``, or the probe residual ``-2``) was still
+stamped ``verified: expressions are equal`` and read as "this step is
+mathematically correct".
+
+Black-box round 15 (task-13) split that flag in two, because "simplify failed to
+reach zero" is *not* "the identity is false":
+
+* ``suspect_identity == "numeric"`` — a rational substitution makes the
+  residual clearly nonzero, so the asserted identity is confirmed false;
+* ``suspect_identity == "unreduced"`` — the residual never reduced, but
+  substitution is infeasible or lands on zero, so the identity is unproven, not
+  disproven.  The polarity stays ``verified`` in both cases.
+
+The difference detection is deliberately conservative: an ordinary sum
+(``x**2 + x``, ``x**2 - 1``), a difference whose negated term is a bare symbol
+or a pure number, and a faithfully simplified arithmetic expression must never
+be marked suspect.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from symkit.domain.derivation_session import DerivationStep, OperationType
+from symkit.domain.expression_parser import parse_expression_string
+from symkit.domain.step_verifier import StepVerifier
+from symkit.domain.value_objects import VerificationStatus
+
+
+@pytest.fixture
+def verifier():
+    return StepVerifier()
+
+
+def _make_step(
+    operation: OperationType,
+    input_expression: str,
+    output_expression: str,
+    sympy_command: str = "",
+) -> DerivationStep:
+    return DerivationStep(
+        step_number=1,
+        operation=operation,
+        description="suspect-identity test step",
+        input_expressions={"original": input_expression},
+        output_expression=output_expression,
+        output_latex=output_expression,
+        sympy_command=sympy_command,
+    )
+
+
+def _make_archived_step(
+    operation: OperationType,
+    input_expression: str,
+    output_expression: str,
+) -> DerivationStep:
+    """Mirror the live recorder: ``input_srepr`` carries the live parsed input."""
+    import sympy as sp
+
+    parsed, _ = parse_expression_string(input_expression, convert_equation=True)
+    output, _ = parse_expression_string(output_expression, convert_equation=True)
+    return DerivationStep(
+        step_number=1,
+        operation=operation,
+        description="archived suspect-identity test step",
+        input_expressions={"original": str(parsed)},
+        output_expression=output_expression,
+        output_latex=output_expression,
+        sympy_command="",
+        input_srepr=sp.srepr(parsed),
+        output_srepr=sp.srepr(output),
+    )
+
+
+class TestSuspectIdentity:
+    def test_nonzero_residual_on_difference_is_suspect(self, verifier):
+        # task-11 E2: cos(2x) = 1 - 2*sin(2x)**2 is false; the faithful
+        # simplification is the nonzero residual -8 sin^4 x + 6 sin^2 x.
+        step = _make_step(
+            OperationType.SIMPLIFY,
+            "cos(2*x) - (1 - 2*sin(2*x)**2)",
+            "-8*sin(x)**4 + 6*sin(x)**2",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED  # polarity unchanged
+        assert result.details.get("suspect_identity") == "numeric"
+        assert "FALSE (confirmed by numeric substitution)" in result.message
+        assert "matches the recomputed operator result" in result.message
+
+    def test_false_identity_residual_minus_two_is_suspect(self, verifier):
+        # task-11 probe: cos(4x) - (8 sin^4 - 8 sin^2 + 3) simplifies to -2.
+        step = _make_step(
+            OperationType.SIMPLIFY,
+            "cos(4*x) - (8*sin(x)**4 - 8*sin(x)**2 + 3)",
+            "-2",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.details.get("suspect_identity") == "numeric"
+        assert "FALSE (confirmed by numeric substitution)" in result.message
+
+    def test_zero_residual_on_difference_is_not_suspect(self, verifier):
+        # cos(2x) = cos^2 x - sin^2 x is a true identity: output 0.
+        step = _make_step(
+            OperationType.SIMPLIFY,
+            "cos(2*x) - (cos(x)**2 - sin(x)**2)",
+            "0",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert "suspect_identity" not in result.details
+        assert result.message.endswith("output matches the recomputed operator result")
+
+    def test_expand_nonzero_difference_is_suspect(self, verifier):
+        step = _make_step(
+            OperationType.EXPAND,
+            "(x + y)**2 - x**2 - y**2",
+            "2*x*y",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert result.details.get("suspect_identity") == "numeric"
+        assert "FALSE (confirmed by numeric substitution)" in result.message
+
+    def test_surd_difference_is_confirmed_false(self, verifier):
+        # task-13 #6: sqrt(a^2 + b^2) = a + b is false (a=3, b=4 -> -2).
+        step = _make_step(
+            OperationType.SIMPLIFY,
+            "sqrt(a**2 + b**2) - (a + b)",
+            "-a - b + sqrt(a**2 + b**2)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.details.get("suspect_identity") == "numeric"
+        assert "FALSE (confirmed by numeric substitution)" in result.message
+
+    def test_unevaluated_derivative_difference_is_unreduced(self, verifier):
+        # task-02/13: the residual is symbolically nonzero only because the
+        # Derivative never evaluated; substitution cannot sample f(2), so the
+        # verdict must be "unproven, not disproven" — never FALSE.
+        step = _make_step(
+            OperationType.SIMPLIFY,
+            "Derivative(f(x), x) - cos(x)",
+            "Derivative(f(x), x) - cos(x)",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert result.details.get("suspect_identity") == "unreduced"
+        assert "unproven, not disproven" in result.message
+        assert "FALSE" not in result.message
+
+    def test_euler_alias_difference_is_not_marked(self, verifier):
+        # task-03 step 64: the parser protects ``E`` as a symbol, so the literal
+        # expression is -E + e.  The negated term is a bare symbol: the verifier
+        # cannot call this a false identity, and it must not.
+        step = _make_step(
+            OperationType.SIMPLIFY, "-E + exp(1)", "-E + exp(1)"
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert "suspect_identity" not in result.details
+        assert "FALSE" not in result.message
+
+    def test_numeric_arithmetic_difference_is_not_marked(self, verifier):
+        # task-06 step 9: 6x*6y - 1*(-3)^2 -> 36xy - 9 is a faithful
+        # simplification, not a proposition.  The negated term is purely
+        # numeric, so it must not be read as an identity claim.
+        step = _make_archived_step(
+            OperationType.SIMPLIFY,
+            "6*x*6*y - 1*(-3)**2",
+            "36*x*y - 9",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert "suspect_identity" not in result.details
+
+    @pytest.mark.parametrize(
+        "input_expression, output_expression",
+        [
+            ("x**2 + x", "x*(x + 1)"),
+            ("x**2 + 1", "x**2 + 1"),
+            ("x**2 - 1", "(x - 1)*(x + 1)"),
+            ("2*x + 1", "2*x + 1"),
+        ],
+    )
+    def test_non_difference_forms_are_not_marked(
+        self, verifier, input_expression, output_expression
+    ):
+        step = _make_step(OperationType.SIMPLIFY, input_expression, output_expression)
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert "suspect_identity" not in result.details
+        assert result.message.endswith("output matches the recomputed operator result")
+
+
+class TestSuspectIdentityArchived:
+    """The live recorder archives ``input_srepr``; ``safe_load_expression``
+    flattens ``-(A - B)`` on reload, so the detection must read the archive."""
+
+    def test_archived_nonzero_difference_is_suspect(self, verifier):
+        step = _make_archived_step(
+            OperationType.SIMPLIFY,
+            "cos(2*x) - (1 - 2*sin(2*x)**2)",
+            "-8*sin(x)**4 + 6*sin(x)**2",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert result.details.get("suspect_identity") == "numeric"
+        assert "FALSE (confirmed by numeric substitution)" in result.message
+
+    def test_archived_non_difference_not_marked(self, verifier):
+        step = _make_archived_step(
+            OperationType.SIMPLIFY, "x**2 - 1", "(x - 1)*(x + 1)"
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert "suspect_identity" not in result.details

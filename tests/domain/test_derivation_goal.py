@@ -117,3 +117,82 @@ def test_double_quoted_target_expression_still_extracted():
         'derive the range, target "R = v**2*sin(2*theta)/g"'
     )
     assert goal.target_expression == "R = v**2*sin(2*theta)/g"
+
+
+class TestPhantomTargetVariables:
+    """r14: derivative tokens, function names and stray articles leaked into
+    ``target_variables`` and made progress/target_reached contradict a fully
+    verified chain (task-06/07/08)."""
+
+    def test_derivative_subscript_tokens_are_not_targets(self):
+        goal = DerivationGoal.from_text("verify u_tt = c**2*u_xx for the wave equation")
+        assert "u_tt" not in goal.target_variables
+        assert "u_xx" not in goal.target_variables
+
+    def test_differential_operator_is_not_a_target(self):
+        goal = DerivationGoal.from_text("find d f/dv for the distribution f(v)")
+        assert "d" not in goal.target_variables
+        assert "f" not in goal.target_variables
+
+    def test_function_application_name_is_not_a_target(self):
+        goal = DerivationGoal.from_text("verify that u(x,t) satisfies the wave equation")
+        assert "u" not in goal.target_variables
+        assert {"x", "t"} <= set(goal.target_variables)
+
+    def test_real_subscript_variables_are_kept(self):
+        goal = DerivationGoal.from_text("derive nu_tilde and c_w1 for the SA model")
+        assert {"nu_tilde", "c_w1"} <= set(goal.target_variables)
+
+
+class TestNarrowedTargetsAndReached:
+    def _session(self, name: str):
+        from symkit.domain.derivation_session import DerivationSession
+
+        return DerivationSession(session_id=name, name=name)
+
+    def test_auto_targets_narrowed_to_chain_symbols(self):
+        session = self._session("narrow")
+        goal = DerivationGoal.from_text(
+            "derive the areal velocity r**2*thetadot/2, a constant"
+        )
+        # Extraction is still heuristic: the article-like ``a`` leaks in.
+        assert "a" in goal.target_variables
+        session.set_goal(goal)
+        session.load_formula("m*r**2*thetadot", formula_id="f1")
+        progress = session.compute_progress()
+        gaps = " ".join(progress["remaining_gaps"])
+        assert "Missing target variables" not in gaps
+
+    def test_verified_step_coverage_reaches_target_when_final_is_zero(self):
+        import json
+
+        import sympy as sp
+
+        from symkit.domain.derivation_session import (
+            DerivationStep,
+            OperationType,
+        )
+
+        session = self._session("zero-reached")
+        goal = DerivationGoal.from_text("verify the wave equation")
+        goal.target_variables = ["c", "x", "t"]
+        session.set_goal(goal)
+        session.steps = [
+            DerivationStep(
+                step_number=1,
+                operation=OperationType.SIMPLIFY,
+                description="verified step covering every target",
+                input_expressions={},
+                output_expression="c*x + t",
+                output_latex="",
+                sympy_command="math('simplify', ...)",
+                verification_result=json.dumps(
+                    {"status": "verified", "message": "", "details": {}}
+                ),
+            )
+        ]
+        session.current_expression = sp.Integer(0)
+
+        progress = session.compute_progress()
+        assert progress["matches_target"] is True
+        assert session.complete(require_target_match=False)["target_reached"] is True

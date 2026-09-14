@@ -98,22 +98,23 @@ SymKit：
 → 验证：d/dx(x³/3 + 3x²/2) = x² + 3x  ✓
 ```
 
-## 47 个 MCP 工具，一套连贯工作流
+## 45 个 MCP 工具，一套连贯工作流
 
-SymKit 提供 **47 个 MCP 工具**，分为 8 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
+SymKit 提供 **45 个 MCP 工具**，分为 9 个类别。日常通过少数高层工具即可完成复杂推导，高级用户也可以精细控制每一步。
 
 | 类别 | 工具 | 数量 |
 |---|---|---|
 | **统一数学** | `math` | 1 |
-| **会话管理** | `session_start`、`session_show`、`session_rollback`、`session_complete` 等 | 17 |
-| **假设管理** | `assume`、`show_assumptions`、`unassume`、`clear_assumptions`、`assume_for_step`、`list_assumptions`、`check_assumption_conflicts`、`clear_step_assumptions` | 8 |
-| **公式搜索** | `formula_search`、`formula_get`、`formula_add`、`formula_remove`、`formula_categories`、`formula_promote`、`formula_reindex`、`formula_stats` | 8 |
-| **符号注册** | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 |
-| **代码生成** | `generate_python_function`、`generate_latex_derivation`、`generate_derivation_report`、`generate_sympy_script` | 4 |
-| **推导与编排** | `derive`、`intent_execute`、`list_patterns` | 3 |
-| **工具发现** | `tool_categories`、`tool_recommend` | 2 |
+| **会话管理** | `session_start`、`session_show`、`session_rollback`、`session_complete` 等 | 15 |
+| **验证** | `session_verify_step`、`session_verify_session`、`session_certify`、`check_assumption_conflicts` | 4 |
+| **假设管理** | `assume`、`show_assumptions`、`assume_for_step`、`list_assumptions`、`clear_step_assumptions`、`unassume`、`clear_assumptions` | 7 |
+| **公式库** | `formula_search`、`formula_get`、`formula_add`、`formula_promote`、`formula_remove`、`formula_reindex`、`formula_stats`、`formula_categories` | 8 |
+| **符号语义** | `register_symbol`、`lookup_symbol`、`list_domain_symbols`、`check_symbol_conflicts` | 4 |
+| **输出** | `generate_output`（`format` = `markdown_report` / `latex` / `python` / `sympy_script`） | 1 |
+| **高层编排** | `derive`、`intent_execute`、`list_patterns` | 3 |
+| **元工具** | `tool_categories`、`tool_recommend` | 2 |
 
-仅 `math()` 一个工具就覆盖 32 种符号运算——微积分、ODE、矩阵、矢量分析、积分变换——并且可以直接把结果写入推导会话。
+仅 `math()` 一个工具就覆盖 33 种符号运算——微积分、ODE、矩阵、矢量分析、积分变换、量纲分析——并且可以直接把结果写入推导会话。
 
 ## 公式库
 
@@ -162,9 +163,13 @@ SymKit 中的推导是一串不可变、可验证的步骤。你可以：
 - **读取** — `session_get_steps`、`session_show`
 - **注释** — `session_add_note`
 - **回滚** — `session_rollback`
-- **验证** — `session_verify_step`、`session_verify_session`
+- **验证** — `session_verify_step`、`session_verify_session`、`session_certify`
 
 表达式不会原地修改。如果出错，回滚到上一个有效状态再继续。这保证了整个推导过程可复现。
+
+### 可选：Lean 4 内核认证
+
+`session_certify` 用 Lean 4 + Mathlib 内核复核会话中的代数等式步骤（有理式片段内的 `simplify` / `expand` / `factor` / `combine`），结果写入各步骤的 `details.lean`。它从不改动既有验证判定，`unproven` 只表示自动化未能闭合目标，不代表步骤错误。该功能不增加任何 Python 依赖；需要时运行一次 `symkit-lean-setup` 安装 Lean 工具链即可。含变量分母的步骤要求先用 `assume(x, nonzero)` 之类的假设声明非零条件。
 
 ## 与 MCP 生态协同
 
@@ -340,7 +345,7 @@ symkit-mcp/
 │   │   └── infrastructure/  # SymPy 引擎、适配器、持久化
 │   └── symkit_mcp/          # MCP 服务器层
 │       ├── server.py
-│       └── tools/           # 47 个 MCP 工具
+│       └── tools/           # 45 个 MCP 工具
 ├── formulas/                # 推导成果仓库
 ├── tests/                   # 643 个测试
 └── pyproject.toml

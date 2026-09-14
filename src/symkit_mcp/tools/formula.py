@@ -14,12 +14,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from symkit.domain.formula import FormulaSource
-from symkit.domain.formula_library import FormulaEntry, FormulaLibrary
+from symkit.domain.formula_library import FormulaEntry
 from symkit.domain.formula_search_query import (
     normalize_formula_search_inputs,
 )
 from symkit.infrastructure.adapters.local_formula import LocalFormulaAdapter
 from symkit.infrastructure.derivation_repository import get_repository
+from symkit_mcp.tools import _formula_governance as gov
 from symkit_mcp.tools._state import get_catalog, get_session
 
 if TYPE_CHECKING:
@@ -63,7 +64,7 @@ def register_formula_tools(mcp: Any) -> None:
     # Local formula search
     # ═══════════════════════════════════════════════════════════════════════
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Formula Library"})
     def formula_search(
         query: str,
         source: str = "local",
@@ -226,7 +227,7 @@ def register_formula_tools(mcp: Any) -> None:
             response["warnings"] = source_errors
         return response
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Formula Library"})
     def formula_get(
         formula_id: str,
         source: str = "local",
@@ -332,9 +333,9 @@ def register_formula_tools(mcp: Any) -> None:
                 response["session_loaded"] = load_result.get("success", False)
                 response["session_load_result"] = load_result
 
-        return response
+        return gov.attach_curated(response, formula_id)
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Formula Library"})
     def formula_add(
         id: str,  # noqa: A002
         name: str,
@@ -362,6 +363,9 @@ def register_formula_tools(mcp: Any) -> None:
             latex: LaTeX representation, e.g. "F_d = \\frac{1}{2} \\rho v^2 C_d A".
             variables: Mapping of symbol names to metadata, e.g.
                        {"rho": {"description": "density", "unit": "kg/m^3"}}.
+                       Every variable requires a non-empty ``unit``; use "-" for
+                       a dimensionless or unknown quantity. Unit strings that
+                       cannot be parsed are kept verbatim with a warning.
             domain: Optional domain tag (e.g., "fluid_dynamics").
             category: Optional category folder name (e.g., "fluid_dynamics").
             description: Optional longer description of the formula.
@@ -375,8 +379,11 @@ def register_formula_tools(mcp: Any) -> None:
                 "success": true,
                 "formula_id": "custom_drag_force",
                 "file_path": "formulas/library/fluid_dynamics/custom_drag_force.yaml",
-                "message": "Formula added to local library."
+                "message": "Formula added to local library.",
+                "similar_to": [{"id", "name", "tier", "score", "match"}]
             }
+
+            ``similar_to`` appears only when a similar formula already exists.
 
         Example:
             formula_add(
@@ -391,7 +398,7 @@ def register_formula_tools(mcp: Any) -> None:
                     "F_d": {"description": "drag force", "unit": "N"},
                     "rho": {"description": "density", "unit": "kg/m^3"},
                     "v": {"description": "velocity", "unit": "m/s"},
-                    "C_d": {"description": "drag coefficient"},
+                    "C_d": {"description": "drag coefficient", "unit": "-"},
                     "A": {"description": "reference area", "unit": "m^2"}
                 },
                 aliases=["drag force", "fluid drag"],
@@ -408,11 +415,14 @@ def register_formula_tools(mcp: Any) -> None:
                 "success": False,
                 "error": "sympy_str is required.",
             }
-        if not variables:
+        if variables is None:
             return {
                 "success": False,
-                "error": "variables must be provided (can be empty {}).",
+                "error": "variables must be provided ({} is allowed with no free symbols).",
             }
+        unit_error, unit_warnings = gov.validate_add_variables(variables)
+        if unit_error:
+            return unit_error
 
         entry = FormulaEntry(
             id=id,
@@ -429,34 +439,17 @@ def register_formula_tools(mcp: Any) -> None:
         )
 
         try:
-            if library_path:
-                # Custom directory: write the YAML only; it is not part of the
-                # default indexed library.
-                FormulaLibrary(library_path).add_or_update(entry)
-            else:
-                get_catalog().add_entry(entry)
+            gov.persist_entry(entry, library_path)
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Failed to save formula: {e}",
             }
-
-        response: dict[str, Any] = {
-            "success": True,
-            "formula_id": id,
-            "file_path": str(entry.source_path) if entry.source_path else None,
-            "message": "Formula added to local library.",
-        }
-        if library_path:
-            response["warning"] = (
-                "Saved to a custom library_path; not visible in the default "
-                "indexed library."
-            )
-        return response
+        return gov.add_response(entry, warnings=unit_warnings, library_path=library_path)
 
     @mcp.tool(
         meta={
-            "category": "Formula Search",
+            "category": "Formula Library",
             "example": 'formula_remove("my_formula_id")',
         }
     )
@@ -513,7 +506,7 @@ def register_formula_tools(mcp: Any) -> None:
             "message": f"Formula removed from: {', '.join(removed_from)}.",
         }
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Formula Library"})
     def formula_categories(
         source: str = "local",
     ) -> dict[str, Any]:
@@ -561,7 +554,7 @@ def register_formula_tools(mcp: Any) -> None:
             "categories": categories,
         }
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Formula Library"})
     def formula_promote(
         formula_id: str,
         new_id: str | None = None,
@@ -577,6 +570,8 @@ def register_formula_tools(mcp: Any) -> None:
         Moves the YAML record from the derived store into the curated library,
         applying any metadata overrides, so the entry ranks above staging copies
         in search results. Seed entries are read-only and cannot be promoted.
+        ``verified`` means the step verifier ran; ``curated`` means a human
+        explicitly promoted the entry into the curated tier.
 
         Args:
             formula_id: Id of the staging formula to promote.
@@ -590,7 +585,7 @@ def register_formula_tools(mcp: Any) -> None:
 
         Returns:
             {"success": true, "formula_id": ..., "tier": "curated",
-             "file_path": ...}
+             "curated": true, "file_path": ...}
 
         Example:
             formula_promote("pendulum-9f3a2c", new_id="pendulum_period",
@@ -616,11 +611,12 @@ def register_formula_tools(mcp: Any) -> None:
             "success": True,
             "formula_id": promoted.id,
             "tier": promoted.tier,
+            "curated": promoted.curated,
             "file_path": promoted.source_path,
             "message": f"Formula promoted to curated tier as '{promoted.id}'.",
         }
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Formula Library"})
     def formula_reindex() -> dict[str, Any]:
         """Rebuild the formula index from the YAML layers.
 
@@ -647,17 +643,18 @@ def register_formula_tools(mcp: Any) -> None:
             "stats": get_catalog().stats(),
         }
 
-    @mcp.tool()
+    @mcp.tool(meta={"category": "Formula Library"})
     def formula_stats() -> dict[str, Any]:
         """Report formula library statistics.
 
         Returns per-tier entry counts (seed / staging / curated), duplicate
-        groups collapsed by content hash, the index file location, and the last
-        sync time.
+        groups collapsed by content hash, alpha-invariant structural duplicate
+        groups, the index file location, and the last sync time.
 
         Returns:
             {"success": true, "total": n, "tiers": {"seed": n, ...},
              "duplicate_groups": n, "duplicate_entries": n,
+             "structural_duplicate_groups": n,
              "index_path": "...", "last_sync": "..."}
         """
         try:
@@ -670,6 +667,7 @@ def register_formula_tools(mcp: Any) -> None:
             "tiers": stats["tiers"],
             "duplicate_groups": stats["duplicate_groups"],
             "duplicate_entries": stats["duplicate_entries"],
+            "structural_duplicate_groups": stats["structural_duplicate_groups"],
             "index_path": stats["path"],
             "last_sync": stats["last_sync"],
         }

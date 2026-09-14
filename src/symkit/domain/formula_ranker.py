@@ -8,6 +8,7 @@ _MATCH_BASE = {
     "exact_id": 1.0,
     "exact_name": 0.95,
     "exact_alias": 0.90,
+    "structural": 0.98,
     "like": 0.35,
     "browse": 0.5,
     "fts": 0.0,  # fts base_score arrives pre-scaled to [0.5, 0.7] by the store
