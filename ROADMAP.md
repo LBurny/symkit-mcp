@@ -6,12 +6,29 @@ SymKit project roadmap and feature planning.
 
 ## Current
 
-**v1.7.0** (2026-09-14) — 45 MCP tools, 33 `math()` operations, 1031 tests.
+**v1.8.0** (2026-09-14) — 45 MCP tools, 33 `math()` operations, 1055 tests.
 See [CHANGELOG.md](CHANGELOG.md) for the release-by-release history.
 
 ---
 
 ## Completed
+
+### 1.8.0 — Lean lane hardening (2026-09-14)
+
+- Lean certification is robust to cancelled runs and misconfigured toolchains:
+  a timeout kills the whole `lake` process tree (no orphan holding the elan
+  lock), `find_lake()` prefers `ELAN_HOME` over `PATH`, and a `lake` whose elan
+  home lacks the pinned toolchain is refused with a directing reason instead of
+  triggering a fresh download.
+- Honest certification reporting: steps whose input and output are identical
+  are reported as `trivial` and excluded from `proven` (the reported session
+  had 11 of 20 theorems vacuous), skipped steps state their reason, and
+  `session_certify(assumptions=...)` binds missing denominator facts at
+  certify time.
+- The verifier no longer reads a leading negated term (`-x**2 + x*(x + 1)`) as
+  an asserted difference, which had flagged a correct simplification with a
+  false `suspect_identity: unreduced` warning.
+- Adds the `sandbox-experiment` agent skill (black-box round playbook).
 
 ### 1.7.0 — Lean certification and write-path governance (2026-09-14)
 

@@ -5,15 +5,16 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.0] - 2026-09-14
 
 A Lean-certification sandbox round (`symkit-mcp-test-lean`) verified the four
-process/report fixes above end to end against the built wheel (all green: the
+process/report fixes below end to end against the built wheel (all green: the
 `trivial` split, the certify-time `assumptions`, the toolchain guard, and the
-tree-kill) and found two further defects, both fixed here. Its deterministic
-probes and two operator cards are the acceptance evidence; the "substitute steps
-are skipped" complaint was re-confirmed as design-as-intended. Test suite grew
-1041 → 1055.
+tree-kill) and found two further defects, both fixed here; it also ships the
+`sandbox-experiment` agent skill (six-step black-box round playbook). Its
+deterministic probes and two operator cards are the acceptance evidence; the
+"substitute steps are skipped" complaint was re-confirmed as design-as-intended.
+Test suite grew 1041 → 1055.
 
 A fourth 2026-09-14 report (a real Lean-certified SST derivation) was
 re-verified against the source: three process/environment defects and two
