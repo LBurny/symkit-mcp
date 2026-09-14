@@ -5,6 +5,76 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+A complex formula/theorem derivation round (`symkit-mcp-test-r17`: 21 cards over
+three lanes plus two real-kernel Lean cards) exercised theorem-level derivations —
+orthogonal-polynomial generating functions, determinant lemmas, Gamma/Beta
+theorems, Laurent and residue work, transform pairs, series asymptotics, Legendre
+duality, Euler/Gibbs–Duhem, the virial theorem, quantum commutators,
+fluctuation–response, Maxwell to wave, relativity invariants, Lean certification
+under side conditions, adversarial claims and an adversarial derivation chain.
+The mathematics was overwhelmingly correct; every defect below is in the
+reporting, recording or verification layer. Test suite grew 1071 to 1087.
+
+### Fixed
+
+- **A derivation that ends by renaming its variables reported the
+  pre-substitution expression.** `representative_expression` built its "lineage"
+  from free-symbol overlap, so a closing `substitute` (`x -> y`) shared no name
+  with the earlier steps and the walk-back delivered the old answer through both
+  reporting exits (`session_show.result_expression` and
+  `session_complete.final_expression`) while the persisted `current_expression`
+  held the correct one. A step that consumed the previous step's output now
+  continues the lineage regardless of symbol names.
+- **A superseded exact `0` no longer becomes the final expression.** The r14 rule
+  ("an exact zero convergence self-check is the conclusion") returned on the
+  *first* zero output, so a mid-derivation residual check hijacked the report of
+  everything that followed it — five cards delivered `0`/`0.0` instead of the
+  result. A zero is the conclusion only when no later symbolic step supersedes it.
+- **A rescaled equation is no longer reported as a failed step.**
+  `sympy.simplify` normalizes an equation by moving everything to one side and
+  dividing by the leading coefficient (`Eq(2*x, 3*x)` returns `Eq(x, 0)`, which
+  flips the sign of `lhs - rhs`); comparing those differences for exact equality
+  called the tool's own output "Simplify changes expression value" and dragged the
+  session to `overall: failed`. Equation differences are now compared up to a
+  nonzero constant factor.
+- **An internal operation failure is a tool result, not a protocol error.**
+  `math("evalf", "isprime(1681)")` raised `'bool' object has no attribute 'evalf'`
+  and `math("simplify", "factorint(1681)")` returned the parsed mapping as if it
+  were a response, so the client saw `KeyError: 'success'`. Exceptions are now
+  caught and reported as `success: false`, and a parse result that is a mapping is
+  rejected with a clear message.
+- **An unknown operation is named as such.** `math("sum", ..., variable="k")`
+  answered "Parameter 'variable' is not used by operation 'sum'" for an operation
+  that does not exist. Unknown operations now reach the dispatcher's own message.
+- **The recorded step input is the string the caller submitted.** The `original`
+  field held `str(parsed_input)`, so `hermite(3, 0.7)` was archived as `-5.656`,
+  `(x+1)*(x-1)` as `(x + 1)*(x - 1*1)` and a residual as `0` — provenance that no
+  longer reproduced the submission. Reported by three cards.
+- **The "contains division" warning now follows the algebra.** It was a substring
+  test on the rendered output, so any fractional coefficient (`4*x**3/3`) raised a
+  denominator warning on an expression with no division at all. The warning now
+  requires a symbolic denominator.
+- **A high-order derivative no longer wedges the server.** The differentiation
+  check reverse-integrates the output once per order, and `sympy.integrate` has no
+  time limit: `math("diff", "(1 - 2*x*t + t**2)**(-1/2)", variable="t", order=4)`
+  returns in 0.02s with `session=False` but blocked every tool for 15+ minutes
+  with the default `session=True` — the second integration of the 701-operation
+  intermediate never returned (r17 task-01). The check now stops past a size
+  budget (`verification_guardrails.INTEGRATION_OPS_CAP`) and reports INCONCLUSIVE;
+  the same call returns in 0.47s. The warning checks moved to that module as well,
+  keeping the frozen verifier at its recorded size.
+
+### Known issues
+
+- `assumptions=["A noncommutative"]` is accepted, echoed back in
+  `assumptions_applied`, and then ignored — symbols stay commutative, so every
+  commutator collapses to `0` and `expand((A+B)**2)` returns the commutative
+  expansion, both marked verified. Repro: `probe/audit7_noncommutative.py` in the
+  r17 lab. Either refuse the property loudly or build
+  `Symbol(..., commutative=False)` end to end.
+
 ## [1.9.0] - 2026-09-14
 
 ### Added
