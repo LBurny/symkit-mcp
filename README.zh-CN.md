@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-1031%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1041%20passed-brightgreen.svg)]()
 
 [English](README.md) | **简体中文**
 
@@ -178,7 +178,7 @@ src/
 │   └── infrastructure/   # SymPy 引擎、Lean 检查器、持久化、适配器
 └── symkit_mcp/           # MCP 服务器层（FastMCP）+ 45 个工具
 formulas/                 # 种子公式库（源码树）
-tests/                    # 1031 个测试
+tests/                    # 1041 个测试
 ```
 
 领域驱动设计：核心逻辑与 MCP、SymPy 解耦；引擎经协议可插拔；公式与会话以可读的 YAML/JSON 持久化。

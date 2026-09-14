@@ -6,6 +6,12 @@ formula library — searchable as a formula whose content is literally ``0`` —
 and a chain carrying unreduced differences (``suspect_identity``) received the
 same ``verified: true`` label.
 
+Second 2026-09-14 turbine round: preferring "the last symbolic derivation
+output" saved verification *probes* (residuals, mid-substitution forms) as the
+formula in two out of two sessions. The library write now skips entirely when
+the outcome is a bare constant; the operator records the real formula with
+``formula_add``.
+
 Display semantics are unchanged: a trailing zero self-check stays the
 ``final_expression`` headline (r14 task-08). Only the library artifact changes.
 """
@@ -42,7 +48,7 @@ def _isolate(tmp_path: Any, monkeypatch: Any) -> None:
 
 
 class TestAutoSaveSkipsBareConstant:
-    def test_trailing_zero_check_saves_symbolic_content(
+    def test_trailing_zero_check_skips_library_write(
         self, fresh_session_manager: Any, tmp_path: Any, monkeypatch: Any
     ) -> None:
         _ = fresh_session_manager
@@ -56,14 +62,14 @@ class TestAutoSaveSkipsBareConstant:
         assert result["success"] is True, result
         # r14 task-08 display semantics keep the zero headline...
         assert result["final_expression"] == "0"
-        # ...but the library artifact is the derivation's symbolic content.
-        assert result["saved_expression"] != "0"
-        assert "P_k" in result["saved_expression"]
-        assert any("bare constant" in w for w in result.get("warnings", []))
-        with open(result["saved_to"], encoding="utf-8") as f:
-            record = yaml.safe_load(f)
-        assert record["expression"] == result["saved_expression"]
-        assert record["verified"] is True
+        # ...and the library write is skipped: the last symbolic output is a
+        # verification probe, not the formula. The operator records the real
+        # formula with formula_add.
+        assert "saved_to" not in result
+        assert any(
+            "auto_save skipped" in w and "formula_add" in w
+            for w in result.get("warnings", [])
+        ), result.get("warnings")
 
     def test_pure_zero_check_session_saves_nothing(
         self, fresh_session_manager: Any, tmp_path: Any, monkeypatch: Any

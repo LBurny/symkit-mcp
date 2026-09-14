@@ -1,9 +1,11 @@
-"""The math dispatcher must consume or explicitly flag every parameter.
+"""The math dispatcher must consume or reject every parameter.
 
 Fail-loud discipline: parameters that do not apply to the requested
-operation produce a warning instead of being silently ignored; assumption
-clauses accept both ``"x is positive"`` and ``"x positive"`` and malformed
-clauses produce warnings rather than vanishing.
+operation fail the call instead of being silently ignored (a warning was not
+loud enough for agent callers — 2026-09-14 turbine round: ``substitution``
+passed to ``expand`` returned a plausible-looking result without it being
+applied); assumption clauses accept both ``"x is positive"`` and
+``"x positive"`` and malformed clauses produce warnings rather than vanishing.
 """
 
 from __future__ import annotations
@@ -73,14 +75,42 @@ def test_malformed_assumption_produces_warning(fresh_session_manager):
     assert any("banana" in w for w in res.get("warnings", []))
 
 
-def test_unused_parameter_produces_warning(fresh_session_manager):
+def test_unconsumed_parameter_rejected(fresh_session_manager):
     _ = fresh_session_manager
     tools = _tools()
     res = tools["math"](
         operation="simplify", expression="x + x", point="3", session=False
     )
-    assert res["success"]
-    assert any("'point'" in w and "simplify" in w for w in res.get("warnings", []))
+    assert res["success"] is False
+    assert "'point'" in res["error"] and "simplify" in res["error"]
+
+
+def test_unconsumed_substitution_rejected(fresh_session_manager):
+    """2026-09-14 turbine round: ``substitution`` passed to expand/simplify was
+    only warned about; the plausible-looking result read as if it had been
+    applied. The call must fail instead."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="expand",
+        expression="(x + 1)**2",
+        substitution={"x": "2"},
+        session=False,
+    )
+    assert res["success"] is False
+    assert "'substitution'" in res["error"] and "expand" in res["error"]
+
+
+def test_consumed_substitution_still_applies(fresh_session_manager):
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="substitute",
+        expression="m*a",
+        substitution={"m": "2", "a": "9.8"},
+        session=False,
+    )
+    assert res["success"], res
 
 
 def test_default_valued_parameters_do_not_warn(fresh_session_manager):

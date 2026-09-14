@@ -216,6 +216,74 @@ class TestStepVerifierEvalfFiniteSum:
         result = verifier.verify_step(step, prior_expr=None)
         assert result.status == VerificationStatus.VERIFIED
 
+
+class TestSubstitutionFloatNoise:
+    """ULP exponent drift between recompute and archive must not fail a step.
+
+    2026-09-14 cf16fab6 step 39: substituting ``gam = 1.4`` into
+    ``(a**(gam/(gam-1)))**((gam-1)/gam)`` archived nested Float powers; the
+    verifier's ``subs`` recompute combined them to a one-ULP-different exponent
+    (``0.99999999999999989`` vs ``1.0``), the residual kept a free symbol, and
+    the numeric-zero gate's no-tolerance branch flipped a correct step to
+    FAILED while the details printed both sides as the same string.
+    """
+
+    INPUT_SREPR = (
+        "Add(Mul(Integer(-1), Symbol('a')), Pow(Pow(Symbol('a'), "
+        "Mul(Symbol('gam'), Pow(Add(Symbol('gam'), Mul(Integer(-1), Integer(1))), "
+        "Integer(-1)))), Mul(Pow(Symbol('gam'), Integer(-1)), "
+        "Add(Symbol('gam'), Mul(Integer(-1), Integer(1))))))"
+    )
+    OUTPUT_SREPR = (
+        "Add(Mul(Integer(-1), Symbol('a')), Pow(Pow(Symbol('a'), "
+        "Float('3.5000000000000004', precision=53)), "
+        "Float('0.2857142857142857', precision=53)))"
+    )
+
+    def _step(self) -> DerivationStep:
+        return DerivationStep(
+            step_number=39,
+            operation=OperationType.SUBSTITUTE,
+            description="substitute gam=1.4 into the nested power identity",
+            input_expressions={
+                "operation": "substitute",
+                "original": "-a + (a**(gam/(gam - 1*1)))**((gam - 1*1)/gam)",
+                "replacement": "gam = 1.4",
+                "replacement_map": '{"gam": "1.4"}',
+            },
+            output_expression="-a + (a**3.5)**0.285714285714286",
+            output_latex="- a + \\left(a^{3.5}\\right)^{0.285714285714286}",
+            sympy_command="math('substitute', ...)",
+            output_srepr=self.OUTPUT_SREPR,
+            input_srepr=self.INPUT_SREPR,
+        )
+
+    def _engine(self) -> AssumptionEngine:
+        engine = AssumptionEngine(domain=MathDomain.FLUID_DYNAMICS)
+        engine.assume("a", "positive")
+        return engine
+
+    def test_ulp_exponent_drift_verifies(self, verifier):
+        result = verifier.verify_step(self._step(), assumption_engine=self._engine())
+        assert result.status == VerificationStatus.VERIFIED, (
+            result.status,
+            result.message,
+            result.details,
+        )
+
+    def test_genuine_mismatch_keeps_failed_with_full_precision_details(
+        self, verifier
+    ):
+        step = self._step()
+        step.output_expression = "-a + (a**3.5)**0.5"
+        step.output_srepr = ""
+        result = verifier.verify_step(step, assumption_engine=self._engine())
+        assert result.status == VerificationStatus.FAILED
+        # Full-precision details: str() rounds precision-53 floats to 15
+        # digits, which made expected and actual print identically.
+        assert "Float" in result.details.get("expected_srepr", "")
+
+
 class TestStepVerifierSubstitute:
     def test_substitute(self, verifier):
         step = _make_step(

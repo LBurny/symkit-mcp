@@ -149,9 +149,10 @@ class TestEquationIdentityThreeState:
         assert result["is_identity"] is False
         assert result["verdict"] == "FALSE"
 
-    def test_unreduced_but_numerically_consistent_is_unknown(self) -> None:
-        # Plain simplify cannot expand cos(6*x), yet sampling says the
-        # difference is zero — unproven, not false.
+    def test_unreduced_but_numerically_consistent_certifies(self) -> None:
+        # Plain simplify cannot expand cos(6*x); sampling inside
+        # is_numerically_zero (2026-09-14 turbine round) now certifies the
+        # numerically-zero difference instead of leaving it UNKNOWN.
         x = sp.Symbol("x")
         result = equation_identity(
             sp.Eq(
@@ -159,9 +160,17 @@ class TestEquationIdentityThreeState:
                 32 * sp.cos(x) ** 6 - 48 * sp.cos(x) ** 4 + 18 * sp.cos(x) ** 2 - 1,
             )
         )
+        assert result["is_identity"] is True
+        assert result["verdict"] == "TRUE"
+
+    def test_unsamplable_difference_stays_unknown(self) -> None:
+        # Undefined functions cannot be sampled: the identity stays UNKNOWN
+        # (unproven, not false) — the three-state contract is preserved.
+        x = sp.Symbol("x")
+        result = equation_identity(sp.Eq(sp.Function("f")(x), x))
         assert result["is_identity"] is None
         assert result["verdict"] == "UNKNOWN"
-        assert "consistent with zero" in result["numeric_evidence"]
+        assert "could not run" in result["numeric_evidence"]
 
 
 class TestDefiniteIntegralNoFalseFailure:

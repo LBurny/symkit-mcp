@@ -608,8 +608,8 @@ def register_session_tools(mcp: Any) -> None:
                 (default True). The session record JSON is always persisted
                 regardless; this flag only controls the formula-library write.
                 A bare-constant outcome (e.g. a trailing ``0`` self-check) is
-                not written as a formula: the last symbolic derivation output
-                is saved instead, or nothing at all (a warning says which).
+                never written as a formula: the write is skipped and the
+                operator records the real formula with ``formula_add``.
             require_target_match: If True, the derivation will only be saved as
                 completed when the current expression matches the goal target.
                 Default is False for backward compatibility, but a warning is

@@ -19,8 +19,33 @@ re-verified six more claims the same way: four were artifacts of the pre-fix
 code, one was a downstream symptom of the content loss, and the remaining live
 bug (the target warning) is fixed here. Test suite grew 997 → 1031.
 
+A third 2026-09-14 turbine report (two sessions, 99 recorded steps) was
+re-verified the same way: two P1 defects are real and fixed here (the
+auto-save probe pollution below, and a verifier false FAILED caused by
+one-ULP float drift), the "aggregation misleads" complaint traced to that
+false failure plus a misreading of the suspect/inconclusive semantics, and
+the remaining minor items are design-as-intended (search AND semantics,
+domain assumption presets) or SymPy usage traps. Test suite grew 1031 → 1041.
+
 ### Fixed
 
+- **The verifier absorbs float-path noise instead of failing correct steps.**
+  The substitution check recomputes the recorded substitution and compares it
+  with the archived output; the two computation paths can drift a power
+  exponent by one ULP (`0.99999999999999989` vs `1.0`), and because the
+  residual kept a free symbol, the numeric-zero gate's no-tolerance branch
+  flipped a correct step to FAILED with details printing both sides as the
+  same string — an otherwise-correct turbine chain was judged `failed`.
+  Symbol-bearing residuals are now sampled at assumption-compatible points
+  (unevaluated `Derivative`/`Integral`/`Sum` stay unsamplable) with the same
+  1e-9 tolerance philosophy before refusal, and substitution failure details
+  carry full-precision `srepr` forms so float differences stay visible instead
+  of being masked by 15-digit `str` rounding.
+- **The math dispatcher rejects unconsumed parameters.** Passing
+  `substitution` to `expand`/`simplify` (or any parameter the requested
+  operation does not consume) previously only warned while returning a
+  plausible-looking result, which read as if the parameter had been applied.
+  The call now fails with an error naming the offending parameter.
 - **`session_complete` stops warning about a target that was never set.** A
   text-only goal (no target expression, no target variables, and the default
   `derive_expression` form) can never match anything, so the "Current
@@ -29,11 +54,12 @@ bug (the target warning) is fixed here. Test suite grew 997 → 1031.
   target (`DerivationGoal.has_explicit_target()`).
 - **`session_complete` no longer saves a bare constant as the derived
   formula.** A trailing `0` self-check still headlines `final_expression`
-  (r14 task-08 display semantics), but the library write now prefers the last
-  symbolic derivation output, and skips the write entirely when the derivation
-  produced only a constant; both cases return an explanatory warning. A
-  multi-step derivation can no longer land in the library as
-  `expression: '0'` with `variables: {}`.
+  (r14 task-08 display semantics). An earlier draft of this fix preferred the
+  last symbolic derivation output; a second turbine round showed that output
+  is typically a verification *probe* (two sessions, two probe pollutions), so
+  the library write is now skipped entirely whenever the outcome is a bare
+  constant, with a warning pointing at `formula_add`. A multi-step derivation
+  can no longer land in the library as `expression: '0'` with `variables: {}`.
 - **The library `verified` label now requires no unreduced differences.** When
   the verification summary lists `suspect_identity_steps`, the formula is
   saved with `verified: false` and the response names the flagged steps; the

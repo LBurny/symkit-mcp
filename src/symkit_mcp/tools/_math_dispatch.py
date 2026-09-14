@@ -384,8 +384,8 @@ ALL_OPS = sorted(_SYNTACTIC_OPS | _ENGINE_OPS |
 # ── Parameter-consumption audit ─────────────────────────────────────────
 #
 # Fail-loud discipline: a caller-supplied parameter must either be consumed
-# by the requested operation or produce an explicit warning. Defaults that
-# the caller did not deviate from never warn.
+# by the requested operation or the call is rejected. Defaults that the
+# caller did not deviate from never reject.
 
 _KNOB_DEFAULTS: dict[str, Any] = {
     "variable": None,
@@ -438,19 +438,19 @@ _PARAM_USE: dict[str, frozenset[str]] = {
 }
 
 
-def _ignored_param_warnings(operation: str, provided: dict[str, Any]) -> list[str]:
-    """Warn about parameters the caller set that the operation does not consume."""
+def _unconsumed_params(operation: str, provided: dict[str, Any]) -> list[str]:
+    """Parameters the caller set that the operation does not consume."""
     allowed = _PARAM_USE.get(operation, frozenset())
-    warnings: list[str] = []
+    rejected: list[str] = []
     for name, default in _KNOB_DEFAULTS.items():
         if name in allowed:
             continue
         if provided.get(name, default) != default:
-            warnings.append(
+            rejected.append(
                 f"Parameter '{name}' is not used by operation "
-                f"'{operation}' and was ignored."
+                f"'{operation}' and the call was rejected."
             )
-    return warnings
+    return rejected
 
 
 def _execute_operation(
@@ -487,7 +487,10 @@ def _execute_operation(
         "ics": ics,
         "units": units,
     }
-    result = _execute_operation_inner(
+    rejected = _unconsumed_params(operation, provided)
+    if rejected:
+        return {"success": False, "error": "; ".join(rejected)}
+    return _execute_operation_inner(
         operation,
         expr_str,
         variable=variable,
@@ -503,10 +506,6 @@ def _execute_operation(
         units=units,
         assumption_context=assumption_context,
     )
-    warnings = _ignored_param_warnings(operation, provided)
-    if warnings:
-        result.setdefault("warnings", []).extend(warnings)
-    return result
 
 
 def _execute_operation_inner(

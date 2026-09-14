@@ -42,8 +42,7 @@ from symkit.domain.value_objects import VerificationResult, VerificationStatus
 if TYPE_CHECKING:
     from symkit.domain.derivation_session import DerivationStep
 
-# An archived difference whose negated term carries symbols, but is neither a
-# bare symbol (``-E``) nor a purely numeric product (``-1*(-3)**2``).
+# Archived difference whose negated term is neither a bare symbol nor numeric.
 _ARCHIVE_DIFFERENCE = re.compile(
     r"Mul\(Integer\(-1\),\s*(?!Integer\()(?!Mul\(Integer)(?!Symbol\()\S"
 )
@@ -365,8 +364,7 @@ class StepVerifier:
                 message="Could not determine differentiation variable",
             )
 
-        # Match the symbol the archived expression carries; a bare Symbol(name)
-        # is a different object under assumptions and the integral stays zero.
+        # Match the archived symbol; a bare Symbol(name) differs under assumptions.
         var_sym = matching_variable(var, input_expr, output_expr)
         # No free-symbol shortcut: `diff(2*x, x) = 2` is correct despite having
         # no free symbols; reverse integration handles that case (2026-09-12).
@@ -574,8 +572,7 @@ class StepVerifier:
             applied = applied or expected != before
 
         if not applied:
-            # Every key is absent from the input: nothing was substituted, and
-            # a "verified" here inflated the count with no-work steps.
+            # Every key is absent: nothing was substituted; a no-work "verified".
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
                 message="Substitution keys do not occur in the input expression",
@@ -589,6 +586,8 @@ class StepVerifier:
             "Substitution result does not match expected expression",
             expected=str(expected),
             actual=str(output_expr),
+            expected_srepr=sp.srepr(expected),
+            actual_srepr=sp.srepr(output_expr),
         )
 
     def _verify_solution(

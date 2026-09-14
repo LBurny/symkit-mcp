@@ -40,22 +40,12 @@ _NUM_ZERO_TOL = 1e-9
 def evaluate_pending(expr: sp.Basic) -> sp.Basic:
     """Evaluate unevaluated operations (``Derivative``/``Integral``/``Sum``).
 
-    A ``simplify`` step whose input is an unevaluated derivative is correct when
-    the output is that derivative's value, but ``simplify`` does not reduce the
-    difference to zero: SymPy evaluates the ``Derivative`` and then fails to
-    apply the trig identity to what is left, so an identically zero residual was
-    reported as a changed value and the whole chain became ``failed``
-    (task-15 step 12).  ``doit()`` first, and the difference collapses to 0.
-
-    A ``Subs`` node is exempt: ``doit()`` on ``Mul(c**2, Subs(Derivative(
-    f(xi), (xi, 2)), xi, x - c*t))`` drops the substitution binding and
-    returns the bare ``Derivative(f(xi), (xi, 2))`` (SymPy 1.14).  A ``Subs``
-    is already the evaluated result form, so re-evaluating it fabricated a
-    phantom difference between mathematically identical expressions and FAILED
-    correct chain-rule steps (task-08 steps 8/9).  Because the two
-    independently computed bindings carry different anonymous dummies, the
-    surviving ``Subs`` forms are then canonicalised with
-    :func:`canonicalize_dummies` so the equality check can cancel them.
+    ``doit()`` first: a ``simplify`` step over an unevaluated derivative only
+    reduces to zero once the derivative is evaluated (task-15 step 12).  A
+    ``Subs`` node is exempt — ``doit()`` drops its binding and fabricates a
+    phantom difference between identical expressions (task-08 steps 8/9) — so
+    surviving ``Subs`` forms are canonicalised with
+    :func:`canonicalize_dummies`.
     """
     if expr.has(sp.Subs):
         return canonicalize_dummies(expr)
@@ -69,12 +59,9 @@ def evaluate_pending(expr: sp.Basic) -> sp.Basic:
 def canonicalize_dummies(expr: sp.Basic) -> sp.Basic:
     """Give every ``Dummy`` a name-derived, deterministic ``dummy_index``.
 
-    Two mathematically identical ``Subs`` bindings produced independently (one
-    by ``Derivative(...).doit()``, the other loaded from ``srepr``) use
-    different anonymous dummies, and SymPy 1.14 does not cancel them in a
-    difference.  Mapping same-named dummies to a shared dummy whose index is a
-    pure function of the name makes the forms compare equal without changing the
-    mathematics.
+    Two identical ``Subs`` bindings produced independently carry different
+    anonymous dummies that SymPy 1.14 does not cancel in a difference; a
+    shared index makes the forms compare equal without changing the math.
     """
     mapping = {
         dummy: sp.Dummy(dummy.name, dummy_index=_dummy_index_for(dummy.name))
@@ -92,12 +79,11 @@ def is_numerically_zero(diff: sp.Basic) -> bool:
     """True if ``diff`` is exactly zero, or numerically zero within tolerance.
 
     Symbolic differences must simplify to exact zero; purely numeric ones are
-    compared in floating point with an absolute tolerance of 1e-9.  Matrix-valued
-    differences are checked entrywise: ``Matrix == 0`` is not a Python truth
-    value and ``complex(matrix.evalf())`` raises, so a zero-matrix difference was
-    reported as changing the expression (2026-09-12 black-box round).  Symbolic
-    matrix expressions are expanded first, which also absorbs a stray
-    ``Identity`` term.
+    compared in floating point with an absolute tolerance of 1e-9; symbol-bearing
+    ones are *sampled* before refusal — float-path noise (a one-ULP power
+    exponent drift between two evaluation paths, 2026-09-14 turbine round) must
+    not flip a correct step.  Matrix-valued differences are checked entrywise:
+    ``Matrix == 0`` is not a Python truth value (2026-09-12 black-box round).
     """
     if isinstance(diff, sp.MatrixExpr) and not isinstance(diff, sp.MatrixBase):
         diff = diff.as_explicit()
@@ -106,7 +92,7 @@ def is_numerically_zero(diff: sp.Basic) -> bool:
     if diff == 0:
         return True
     if diff.free_symbols:
-        return False
+        return _sampled_zero(diff, _NUM_ZERO_TOL) is True
     try:
         return abs(complex(diff.evalf())) < _NUM_ZERO_TOL
     except (TypeError, ValueError):
@@ -116,11 +102,9 @@ def is_numerically_zero(diff: sp.Basic) -> bool:
 def equation_identity(expr: sp.Equality) -> dict[str, Any]:
     """Whether an operation's equation input is an identity, with its difference.
 
-    Three-state: ``is_identity`` is ``True`` when the difference simplifies to
-    zero, ``False`` when rational substitution confirms it is nonzero, and
-    ``None`` (``verdict: "UNKNOWN"``) when the difference neither reduces nor
-    can be falsified numerically — an unproven identity is not a false one
-    (task-17: the expanded ``cos(6*x)`` polynomial identity).
+    Three-state: ``True`` when the difference reduces to zero, ``False`` when
+    rational substitution confirms it is nonzero, ``None`` (``UNKNOWN``) when
+    it neither reduces nor is falsified — unproven, not false (task-17).
     """
     diff = sp.simplify(evaluate_pending(expr.lhs) - evaluate_pending(expr.rhs))
     result: dict[str, Any] = {"difference": str(diff)}
@@ -157,14 +141,11 @@ def _reduce_identity_difference(diff: sp.Basic) -> sp.Basic:
 def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, str]:
     """Status and message for a manually recorded (CUSTOM) step's output.
 
-    A recorded ``Eq(a, b)`` is content-checked on ``a - b``: identically zero
-    verifies the identity, a difference that rational substitution confirms
-    nonzero fails it, and anything else is inconclusive — unproven, not
-    disproven.  A trig-aware reduction runs first so a true identity SymPy does
-    not expand (task-17: ``cos(6*x)``) is still verified rather than called
-    false.  Outputs that are not equations (or that already collapsed to a
-    boolean) keep a verdict derived from their truth value, and anything else
-    keeps the historical "no automatic verification" verdict.
+    A recorded ``Eq(a, b)`` is content-checked on ``a - b``: zero verifies,
+    rational-substitution-nonzero fails (disproven), anything else stays
+    inconclusive — unproven, not disproven.  A trig-aware reduction runs first
+    (task-17).  Non-equation outputs keep their truth-value verdict or the
+    historical "no automatic verification" verdict.
     """
     if isinstance(expr, sp.Equality):
         diff = _reduce_identity_difference(
@@ -271,19 +252,52 @@ def _sample_value(symbol: sp.Symbol, index: int) -> sp.Basic | None:
     return None
 
 
+def _sampled_zero(diff: sp.Basic, tol: float) -> bool | None:
+    """Joint-sample a symbol-bearing residual; ``None`` when uncertifiable.
+
+    A residual that simplification cannot reduce may still be float-path noise
+    (a one-ULP exponent drift, 2026-09-14 turbine round).  All assumption-
+    compatible joint samples under ``tol`` certify zero; one nonzero refutes.
+    """
+    if diff.has(sp.Derivative, sp.Integral, sp.Sum):
+        # Unevaluated operators cannot be meaningfully sampled (task-19).
+        return None
+    symbols = [
+        s
+        for s in sorted(diff.free_symbols, key=str)
+        if s.name not in ("E", "I") and s.is_extended_real is not False
+    ]
+    if not symbols or len(symbols) > 3:
+        return None
+    for trial in range(5 if len(symbols) == 1 else 4):
+        substitution: dict[sp.Symbol, sp.Basic] = {}
+        for index, symbol in enumerate(symbols):
+            value = _sample_value(symbol, trial + index)
+            if value is None:
+                break
+            substitution[symbol] = value
+        if len(substitution) != len(symbols):
+            return None
+        candidate = diff.subs(substitution)
+        if candidate.has(sp.zoo, sp.nan, sp.oo, -sp.oo):
+            return None
+        try:
+            evaluated = complex(candidate.evalf())
+        except (TypeError, ValueError):
+            return None
+        if abs(evaluated) >= tol:
+            return False
+    return True
+
+
 def numeric_residual_verdict(residual: sp.Basic) -> bool | None:
     """Substitute rationals into ``residual`` to test an asserted identity.
 
-    Returns ``True`` when a well-defined sample is clearly nonzero (the identity
-    is numerically falsified), ``False`` when at least two samples land within
-    tolerance of zero, and ``None`` when the test cannot run (no samplable free
-    symbols, undefined functions such as ``f(2)``, singular substitutions, or
-    too few valid samples).  A ``None`` must never be reported as "false".
-
-    An unevaluated aggregate (``Sum``/``Integral``) always returns ``None``: its
-    bound variable cannot be sampled — substituting ``n = 2`` evaluates a single
-    term and the residual always looks nonzero — so no rational substitution may
-    call such a residual false (task-19).
+    Returns ``True`` when a well-defined sample is clearly nonzero (numerically
+    falsified), ``False`` when at least two samples land within tolerance of
+    zero, ``None`` when the test cannot run — a ``None`` is never "false".  An
+    unevaluated aggregate (``Sum``/``Integral``) always returns ``None``: its
+    bound variable cannot be sampled (task-19).
     """
     if residual.has(sp.Sum, sp.Integral):
         return None
@@ -512,12 +526,7 @@ def suspect_identity_steps(steps: Sequence[DerivationStep]) -> list[int]:
 
 
 def suspect_identity_warning(flagged: Sequence[int]) -> str:
-    """One-line disclosure for a session carrying unresolved differences.
-
-    These are operator steps over plain expressions whose difference did not
-    reduce; a confirmed-false *asserted* identity is a FAILED step instead and is
-    surfaced separately through ``failed_steps``.
-    """
+    """One-line disclosure for a session carrying unreduced differences."""
     return (
         f"{len(flagged)} step(s) record a difference that did not reduce to zero; "
         "see suspect_identity_steps"
@@ -545,11 +554,9 @@ def _step_failed(step: DerivationStep) -> bool:
 def select_headline(steps: Sequence[DerivationStep]) -> tuple[str | None, bool]:
     """Last non-failed step output, and whether failed steps were skipped.
 
-    Walks the chain backwards past failed steps (and steps that carry no
-    output, such as notes).  A symbolic output is preferred over a trailing
-    numeric probe so the headline stays the derivation's symbolic conclusion;
-    the most recent non-failed output is the fallback when nothing symbolic
-    survives.  Returns ``(None, ...)`` when every step failed.
+    Walks backwards past failed steps and empty steps; a symbolic output is
+    preferred over a trailing numeric probe, the most recent non-failed output
+    is the fallback.  Returns ``(None, ...)`` when every step failed.
     """
     skipped_failed = False
     fallback: str | None = None

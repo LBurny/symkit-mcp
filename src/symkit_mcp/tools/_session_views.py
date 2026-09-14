@@ -10,8 +10,7 @@ from typing import Any
 
 import sympy as sp
 
-from symkit.domain.derivation_session import DerivationSession, OperationType
-from symkit.domain.expr_io import safe_load_expression
+from symkit.domain.derivation_session import DerivationSession
 from symkit.infrastructure.derivation_repository import (
     DerivationResult,
     get_repository,
@@ -68,28 +67,20 @@ def pick_savable_expression(
     """The library artifact must be symbolic content, not a bare constant.
 
     ``representative_expression`` reports a trailing zero self-check as the
-    outcome (r14 task-08 display semantics), but a bare constant is not a
-    reusable formula: prefer the last non-load derivation output carrying
-    free symbols; when the derivation produced none, skip the library write.
+    outcome (r14 task-08 display semantics).  A bare constant is not a reusable
+    formula, and the last symbolic output is typically a verification *probe*
+    (a residual the operator wrote to check the formula), so the library write
+    is skipped and the operator records the real formula with ``formula_add``.
     """
     saved = session.representative_expression()
     if saved is None:
         saved = session.current_expression
     if isinstance(saved, sp.Basic) and saved.free_symbols:
         return saved, None
-    for step in reversed(session.steps):
-        if step.operation == OperationType.LOAD_FORMULA:
-            continue
-        expr = safe_load_expression(step.output_expression, step.output_srepr)
-        if expr is not None and expr.free_symbols:
-            return expr, (
-                f"auto_save: the outcome '{saved}' is a bare constant; saved "
-                "the last symbolic derivation output instead"
-            )
     if saved is not None:
         return None, (
-            f"auto_save skipped: the derivation produced only the constant "
-            f"'{saved}'; no formula saved (record one with formula_add)"
+            f"auto_save skipped: the outcome '{saved}' is a bare constant; "
+            "no formula saved (record the derived formula with formula_add)"
         )
     return None, None
 

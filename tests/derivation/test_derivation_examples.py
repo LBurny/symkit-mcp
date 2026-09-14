@@ -221,7 +221,7 @@ class TestMathOperations:
 
         mcp.tools["session_start"]("simplify")
         result = mcp.tools["math"](
-            "simplify", "sin(x)**2 + cos(x)**2", variable="x", session=False
+            "simplify", "sin(x)**2 + cos(x)**2", session=False
         )
         assert result["success"], result.get("error")
         assert result["expression"] == "1"
@@ -309,7 +309,7 @@ class TestAssumptions:
 
         mcp.tools["assume"]({"x": "positive"})
         result = mcp.tools["math"](
-            "simplify", "sqrt(x**2)", variable="x", session=False
+            "simplify", "sqrt(x**2)", session=False
         )
         assert result["success"], result.get("error")
         assert result["expression"] == "x"
