@@ -27,8 +27,11 @@ class FakeChecker:
 def _session_plain(tmp_path) -> DerivationSession:
     session = DerivationSession(session_id="", name="t", auto_verify=True)
     session._persist_path = tmp_path / "session_t.json"
-    session.load_formula("x + 2*x", formula_id="f1")
-    session.simplify()  # SIMPLIFY 步骤；输入输出都在代数片段内（FakeChecker 不依赖具体内容）
+    # Non-trivial on purpose: the input and output must differ structurally, or
+    # the step is classified `trivial` and never reaches the checker (B1).
+    # Reduces to `x`, a ring identity the checker can translate.
+    session.load_formula("x*(x + 1) - x**2", formula_id="f1")
+    session.simplify()
     return session
 
 
@@ -47,14 +50,21 @@ def test_proven_step_embeds_lean_record(tmp_path):
     assert report["summary"]["proven"] == 1
 
 
-def test_untranslatable_step_reports_reason(tmp_path):
+def test_tautology_outranks_untranslatable(tmp_path):
+    """A tautological goal is `trivial` even when it leaves the fragment: the
+    triviality check runs before translation, so a no-op step such as
+    `sin² + cos² = sin² + cos²` is not miscounted as untranslatable either (B1)."""
+    from symkit.application.lean_certification import _goal_is_trivial
+
     session = DerivationSession(session_id="", name="t", auto_verify=True)
     session._persist_path = tmp_path / "s.json"
-    session.load_formula("sin(x) + 2*sin(x)", formula_id="f1")
-    session.simplify()
-    report = certify_session(session, FakeChecker())
-    row = next(r for r in report["steps"] if r["operation"] == "simplify")
-    assert row["certification"] == "untranslatable" and "sin" in row["reason"]
+    x = sp.Symbol("x")
+    tautology = sp.sin(x) ** 2 + sp.cos(x) ** 2
+    assert _goal_is_trivial(tautology, tautology)
+
+    with pytest.raises(UntranslatableError) as exc:
+        translate_equality(sp.sin(x) ** 2, sp.Integer(1))
+    assert "unsupported construct" in str(exc.value)
 
 
 def test_unproven_never_changes_step_status(tmp_path):
@@ -106,8 +116,8 @@ def test_ring_step_does_not_inherit_an_unrelated_nonzero_binder(tmp_path):
     session = DerivationSession(session_id="", name="t", auto_verify=True)
     session._persist_path = tmp_path / "s.json"
     session.assumption_engine.assume("x", "nonzero")
-    session.load_formula("x*(x + 1)", formula_id="f1")
-    session.simplify()  # ring lane
+    session.load_formula("x*(x + 1) - x**2", formula_id="f1")
+    session.simplify()  # ring lane, reduces to x (non-trivial)
     checker = FakeChecker(proven=True)
     certify_session(session, checker)
 
@@ -145,8 +155,8 @@ def test_field_lane_falls_back_to_cleared_ring(tmp_path):
     session = DerivationSession(session_id="", name="t", auto_verify=True)
     session._persist_path = tmp_path / "s.json"
     session.assumption_engine.assume("x", "nonzero")
-    session.load_formula("1/x", formula_id="f1")
-    session.simplify()  # field lane
+    session.load_formula("1/x + 1/x**3", formula_id="f1")
+    session.simplify()  # field lane, non-trivial: 1/x + 1/x³ -> (x² + 1)/x³
     checker = LaneChecker()
     report = certify_session(session, checker)
 
@@ -157,3 +167,83 @@ def test_field_lane_falls_back_to_cleared_ring(tmp_path):
     assert row["lane"] == "field+ring"
     step = next(s for s in session.steps if s.operation.value == "simplify")
     assert json.loads(step.verification_result)["details"]["lean"]["lane"] == "field+ring"
+
+
+# --- round-17 B1: trivial goals certify nothing and must not inflate `proven` ---
+
+
+def _trivial_session(tmp_path) -> DerivationSession:
+    """One step whose input and output are identical (``x*(x+1)`` is not
+    rewritten by SymPy, so the simplify step is a tautological ``X = X``)."""
+    session = DerivationSession(session_id="", name="t", auto_verify=True)
+    session._persist_path = tmp_path / "s.json"
+    session.load_formula("x*(x + 1)", formula_id="f1")
+    session.simplify()
+    return session
+
+
+def test_identical_sides_are_trivial_and_never_reach_lean(tmp_path):
+    session = _trivial_session(tmp_path)
+    checker = FakeChecker(proven=True)
+    report = certify_session(session, checker)
+
+    assert checker.seen == []  # a tautology is never sent to the kernel
+    row = next(r for r in report["steps"] if r["operation"] == "simplify")
+    assert row["certification"] == "trivial"
+    assert "identical" in row["reason"]
+    assert report["summary"]["proven"] == 0
+    assert report["summary"]["trivial"] == 1
+
+
+def test_trivial_step_gets_no_lean_record(tmp_path):
+    session = _trivial_session(tmp_path)
+    certify_session(session, FakeChecker(proven=True))
+    step = next(s for s in session.steps if s.operation.value == "simplify")
+    record = json.loads(step.verification_result) if step.verification_result else {}
+    assert "lean" not in record.get("details", {})
+
+
+# --- round-17 C1: certify-time assumptions close the missing-denominator gap ---
+
+
+def test_certify_time_assumptions_reach_the_statement(tmp_path):
+    """A denominator assumption supplied at certify time must become a binder,
+    so a missing `nonzero` no longer forces a session re-run."""
+    session = DerivationSession(session_id="", name="t", auto_verify=True)
+    session._persist_path = tmp_path / "s.json"
+    session.load_formula("1/x + 1/x**3", formula_id="f1")
+    session.simplify()  # field lane; x has no session assumption
+    checker = FakeChecker(proven=True)
+    report = certify_session(session, checker, assumptions={"x": {"nonzero": True}})
+
+    assert len(checker.seen) == 1
+    assert checker.seen[0].hypotheses == ("h_x : x ≠ 0",)
+    row = next(r for r in report["steps"] if r["operation"] == "simplify")
+    assert row["certification"] == "proven"
+
+
+def test_missing_denominator_without_assumptions_stays_untranslatable(tmp_path):
+    session = DerivationSession(session_id="", name="t", auto_verify=True)
+    session._persist_path = tmp_path / "s.json"
+    session.load_formula("1/x + 1/x**3", formula_id="f1")
+    session.simplify()
+    report = certify_session(session, FakeChecker(proven=True))
+
+    row = next(r for r in report["steps"] if r["operation"] == "simplify")
+    assert row["certification"] == "untranslatable"
+    assert "nonzero" in row["reason"]
+
+
+def test_skipped_step_names_its_reason(tmp_path):
+    """A skipped step must say why it is outside the certified fragment; a bare
+    `skipped` with reason null read as an unexplained gap (round-lean task-01)."""
+    session = DerivationSession(session_id="", name="t", auto_verify=True)
+    session._persist_path = tmp_path / "s.json"
+    session.load_formula("x + 2*x", formula_id="f1")
+    session.differentiate("x")  # not in ELIGIBLE_OPERATIONS
+    report = certify_session(session, FakeChecker(proven=True))
+
+    row = next(r for r in report["steps"] if r["operation"] == "differentiate")
+    assert row["certification"] == "skipped"
+    assert "differentiate" in row["reason"]
+    assert "simplify" in row["reason"]

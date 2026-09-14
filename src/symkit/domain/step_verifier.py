@@ -15,6 +15,7 @@ from symkit.domain.assumption_binding import (
 )
 from symkit.domain.assumption_engine import AssumptionEngine
 from symkit.domain.expr_io import evaluated_form, substitution_pairs
+from symkit.domain.expression_form import is_difference_form, recorded_leading_negative
 from symkit.domain.expression_parser import (
     parse_expression_string,
 )
@@ -26,7 +27,6 @@ from symkit.domain.final_result import (
     evaluate_pending,
     extract_order_from_command,
     extract_variable_from_command,
-    is_difference_form,
     matching_variable,
     numeric_integral_verdict,
     recorded_step_verdict,
@@ -98,7 +98,7 @@ class StepVerifier:
         elif op in (OperationType.SIMPLIFY, OperationType.EXPAND, OperationType.FACTOR):
             # srepr loading flattens -(A - B); inspect the archive directly (task-11).
             diff_form = is_difference_form(input_expr)
-            if step.input_srepr:
+            if step.input_srepr and not recorded_leading_negative(step.input_expressions):
                 diff_form = diff_form or bool(_ARCHIVE_DIFFERENCE.search(step.input_srepr))
             result = self._verify_equality(input_expr, output_expr, op.value, diff_form)
         elif op == OperationType.DIFFERENTIATE:

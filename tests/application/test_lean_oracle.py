@@ -28,7 +28,9 @@ class _AllProvenChecker:
 def _write_failed_session(tmp_path: Path) -> Path:
     """Persist a real session whose SIMPLIFY step has been marked FAILED."""
     session = DerivationSession(session_id="", name="t", auto_verify=True)
-    session.load_formula("x*(x + 2)", formula_id="f1")
+    # Must reduce to something structurally different (`x*(x + 2)` simplifies to
+    # itself and the step would be classified `trivial`, never reaching Lean).
+    session.load_formula("x*(x + 1) - x**2", formula_id="f1")
     session.simplify()
     path = tmp_path / "session_t.json"
     session._persist_path = path

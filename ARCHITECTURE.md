@@ -53,6 +53,7 @@ Pure business logic with no external dependencies.
 | `expr_io.py` | srepr-first reconstruction of archived expressions (`safe_load_expression`); verification replays the archived object instead of re-parsing a display string (invariant I2) |
 | `parser_call_sites.py` | 共享解析器的调用位名称处理：小写 `max(`/`min(` 改写为自动求值的 `Max`/`Min`；同名「裸符号 + 函数调用」双用时把调用位改写为 `<name>__call` 并绑定 `Function('<name>')`，裸符号保持 `Symbol`、假设仅作用于符号 |
 | `final_result.py` | 会话收尾的结果选取与判定分级：手工记录等式的同一性判定（`recorded_step_verdict`）、suspect_identity 分级（`classify_suspect_identity` / `numeric_residual_verdict`：数值证伪仅限显式等式断言，跳过含未求值聚合的差式）、`select_headline` 跳过 failed 步选取最终表达式 |
+| `expression_form.py` | 表达式的「书写形态」谓词：`is_difference_form` 只在前方存在非负项时才把否定项视为差式 `A - B`（前导负项如 `-x**2 + x*(x+1)` 属普通代数，不触发 suspect 警告）、`recorded_leading_negative` 从记录字符串识别前导一元负号（srepr 会重排项序，只有显示串保留该语法） |
 | `units.py` / `dimensional_analysis.py` | 单位解析与量纲一致性检查（纯领域逻辑，无外部依赖）：量纲向量、四则运算/函数传播规则、问题诊断 |
 | `lean_types.py` | Lean 认证通道的共享契约：`LeanStatement` / `LeanOutcome` 值对象、`LeanChecker` Protocol、`UntranslatableError`；domain 定义接口，infrastructure 实现 |
 | `lean_translation.py` | SymPy → Lean 4 表达式翻译（有理式片段：+−*/整数次幂）；变量分母要求显式非零假设，片段外构造抛 `UntranslatableError`；`clear_denominators` 生成保结构的分子形态（field→ring 兜底用） |
@@ -67,7 +68,7 @@ through these classes.
 |--------|-------------|
 | `use_cases.py` | `CalculateUseCase`, `SimplifyUseCase`, `DeriveUseCase`, `VerifyUseCase` — public library entry points |
 | `formula_catalog.py` | Formula catalog over the SQLite FTS5 index; composition root for the formula layers |
-| `lean_certification.py` | `certify_session` 用例：重放会话中的代数等式步骤、经 `LeanChecker` 批量内核复核，结果写入步骤 `details.lean`；从不改动既有判定，分歧以 `discrepancies` 报告；field 步 unproven 时以清分母多项式形式重试（lane `field+ring`，分母因子带非零 binders） |
+| `lean_certification.py` | `certify_session` 用例：重放会话中的代数等式步骤、经 `LeanChecker` 批量内核复核，结果写入步骤 `details.lean`；从不改动既有判定，分歧以 `discrepancies` 报告；输入输出逐字相同的步记为 `trivial`（不计入 `proven`、不进内核）；可接受认证时传入的额外假设；field 步 unproven 时以清分母多项式形式重试（lane `field+ring`，分母因子带非零 binders） |
 
 ### 3. Infrastructure Layer (`src/symkit/infrastructure/`)
 
@@ -81,8 +82,9 @@ Interfaces to external systems.
 | `formula_files.py` / `formula_index_store.py` | YAML layer reader and the SQLite FTS5 index store |
 | `derivation_repository.py` | Session JSON persistence |
 | `verifier.py` | `BasicVerifier` — the `Verifier` abstract interface's only concrete adapter, consumed by `application/use_cases.py` |
-| `lean_toolchain.py` | Lean 工具链检测与一次性 bootstrap（`symkit-lean-setup` 控制台脚本：elan + 固定 toolchain + Mathlib 缓存，就绪戳 `.symkit-lean-ready`）；无工具链时全链路优雅降级 |
-| `lean_batch.py` | `LeanChecker` 的批处理实现：把全部待证定理渲染进一个 `SymkitCheck.lean`，单次 `lake env lean` 运行，按错误行号归属定理；进程级失败不得标记任何定理为已证 |
+| `lean_toolchain.py` | Lean 工具链检测与一次性 bootstrap（`symkit-lean-setup` 控制台脚本：elan + 固定 toolchain + Mathlib 缓存，就绪戳 `.symkit-lean-ready`）；`lake` 查找以 `ELAN_HOME` 优先于 `PATH`，并校验所选 elan home 已持有工作区钉住的 toolchain，避免认证时触发重复下载；无工具链时全链路优雅降级 |
+| `lean_batch.py` | `LeanChecker` 的批处理实现：把全部待证定理渲染进一个 `SymkitCheck.lean`，单次 `lake env lean` 运行，按错误行号归属定理；进程级失败不得标记任何定理为已证；超时由 `lean_process` 杀掉整棵进程树 |
+| `lean_process.py` | Lean 子进程的进程树管理：以独立进程组启动（Windows 用 `taskkill /F /T`，POSIX 用 `killpg`）并在超时时整树强杀，避免残留孤儿进程占用 elan toolchain 锁 |
 | `adapters/` | External formula/constant sources (Wikidata, SciPy CODATA, BioModels) |
 
 ### 4. MCP Layer (`src/symkit_mcp/`)
@@ -98,7 +100,7 @@ MCP protocol interface, independent of the core library.
 | `tools/_unit_context.py` | MCP 层单位接线：聚合会话单位（公式变量 + 符号注册表）、`dimension` 操作、验证链的量纲后置检查 |
 | `tools/_formula_governance.py` | 公式写入治理：变量单位必填（`"-"` 为显式无量纲哨兵）、`similar_to` 近重复提示（结构指纹优先、FTS 兜底）、单位回填 |
 | `tools/_system_solve.py` | 列表输入的系统 `solve`：逐解假设过滤（`filtered_by_assumptions`）、多解头条告警 |
-| `tools/certification.py` | `session_certify` 工具：Verification 类别，委托 `application/lean_certification.py`；无 Lean 工具链时返回 `lean_available: false` 与安装指引 |
+| `tools/certification.py` | `session_certify` 工具：Verification 类别，委托 `application/lean_certification.py`；可选 `assumptions` 参数（映射 / `"cp nonzero"` 字符串 / 交替对列表）在认证时补充分母非零等前提；无 Lean 工具链时返回 `lean_available: false` 与安装指引 |
 
 ---
 

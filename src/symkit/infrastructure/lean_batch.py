@@ -5,17 +5,19 @@ into a single ``SymkitCheck.lean`` in the (hidden) Lean workspace. The theorem
 header line of each statement is recorded at render time so that kernel error
 lines can be attributed to the owning statement. A Lean error only means the
 automation could not discharge the goal; it never implies the step is wrong.
+A timeout kills the whole ``lake`` process tree (see
+:mod:`symkit.infrastructure.lean_process`) so no orphan keeps the elan lock.
 """
 
 from __future__ import annotations
 
 import os
 import re
-import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
 from symkit.domain.lean_types import LeanOutcome, LeanStatement
+from symkit.infrastructure.lean_process import run_with_tree_timeout
 
 _HEADER = (
     # Real.Basic supplies the ℝ algebra instances the translator's `(x : ℝ)`
@@ -105,24 +107,20 @@ class LeanBatchChecker:
         text, headers = render_file(statements)
         (self._workspace / _CHECK_FILE).write_text(text, encoding="utf-8")
         try:
-            proc = subprocess.run(
-                [*self._prefix, _CHECK_FILE],
-                cwd=self._workspace,
-                capture_output=True,
-                text=True,
-                timeout=self._timeout,
+            returncode, stdout, stderr, timed_out = run_with_tree_timeout(
+                [*self._prefix, _CHECK_FILE], self._workspace, self._timeout
             )
-        except subprocess.TimeoutExpired:
-            return [LeanOutcome(s.name, False, "timeout") for s in statements]
         except OSError as exc:
             return [LeanOutcome(s.name, False, f"runner error: {exc}") for s in statements]
-        if proc.returncode == 0:
+        if timed_out:
+            return [LeanOutcome(s.name, False, "timeout") for s in statements]
+        if returncode == 0:
             return [LeanOutcome(s.name, True) for s in statements]
-        errors = _parse_errors(proc.stdout + "\n" + proc.stderr)
+        errors = _parse_errors(stdout + "\n" + stderr)
         if not errors:
             # The run failed outside any theorem (broken workspace, missing
             # imports): nothing was kernel-checked, so nothing may be proven.
-            tail = (proc.stderr or proc.stdout).strip().splitlines()
-            summary = tail[-1][:200] if tail else f"exit code {proc.returncode}"
+            tail = (stderr or stdout).strip().splitlines()
+            summary = tail[-1][:200] if tail else f"exit code {returncode}"
             return [LeanOutcome(s.name, False, f"lean failed: {summary}") for s in statements]
         return [_outcome_for(s, headers, errors) for s in statements]

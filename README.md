@@ -81,7 +81,7 @@ Search covers names, aliases (Chinese works: `雷诺数` → Reynolds number), t
 
 ## Lean 4 kernel certification (optional)
 
-`session_certify()` re-proves eligible algebraic-equality steps of the current session (`simplify` / `expand` / `factor` / `combine` in the rational fragment) with the Lean 4 + Mathlib kernel, using `ring` / `field_simp`. Results are attached under each step's `details.lean`; existing verification verdicts are never modified, and `unproven` only means the automation could not close the goal — not that the step is wrong. No extra Python packages are required.
+`session_certify()` re-proves eligible algebraic-equality steps of the current session (`simplify` / `expand` / `factor` / `combine` in the rational fragment) with the Lean 4 + Mathlib kernel, using `ring` / `field_simp`. Results are attached under each step's `details.lean`; existing verification verdicts are never modified, and `unproven` only means the automation could not close the goal — not that the step is wrong. A step whose input and output are identical (`x = x`, `0 = 0`) is reported as `trivial` and excluded from the `proven` count: the kernel discharges it instantly but validates no algebra. No extra Python packages are required.
 
 ### Setup
 
@@ -96,11 +96,11 @@ symkit-lean-setup --yes --toolchain v4.24.0
 Configuration knobs:
 
 - **Data directory**: the Lean workspace is installed to `<data dir>/lean-workspace`. Set `SYMKIT_DATA_DIR` before running the setup (and the server) to relocate it.
-- **Toolchain location**: `lake` is discovered from `PATH`, then `ELAN_HOME/bin`, then `~/.elan/bin`. Point `ELAN_HOME` at an existing elan install to reuse it.
+- **Toolchain location**: `lake` is discovered from `ELAN_HOME/bin`, then `PATH`, then `~/.elan/bin`. Point `ELAN_HOME` at an existing elan install to reuse it — it takes precedence, so a default `~/.elan/bin/lake` on `PATH` cannot shadow it. Certification also checks that the selected `lake` already owns the Lean version pinned in the workspace; otherwise it reports `lean_available: false` with a directing reason instead of starting a fresh toolchain download.
 - **Proxies**: if the download stalls or fails behind a corporate proxy, export `HTTP_PROXY` / `HTTPS_PROXY` before running the setup — the elan installer does not read the Windows system proxy settings.
 - **Readiness check**: re-running `session_certify()` reports `lean_available: true` once the toolchain and the `.symkit-lean-ready` stamp are in place.
 
-Usage notes: `session_certify()` requires an active session, and steps that divide by a variable need an explicit assumption first (e.g. `assume({"x": "nonzero"})`). Without a toolchain, everything else in SymKit is unchanged.
+Usage notes: `session_certify()` requires an active session, and steps that divide by a variable need an explicit assertion that the denominator is nonzero. Supply it at certify time with `session_certify(assumptions={"x": {"nonzero": True}})` (or `assumptions="x nonzero"`), or register it beforehand with `assume({"x": "nonzero"})`. Without a toolchain, everything else in SymKit is unchanged.
 
 ## Installation
 

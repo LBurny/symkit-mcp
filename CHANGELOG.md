@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A Lean-certification sandbox round (`symkit-mcp-test-lean`) verified the four
+process/report fixes above end to end against the built wheel (all green: the
+`trivial` split, the certify-time `assumptions`, the toolchain guard, and the
+tree-kill) and found two further defects, both fixed here. Its deterministic
+probes and two operator cards are the acceptance evidence; the "substitute steps
+are skipped" complaint was re-confirmed as design-as-intended. Test suite grew
+1041 → 1055.
+
+A fourth 2026-09-14 report (a real Lean-certified SST derivation) was
+re-verified against the source: three process/environment defects and two
+report-semantics defects were confirmed and fixed here; the "substitute steps
+are skipped" complaint is design-as-intended (only ring/field algebraic
+rewrites are certifiable, documented in the README), and the matrix
+`untranslatable` rows are the lane correctly reporting a real coverage
+boundary. Test suite grew 1041 → 1053.
+
 Fixes from the r16 black-box sandbox round (20 task cards; findings in the
 `symkit-mcp-test-r16` lab). Test suite grew 956 → 997.
 
@@ -27,8 +43,56 @@ false failure plus a misreading of the suspect/inconclusive semantics, and
 the remaining minor items are design-as-intended (search AND semantics,
 domain assumption presets) or SymPy usage traps. Test suite grew 1031 → 1041.
 
+### Added
+
+- **`session_certify` takes certify-time assumptions.** Steps that divide by a
+  variable need an explicit nonzero fact; previously the only way to supply one
+  was to register it with `assume(...)` and re-run the whole derivation.
+  `session_certify(assumptions=...)` now accepts the engine's mapping shape
+  (`{"cp": {"nonzero": True}}`), a string (`"cp nonzero x positive"`) or a list
+  of alternating pairs, and binds them as Lean hypotheses. Steps that recorded
+  their own assumptions keep them.
+
 ### Fixed
 
+- **A leading negated term is no longer read as an asserted difference.** The
+  verifier's difference-form heuristic matched any sum containing a negated
+  compound, so an ordinary expression like `-x**2 + x*(x + 1)` — which
+  simplifies correctly to `x` — was treated as an identity claim and the step
+  carried a `suspect_identity: unreduced` warning saying its "difference did not
+  reduce to zero ... numerically nonzero at tested points". Both assertions were
+  false (the residual is identically zero), and `session_verify_session` headlined
+  the warning on a correct step. The negated operand now counts only when a
+  non-negative term precedes it, and the archived-srepr path skips inputs whose
+  recorded text begins with a unary minus on an identifier.
+- **Skipped certification steps say why.** A step outside the certified fragment
+  (`differentiate`, `integrate`, …) was reported with `certification: skipped`
+  and `reason: null`, so a reader could not tell whether the gap was
+  intentional; it now names the operation and the eligible set.
+- **A cancelled Lean certification no longer leaves an orphan holding the elan
+  lock.** The batch checker used `subprocess.run(timeout=...)`, which kills only
+  the direct child; `lake` spawns the compiler and, during a toolchain install,
+  an elan child that owns `toolchains/<version>.lock`. A timed-out run left both
+  alive, and every later Lean call then blocked forever on
+  "waiting for previous installation request to finish". The checker now starts
+  the command in its own process group and kills the whole tree on timeout
+  (`taskkill /F /T` on Windows, `killpg` on POSIX), so no orphan or stale lock
+  survives.
+- **`lake` discovery honours `ELAN_HOME` over `PATH`.** `find_lake()` checked
+  `PATH` first, so a default `~/.elan/bin/lake` silently shadowed the elan
+  install a user pointed at with `ELAN_HOME` — and since `lake` resolves
+  toolchains against its own elan home, the first certified step triggered a
+  fresh multi-GB toolchain download into the wrong home. `ELAN_HOME` now wins,
+  and readiness additionally verifies that the selected `lake` already owns the
+  toolchain pinned in the workspace, reporting a directing reason instead of
+  starting a surprise download.
+- **Trivial certification goals no longer inflate the `proven` count.** A step
+  whose input and output are structurally identical (`x = x`, `0 = 0`) was
+  translated, proved by `ring`, and counted as `proven` — 11 of the 20 theorems
+  in the reported session were tautologies that certified no algebra. Such steps
+  are now classified `trivial`, reported with the reason, kept out of `proven`
+  (new `summary.trivial`), never sent to the kernel, and get no `details.lean`
+  record.
 - **The verifier absorbs float-path noise instead of failing correct steps.**
   The substitution check recomputes the recorded substitution and compares it
   with the archived output; the two computation paths can drift a power

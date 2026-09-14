@@ -84,15 +84,22 @@ def lean_workspace_dir() -> Path:
 
 
 def find_lake() -> Path | None:
-    """Locate ``lake`` on PATH, then ``ELAN_HOME``, then the default elan dir."""
-    found = shutil.which("lake")
-    if found:
-        return Path(found)
+    """Locate ``lake``: ``ELAN_HOME`` first, then PATH, then the default elan dir.
+
+    ``ELAN_HOME`` wins over ``PATH`` so the elan install the user pointed at is
+    the one whose toolchains get used. Checking ``PATH`` first meant a default
+    ``~/.elan/bin/lake`` silently shadowed ``ELAN_HOME``, and since ``lake``
+    resolves toolchains against *its own* elan home, the first certified step
+    triggered a fresh multi-GB toolchain download elsewhere (round-17 A3).
+    """
     elan_home = os.environ.get("ELAN_HOME")
     if elan_home:
         redirected = Path(elan_home) / "bin" / _ELAN_EXE
         if redirected.exists():
             return redirected
+    found = shutil.which("lake")
+    if found:
+        return Path(found)
     fallback = Path.home() / ".elan" / "bin" / _ELAN_EXE
     return fallback if fallback.exists() else None
 
@@ -106,11 +113,47 @@ def _read_stamp(stamp: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def _elan_home_of(lake: Path) -> Path | None:
+    """Return the elan home owning ``lake`` (``<home>/bin/lake``), if any."""
+    bin_dir = lake.parent
+    if bin_dir.name != "bin":
+        return None
+    home = bin_dir.parent
+    return home if (home / "toolchains").is_dir() else None
+
+
+def _pinned_toolchain_version(workspace: Path) -> str | None:
+    """Parse ``vX.Y.Z`` out of the workspace's ``lean-toolchain`` file."""
+    try:
+        text = (workspace / "lean-toolchain").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    name = text.rsplit(":", 1)[-1].lstrip("v").strip()
+    return name or None
+
+
+def _toolchain_installed(lake: Path, workspace: Path) -> bool | None:
+    """Whether ``lake``'s elan home already holds the pinned toolchain.
+
+    ``None`` means undecidable (not an elan layout, or no version to compare),
+    so callers must not block on it.
+    """
+    home = _elan_home_of(lake)
+    version = _pinned_toolchain_version(workspace)
+    if home is None or version is None:
+        return None
+    dotted = f"leanprover--lean4---v{version}"
+    return any(
+        (home / "toolchains" / name).is_dir()
+        for name in (dotted, dotted.replace(".", "-"))
+    )
+
+
 def detect_status(workspace: Path | None = None) -> LeanStatus:
     """Return whether the Lean backend is ready, without touching the network."""
     lake = find_lake()
     if lake is None:
-        return LeanStatus(False, f"lake not found on PATH; {_SETUP_HINT}")
+        return LeanStatus(False, f"lake not found (PATH, ELAN_HOME, ~/.elan); {_SETUP_HINT}")
     ws = Path(workspace) if workspace is not None else lean_workspace_dir()
     stamp = ws / _STAMP
     if not (ws / "lakefile.toml").exists() or not stamp.exists():
@@ -125,6 +168,17 @@ def detect_status(workspace: Path | None = None) -> LeanStatus:
         return LeanStatus(
             False,
             f"Lean readiness stamp is unreadable; {_SETUP_HINT}",
+            lake_path=str(lake),
+            workspace=str(ws),
+        )
+    if _toolchain_installed(lake, ws) is False:
+        # Running `lake` here would make elan download this toolchain into the
+        # wrong elan home (A3). Tell the user instead of stalling for minutes.
+        return LeanStatus(
+            False,
+            "the selected lake does not own the pinned Lean toolchain; point "
+            f"ELAN_HOME at the elan install that ran `symkit-lean-setup`, or re-run "
+            f"it so `lake` resolves the pinned version ({_SETUP_HINT})",
             lake_path=str(lake),
             workspace=str(ws),
         )

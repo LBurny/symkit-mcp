@@ -60,10 +60,53 @@ def test_certify_runs_with_fake_checker(
     monkeypatch.setattr(certification_tools, "LeanBatchChecker", _FakeBatchChecker)
     mcp = _mcp()
     mcp.tools["session_start"]("certify-fake")
-    mcp.tools["math"]("simplify", "x + 2*x", session=True)
+    # Non-trivial on purpose: `x + 2*x` parses straight to `3*x`, so the simplify
+    # step would be a tautology and certify as `trivial` (B1).
+    mcp.tools["math"]("simplify", "x*(x + 1) - x**2", session=True)
 
     result = mcp.tools["session_certify"]()
 
     assert result["success"] is True
     assert result["toolchain"] == "4.24.0"
     assert result["summary"]["proven"] >= 1
+
+
+def test_certify_rejects_malformed_assumptions(
+    fresh_session_manager: Any, monkeypatch: Any, tmp_path: Any
+) -> None:
+    _ = fresh_session_manager
+    monkeypatch.setattr(
+        certification_tools,
+        "detect_status",
+        lambda: LeanStatus(True, "", "/fake/lake", str(tmp_path), "4.24.0"),
+    )
+    monkeypatch.setattr(certification_tools, "LeanBatchChecker", _FakeBatchChecker)
+    mcp = _mcp()
+    mcp.tools["session_start"]("certify-bad-assume")
+
+    result = mcp.tools["session_certify"](assumptions="cp")
+
+    assert result["success"] is False
+    assert "symbol/property" in result["error"]
+
+
+def test_certify_accepts_string_assumptions(
+    fresh_session_manager: Any, monkeypatch: Any, tmp_path: Any
+) -> None:
+    _ = fresh_session_manager
+    monkeypatch.setattr(
+        certification_tools,
+        "detect_status",
+        lambda: LeanStatus(True, "", "/fake/lake", str(tmp_path), "4.24.0"),
+    )
+    monkeypatch.setattr(certification_tools, "LeanBatchChecker", _FakeBatchChecker)
+    mcp = _mcp()
+    mcp.tools["session_start"]("certify-assume-str")
+    mcp.tools["math"]("simplify", "1/x + 1/x**3", session=True)
+
+    result = mcp.tools["session_certify"](assumptions="x nonzero")
+
+    assert result["success"] is True
+    row = next(r for r in result["steps"] if r["operation"] == "simplify")
+    assert row["certification"] == "proven"
+    assert "h_x : x ≠ 0" in row["statement"]

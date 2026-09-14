@@ -40,7 +40,8 @@ ELIGIBLE_OPERATIONS = frozenset(
 
 _NOTE = (
     "unproven means Lean automation could not prove the equality; "
-    "it does not imply the step is wrong."
+    "it does not imply the step is wrong. trivial means both sides were "
+    "identical (e.g. x = x or 0 = 0), so nothing was verified."
 )
 
 
@@ -62,18 +63,27 @@ class _StepRecord:
 
 
 def certify_session(
-    session: DerivationSession, checker: LeanChecker
+    session: DerivationSession,
+    checker: LeanChecker,
+    *,
+    assumptions: dict[str, dict[str, bool]] | None = None,
 ) -> dict[str, Any]:
     """Re-prove eligible algebraic steps with Lean and attach the results.
 
     Args:
         session: The derivation session to certify (mutated in place).
         checker: A ``LeanChecker`` batch backend.
+        assumptions: Extra per-symbol facts (``{"cp": {"nonzero": True}}``) to
+            bind as Lean hypotheses. A step that records its own assumptions
+            keeps them; every other step falls back to these merged over the
+            session pool, so a missing denominator assumption can be supplied
+            at certify time instead of re-running the whole derivation.
 
     Returns:
         The certification report; existing verification verdicts are preserved.
     """
-    entries = _plan_steps(session)
+    user_assumptions = assumptions or {}
+    entries = _plan_steps(session, user_assumptions)
     statements: list[LeanStatement] = []
     for entry in entries:
         if entry.statement_obj is not None:
@@ -91,7 +101,7 @@ def certify_session(
         entry.certification = "proven" if outcome.proven else "unproven"
         entry.detail = outcome.detail
         _attach_lean(entry.step, outcome, statement.lane, entry.statement or "")
-    _retry_unproven_field_lanes(entries, checker, session)
+    _retry_unproven_field_lanes(entries, checker, session, user_assumptions)
     session._update_timestamp()
     if session._persist_path:
         session.save()
@@ -99,7 +109,10 @@ def certify_session(
 
 
 def _retry_unproven_field_lanes(
-    entries: list[_StepRecord], checker: LeanChecker, session: DerivationSession
+    entries: list[_StepRecord],
+    checker: LeanChecker,
+    session: DerivationSession,
+    user_assumptions: dict[str, dict[str, bool]],
 ) -> None:
     """Re-check unproven field statements as cleared polynomial (ring) goals.
 
@@ -121,7 +134,7 @@ def _retry_unproven_field_lanes(
     ]
     if not retries:
         return
-    assumptions = session.assumption_engine.get_assumptions()
+    assumptions = _merge_assumptions(session.assumption_engine.get_assumptions(), user_assumptions)
     pending = [
         (entry, statement)
         for entry in retries
@@ -186,26 +199,54 @@ def _multiplier_bases(lhs: sp.Basic, rhs: sp.Basic) -> list[sp.Basic]:
     return bases
 
 
-def _plan_steps(session: DerivationSession) -> list[_StepRecord]:
+def _plan_steps(
+    session: DerivationSession, user_assumptions: dict[str, dict[str, bool]]
+) -> list[_StepRecord]:
     """Classify every step and translate the eligible ones (no checker call)."""
-    assumptions = session.assumption_engine.get_assumptions()
+    fallback = _merge_assumptions(
+        session.assumption_engine.get_assumptions(), user_assumptions
+    )
     entries: list[_StepRecord] = []
     for step in session.steps:
         if step.operation not in ELIGIBLE_OPERATIONS:
-            entries.append(_StepRecord(step, "skipped"))
+            # Name the operation so a reader can tell *why* the step never
+            # reached the kernel; a bare `skipped` with reason null read as an
+            # unexplained gap (round-lean task-01).
+            entries.append(
+                _StepRecord(
+                    step,
+                    "skipped",
+                    reason=(
+                        f"{step.operation.value} steps are outside the certified "
+                        "algebraic fragment (only simplify/expand/factor/combine/"
+                        "cancel are kernel-checked)"
+                    ),
+                )
+            )
             continue
-        entries.append(_plan_eligible(session, step, _step_assumptions(step, assumptions)))
+        entries.append(_plan_eligible(session, step, _step_assumptions(step, fallback)))
     return entries
+
+
+def _merge_assumptions(
+    pool: dict[str, dict[str, bool]], extra: dict[str, dict[str, bool]]
+) -> dict[str, dict[str, bool]]:
+    """Overlay ``extra`` facts on ``pool``, returning a fresh mapping."""
+    merged = {symbol: dict(facts) for symbol, facts in pool.items()}
+    for symbol, facts in extra.items():
+        merged.setdefault(symbol, {}).update(facts)
+    return merged
 
 
 def _step_assumptions(
     step: DerivationStep, fallback: dict[str, dict[str, bool]]
 ) -> dict[str, dict[str, bool]]:
-    """Assumptions to bind for one step: its own record, else the session pool.
+    """Assumptions to bind for one step: its own record, else the fallback pool.
 
     Preferring the recorded step assumptions keeps a global/session assumption
     that was set for another step from leaking a binder into this one; the
-    merged engine remains the fallback for steps that record none (r16 task-15).
+    fallback (merged session pool + certify-time assumptions) covers steps that
+    record none (r16 task-15).
     """
     if not step.assumptions:
         return fallback
@@ -218,6 +259,17 @@ def _step_assumptions(
         for prop in parts[1:]:
             props[prop] = True
     return parsed or fallback
+
+
+def _goal_is_trivial(input_expr: sp.Basic, output_expr: sp.Basic) -> bool:
+    """True when both sides are structurally identical (``x = x`` or ``0 = 0``).
+
+    ``ring`` discharges such a goal instantly, but it validates no algebra: a
+    derivation whose every "proven" step is ``x = x`` looks fully certified while
+    nothing was checked (round-17 B1). Such steps are reported as ``trivial``
+    and kept out of the ``proven`` count.
+    """
+    return bool(input_expr == output_expr)
 
 
 def _plan_eligible(
@@ -233,6 +285,13 @@ def _plan_eligible(
             step,
             "untranslatable",
             reason="step expressions could not be reconstructed",
+            record=record,
+        )
+    if _goal_is_trivial(input_expr, output_expr):
+        return _StepRecord(
+            step,
+            "trivial",
+            reason="input and output are identical; the goal certifies no algebra",
             record=record,
         )
     if isinstance(input_expr, sp.Equality) or isinstance(output_expr, sp.Equality):
@@ -340,6 +399,7 @@ def _build_report(entries: list[_StepRecord]) -> dict[str, Any]:
             ),
             "proven": _count(entries, "proven"),
             "unproven": _count(entries, "unproven"),
+            "trivial": _count(entries, "trivial"),
             "untranslatable": _count(entries, "untranslatable"),
             "skipped": _count(entries, "skipped"),
         },

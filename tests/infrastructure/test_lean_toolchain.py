@@ -231,6 +231,78 @@ def test_find_lake_without_elan_home_behavior_unchanged(monkeypatch, tmp_path):
     assert lean_toolchain.find_lake() is None
 
 
+def test_find_lake_elan_home_beats_a_lake_on_path(monkeypatch, tmp_path):
+    """ELAN_HOME must win over PATH, else a default ~/.elan/bin/lake on PATH
+    shadows the elan install the user pointed at and the pinned toolchain is
+    downloaded again into the wrong home (round-17 A3)."""
+    on_path = tmp_path / "path-elan" / "bin" / lean_toolchain._ELAN_EXE
+    on_path.parent.mkdir(parents=True)
+    on_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(lean_toolchain.shutil, "which", lambda _name: str(on_path))
+    homed = tmp_path / "homed-elan" / "bin" / lean_toolchain._ELAN_EXE
+    homed.parent.mkdir(parents=True)
+    homed.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ELAN_HOME", str(tmp_path / "homed-elan"))
+
+    assert lean_toolchain.find_lake() == homed
+
+
+def test_find_lake_falls_back_to_path_when_elan_home_lacks_lake(monkeypatch, tmp_path):
+    monkeypatch.setenv("ELAN_HOME", str(tmp_path / "empty-elan"))
+    on_path = tmp_path / "path-elan" / "bin" / lean_toolchain._ELAN_EXE
+    on_path.parent.mkdir(parents=True)
+    on_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(lean_toolchain.shutil, "which", lambda _name: str(on_path))
+
+    assert lean_toolchain.find_lake() == on_path
+
+
+def _ready_workspace(tmp_path: Path, version: str = "4.24.0") -> Path:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "lakefile.toml").write_text('name = "ws"\n', encoding="utf-8")
+    (workspace / "lean-toolchain").write_text(
+        f"leanprover/lean4:v{version}", encoding="utf-8"
+    )
+    (workspace / lean_toolchain._STAMP).write_text(
+        json.dumps({"toolchain": version, "mathlib_rev": f"v{version}"}),
+        encoding="utf-8",
+    )
+    return workspace
+
+
+def test_status_unavailable_when_selected_lake_lacks_the_pinned_toolchain(
+    monkeypatch, tmp_path
+):
+    """A lake whose elan home lacks the pinned toolchain would trigger a fresh
+    download, so the lane reports unavailable with a directing reason instead."""
+    elan_home = tmp_path / "wrong-elan"
+    lake = elan_home / "bin" / lean_toolchain._ELAN_EXE
+    lake.parent.mkdir(parents=True)
+    lake.write_text("", encoding="utf-8")
+    (elan_home / "toolchains").mkdir()
+    monkeypatch.setattr(lean_toolchain.shutil, "which", lambda _name: str(lake))
+
+    status = lean_toolchain.detect_status(workspace=_ready_workspace(tmp_path))
+
+    assert status.available is False
+    assert "ELAN_HOME" in status.reason
+
+
+def test_status_available_when_lake_owns_the_pinned_toolchain(monkeypatch, tmp_path):
+    elan_home = tmp_path / "right-elan"
+    lake = elan_home / "bin" / lean_toolchain._ELAN_EXE
+    lake.parent.mkdir(parents=True)
+    lake.write_text("", encoding="utf-8")
+    (elan_home / "toolchains" / "leanprover--lean4---v4.24.0").mkdir(parents=True)
+    monkeypatch.setattr(lean_toolchain.shutil, "which", lambda _name: str(lake))
+
+    status = lean_toolchain.detect_status(workspace=_ready_workspace(tmp_path))
+
+    assert status.available is True
+    assert status.toolchain == "4.24.0"
+
+
 def test_detect_version_surfaces_stderr_on_parse_failure(capsys, tmp_path):
     from symkit.infrastructure.lean_toolchain import _detect_version
 

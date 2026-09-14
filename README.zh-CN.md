@@ -81,7 +81,7 @@ session_complete(description="不可压 NS 动量方程")
 
 ## Lean 4 内核认证（可选）
 
-`session_certify()` 用 Lean 4 + Mathlib 内核复核当前会话中符合条件的代数等式步骤（有理式片段内的 `simplify` / `expand` / `factor` / `combine`），经 `ring` / `field_simp` 证明。结果写入各步骤的 `details.lean`；既有验证判定从不被修改，`unproven` 只表示自动化未能闭合目标，不代表步骤有误。不引入任何额外 Python 依赖。
+`session_certify()` 用 Lean 4 + Mathlib 内核复核当前会话中符合条件的代数等式步骤（有理式片段内的 `simplify` / `expand` / `factor` / `combine`），经 `ring` / `field_simp` 证明。结果写入各步骤的 `details.lean`；既有验证判定从不被修改，`unproven` 只表示自动化未能闭合目标，不代表步骤有误。输入与输出逐字相同的步骤（`x = x`、`0 = 0`）记为 `trivial` 并**不计入** `proven`：内核虽瞬时通过，但并未验证任何代数。不引入任何额外 Python 依赖。
 
 ### 配置
 
@@ -96,11 +96,11 @@ symkit-lean-setup --yes --toolchain v4.24.0
 配置要点：
 
 - **数据目录**：Lean 工作区安装在 `<数据目录>/lean-workspace`。运行安装脚本（及服务器）前设置 `SYMKIT_DATA_DIR` 可改变位置。
-- **工具链位置**：`lake` 按 `PATH` → `ELAN_HOME/bin` → `~/.elan/bin` 的顺序查找。已有 elan 安装时，把 `ELAN_HOME` 指向它即可复用。
+- **工具链位置**：`lake` 按 `ELAN_HOME/bin` → `PATH` → `~/.elan/bin` 的顺序查找。已有 elan 安装时，把 `ELAN_HOME` 指向它即可复用——它的优先级最高，`PATH` 上的默认 `~/.elan/bin/lake` 不会将其遮蔽。认证前还会校验所选 `lake` 是否已持有工作区钉住的 Lean 版本；否则返回 `lean_available: false` 并给出明确原因，而不是触发一次新的工具链下载。
 - **代理**：若下载在代理环境停滞或失败，先导出 `HTTP_PROXY` / `HTTPS_PROXY` 再运行安装——elan 安装器不读取 Windows 系统代理设置。
 - **就绪检查**：工具链与 `.symkit-lean-ready` 标记就位后，再次调用 `session_certify()` 会报告 `lean_available: true`。
 
-使用限制：`session_certify()` 需要活跃会话；含变量作分母的步骤需先声明显式假设（如 `assume({"x": "nonzero"})`）。未安装工具链时，SymKit 的其余行为完全不变。
+使用限制：`session_certify()` 需要活跃会话；含变量作分母的步骤需显式声明分母非零。可在认证时直接传入 `session_certify(assumptions={"x": {"nonzero": True}})`（或 `assumptions="x nonzero"`），也可事先用 `assume({"x": "nonzero"})` 注册。未安装工具链时，SymKit 的其余行为完全不变。
 
 ## 安装
 

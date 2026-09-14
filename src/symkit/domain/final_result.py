@@ -187,22 +187,6 @@ def symbol_names(expr: sp.Basic) -> set[str]:
     return names
 
 
-def is_difference_form(expr: sp.Basic | None) -> bool:
-    """True when ``expr`` negates a symbol-bearing, non-atomic term.
-
-    A negated bare symbol (``-E``) or purely numeric term (``-1*(-3)**2``) is
-    ordinary arithmetic, not an asserted identity ``A - B = 0``.
-    """
-    if not isinstance(expr, sp.Add):
-        return False
-    for term in expr.args:
-        if isinstance(term, sp.Mul):
-            coeff, rest = term.as_coeff_Mul()
-            if coeff == -1 and not isinstance(rest, sp.Atom) and rest.free_symbols:
-                return True
-    return False
-
-
 def extract_variable_from_command(command: str, operation: str) -> str | None:
     """Extract the operation variable from ``sympy_command``."""
     if operation == "differentiate":

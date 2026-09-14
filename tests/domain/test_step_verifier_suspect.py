@@ -169,6 +169,23 @@ class TestSuspectIdentity:
         assert "suspect_identity" not in result.details
         assert "FALSE" not in result.message
 
+    def test_leading_negative_term_is_not_a_difference_form(self, verifier):
+        # round-lean task-02 W-1: ``-x**2 + x*(x + 1)`` simplifies to ``x``; the
+        # residual is identically zero, yet the recorded form was read as an
+        # asserted difference (a *leading* negated compound) and the verifier
+        # emitted "the difference did not reduce to zero ... numerically nonzero
+        # at tested points" — both assertions false for a correct step.  A
+        # difference claim has a non-negative operand *before* the negated one;
+        # a leading negative is ordinary algebra.
+        step = _make_archived_step(
+            OperationType.SIMPLIFY, "-x**2 + x*(x + 1)", "x"
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert "suspect_identity" not in result.details
+        assert "did not reduce to zero" not in result.message
+        assert result.message.endswith("output matches the recomputed operator result")
+
     def test_numeric_arithmetic_difference_is_not_marked(self, verifier):
         # task-06 step 9: 6x*6y - 1*(-3)^2 -> 36xy - 9 is a faithful
         # simplification, not a proposition.  The negated term is purely
