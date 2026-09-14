@@ -6,6 +6,9 @@ SymKit project roadmap and feature planning.
 
 ## Current
 
+**v1.7.0** (2026-09-14) — 45 MCP tools, 956 tests. See [CHANGELOG.md](CHANGELOG.md) for the
+release-by-release history.
+
 **v1.6.2** (2026-09-12) — 47 MCP tools, 643 tests. See [CHANGELOG.md](CHANGELOG.md) for the
 release-by-release history.
 
