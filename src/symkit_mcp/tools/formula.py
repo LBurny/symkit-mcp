@@ -90,10 +90,10 @@ def register_formula_tools(mcp: Any) -> None:
                    - Expression content: "sqrt(2*G*M/R)"
             source: Data source
                    - "local": Local YAML library (default, recommended)
-                   - "scipy": Physical constants only (no local search)
                    - "legacy": Search local, then Wikidata, BioModels, SciPy
                    - "all": Alias for "legacy" (kept for compatibility)
-                   - "wikidata", "biomodels", "scipy": Legacy source only
+                   - "wikidata", "biomodels", "scipy": Query that legacy
+                     source only (no local search)
             domain: Restrict domain (optional)
                    - "mechanics", "thermodynamics", "electromagnetism"
                    - "fluid_dynamics", "fluid_mechanics", "quantum_mechanics"
@@ -459,9 +459,8 @@ def register_formula_tools(mcp: Any) -> None:
         Deletes the user-overlay YAML (written by ``formula_add``) and/or the
         session-derived record (written by ``session_complete`` auto_save).
         Bundled seed entries are read-only and cannot be removed.  Use this to
-        clean up polluted entries — e.g. junk auto-saved by earlier buggy
-        sessions — which otherwise keep surfacing in search and ``derive()``
-        recommendations (run-021).
+        clean up unwanted entries — e.g. formulas saved by mistake — which
+        otherwise keep surfacing in search and ``derive()`` recommendations.
 
         Args:
             formula_id: Id of the formula to remove.

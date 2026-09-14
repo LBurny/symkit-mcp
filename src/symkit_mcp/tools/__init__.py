@@ -1,9 +1,9 @@
 """SymKit MCP Tools — Unified Symbolic Math Derivation Engine
 
 Unified tool surface:
-- math.py:    Unified math() tool — 32 operations in one call
+- math.py:    Unified math() tool — 33 operations in one call
 - session.py: Session management + derivation workflow
-- formula.py: 🌐 Formula search (Wikidata, SciPy, BioModels)
+- formula.py: Local formula library search and curation
 - codegen.py: Generate Python code and reports from derivations
 - symbols.py: Symbol registry and semantic checks
 - assumptions.py: Multi-level assumption management
@@ -34,26 +34,26 @@ from symkit_mcp.tools.symbols import register_symbol_tools
 def register_all_tools(mcp: Any) -> None:
     """Register all SymKit tools with the MCP server."""
 
-    # ⭐ Core: Unified math tool + global assumptions
+    # Core: Unified math tool + global assumptions
     register_math_tools(mcp)
 
-    # 🗂️ Session management + unified derivation workflow
+    # Session management + unified derivation workflow
     register_session_tools(mcp)
 
-    # 🌐 External formula sources
+    # Local formula library
     register_formula_tools(mcp)
 
-    # 🏷️ Symbol semantics
+    # Symbol semantics
     register_symbol_tools(mcp)
 
-    # 📝 Code / report generation
+    # Code / report generation
     register_codegen_tools(mcp)
 
-    # 🚀 High-level orchestration
+    # High-level orchestration
     register_orchestration_tools(mcp)
 
-    # 📐 Multi-level assumption tools
+    # Multi-level assumption tools
     register_assumption_tools(mcp)
 
-    # 🔬 Lean kernel certification
+    # Lean kernel certification
     register_certification_tools(mcp)

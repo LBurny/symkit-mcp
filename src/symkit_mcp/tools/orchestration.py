@@ -7,7 +7,7 @@ Provides:
 - tool_categories(): Categorized tool index
 - tool_recommend(): Recommend tools based on current session/task
 
-These tools sit above the 44 low-level tools and make SymKit easier
+These tools sit above the 41 low-level tools and make SymKit easier
 to use for both end users and LLM agents.
 """
 
