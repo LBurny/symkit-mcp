@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A note recorded between two variable-renaming substitutions reset the
+  outcome lineage, so ``session_complete`` delivered the intermediate
+  (pre-second-rename) expression as the final answer. Empty-output steps no
+  longer reset the consume-the-previous-output chain in
+  ``representative_expression``.
+- ``equations_equivalent`` now probes both differences for zero, so two
+  argument orders of the same all-zero equation no longer disagree
+  (``0`` vs a trigonometric form that simplifies to zero).
+- A recorded step's ``input_expressions.original`` no longer blanks out when
+  the parsed input object is falsy (sympy ``0``/``false``); the fallback
+  archives the parsed object verbatim.
+
 ## [1.9.1] - 2026-09-15
 
 A complex formula/theorem derivation round (`symkit-mcp-test-r17`: 21 cards over
