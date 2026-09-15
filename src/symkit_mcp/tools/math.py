@@ -260,9 +260,8 @@ def _record_dimension_step(
             "original": expression,
             "consistent": str(result.get("consistent")),
             "dimensions": json.dumps(result.get("dimensions") or {}, ensure_ascii=False),
-            "result_dimension": json.dumps(
-                result.get("result_dimension") or {}, ensure_ascii=False
-            ),
+            # tri-state: "null" (undetermined) must stay distinct from "{}"
+            "result_dimension": json.dumps(result.get("result_dimension"), ensure_ascii=False),
         },
         output_expr=expr,
         sympy_command="dimension(expr)",

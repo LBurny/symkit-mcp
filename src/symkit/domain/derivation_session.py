@@ -1612,18 +1612,11 @@ class DerivationSession:
             "updated_at": self.updated_at,
             "author": self.author,
             "tags": self.tags,
+            "unit_declarations": self.symbol_registry.unit_declarations(),
         }
 
     def save(self, path: Path | None = None) -> Path:
-        """
-        Save the session to a file.
-
-        Args:
-            path: Save path (optional)
-
-        Returns:
-            Saved file path
-        """
+        """Save the session to a file (``path`` overrides the persist path)."""
         save_path = path or self._persist_path
         if save_path is None:
             save_path = user_sessions_dir() / f"session_{self.session_id}.json"
@@ -1641,15 +1634,7 @@ class DerivationSession:
 
     @classmethod
     def load(cls, path: Path) -> DerivationSession:
-        """
-        Load a session from a file.
-
-        Args:
-            path: File path
-
-        Returns:
-            DerivationSession instance
-        """
+        """Load a session from a file (``path`` is also its new persist path)."""
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
@@ -1681,6 +1666,9 @@ class DerivationSession:
                         symbol_names=list(result.symbol_names),
                         domain=session.domain,
                     )
+
+        # Restore explicit unit declarations (the registry itself is not serialized)
+        session.symbol_registry.restore_unit_declarations(data.get("unit_declarations"))
 
         # Restore current expression
         if data.get("current_expression"):

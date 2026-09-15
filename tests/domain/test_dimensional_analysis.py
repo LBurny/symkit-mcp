@@ -315,3 +315,94 @@ def test_same_symbol_ratio_is_still_consistently_dimensionless():
     assert report.consistent is True
     assert report.issues == []
 
+
+
+def test_unknown_factor_does_not_hide_a_later_inconsistency():
+    """An unresolved factor must not swallow a *definite* mismatch further in.
+
+    ``_dimension_of_product`` used to return ``None`` on the first factor whose
+    dimension was unknown, so ``u*(p + v)`` never reached ``p + v`` — a Pa
+    added to a m/s — while ``(p + v)*u`` did and reported it. Identical
+    mathematics, opposite verdicts, decided by factor order.
+    """
+    p, v, u = sp.symbols("p v u")
+    units = {"p": "Pa", "v": "m/s"}
+    report = check_expression_dimensions(u * (p + v), units)
+    assert report.consistent is False, (report.consistent, report.issues)
+    assert any("incompatible" in issue for issue in report.issues)
+    assert "u" in report.unknown_symbols
+
+
+def test_factor_order_does_not_decide_the_verdict():
+    """The same product written two ways must get the same verdict."""
+    p, v, u = sp.symbols("p v u")
+    units = {"p": "Pa", "v": "m/s"}
+    first = check_expression_dimensions(u * (p + v), units)
+    second = check_expression_dimensions((p + v) * u, units)
+    assert first.consistent == second.consistent is False
+    assert first.unknown_symbols == second.unknown_symbols
+
+
+def test_every_unresolved_symbol_in_a_product_is_reported():
+    """Naming only the first unresolved factor made unit registration a
+    one-symbol-per-round-trip chore."""
+    rho, v, t = sp.symbols("rho v t")
+    report = check_expression_dimensions(rho * v * t, {"x": "m"})
+    assert report.consistent is None
+    assert sorted(report.unknown_symbols) == ["rho", "t", "v"]
+
+
+def test_celsius_declaration_participates_in_the_check():
+    """After the glyph fix a Celsius declaration is a temperature, so a real
+    mismatch is caught instead of the expression going inconclusive."""
+    T, L = sp.symbols("T L")
+    alone = check_expression_dimensions(T, {"T": "\u00b0C"})
+    assert alone.consistent is True, alone.issues
+    assert alone.dimensions["T"] == {"temperature": 1}
+    mixed = check_expression_dimensions(T + L, {"T": "\u00b0C", "L": "m"})
+    assert mixed.consistent is False
+    assert any("incompatible" in issue for issue in mixed.issues)
+
+
+def test_unknown_symbols_are_named_even_without_any_units():
+    """With no unit map at all, the response named no symbols.
+
+    "Which symbols do I need to declare?" is exactly what this response is read
+    for, and partial unit maps already named the missing ones — the all-missing
+    case answered with an empty list instead.
+    """
+    x, t = sp.symbols("x t")
+    report = check_expression_dimensions(x / t, {})
+    assert report.consistent is None
+    assert sorted(report.unknown_symbols) == ["t", "x"]
+    assert report.dimensions == {}
+
+
+def test_no_units_on_a_numeric_expression_stays_no_verdict():
+    """Naming symbols must not turn "nothing to check against" into a verdict."""
+    report = check_expression_dimensions(sp.Integer(2) + sp.Integer(2), {})
+    assert report.consistent is None
+    assert report.unknown_symbols == []
+
+
+def test_partial_sum_does_not_report_a_determined_dimension():
+    """``sqrt(x) + y`` with x in metres and y in seconds: the sqrt term cannot be
+    reduced, so the dimension of the sum is undetermined.
+
+    Reporting ``{time: 1}`` — built from the terms that *did* reduce — answered a
+    question the checker had not answered, and silently dropped a term.
+    """
+    x, y = sp.symbols("x y")
+    report = check_expression_dimensions(x ** sp.Rational(1, 2) + y, {"x": "m", "y": "s"})
+    assert report.consistent is None
+    assert report.issues == []
+
+
+def test_partial_sum_still_reports_a_known_incompatibility():
+    """An undetermined term must not hide a mismatch between the known ones."""
+    x, p, v = sp.symbols("x p v")
+    report = check_expression_dimensions(
+        x ** sp.Rational(1, 2) + p + v, {"x": "m", "p": "Pa", "v": "m/s"}
+    )
+    assert report.consistent is False
+    assert any("incompatible" in issue for issue in report.issues)

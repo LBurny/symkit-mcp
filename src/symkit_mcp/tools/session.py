@@ -163,7 +163,7 @@ def _detect_risks(session: DerivationSession) -> list[dict[str, str]]:
 
 def _verification_summary(session: DerivationSession) -> dict[str, Any]:
     """Return a human-readable verification summary for the session."""
-    summary = session.verify_derivation()
+    summary = _unit_context.summary_with_dimension_disclosure(session)
     display_lines = [
         "🔍 Verification Summary:",
         f"  Verified: {summary['verified']}",
@@ -1080,6 +1080,5 @@ def register_session_tools(mcp: Any) -> None:
                 "success": False,
                 "error": "No active session. Use session_start() first.",
             }
-        _unit_context.apply_dimension_checks(session)
         summary = _verification_summary(session)
         return {"success": True, **summary}

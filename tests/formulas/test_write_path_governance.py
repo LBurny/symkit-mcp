@@ -289,3 +289,61 @@ class TestEmptyVariablesAllowed:
         )
         assert out["success"] is False
         assert "variables" in out["error"]
+
+
+class TestLoadedFormulaUnits:
+    """A formula's declared variable units must reach the dimension checker.
+
+    ``formula_get(load_into_session=True)`` handed only the expression string to
+    ``session.load_formula``, so the curated per-variable ``unit`` metadata that
+    ``formula_get`` itself displays was never usable: the documented unit source
+    "the unit declared on each loaded formula's variables" was unreachable from
+    the MCP surface, and the verify chain saw no units at all.
+    """
+
+    def test_formula_get_load_carries_variable_units(self, gov_env):
+        tools = gov_env.mcp
+        added = _add(
+            tools,
+            id="dim_load",
+            name="Dim load",
+            sympy_str="v*t",
+            latex="v t",
+            variables={"v": {"unit": "m/s"}, "t": {"unit": "s"}},
+        )
+        assert added["success"] is True, added
+        tools["session_start"]("formula-units")
+
+        loaded = tools["formula_get"]("dim_load", load_into_session=True)
+        assert loaded["session_loaded"] is True, loaded
+
+        out = tools["math"]("dimension", "v*t", session=False)
+        assert out["units"] == {"v": "m/s", "t": "s"}
+        assert out["consistent"] is True, out
+        assert out["result_dimension"] == {"length": 1}
+
+    def test_formula_without_units_still_loads_and_stays_graceful(self, gov_env):
+        tools = gov_env.mcp
+        added = _add(tools, id="no_units", name="No units", variables={"x": {"unit": "-"}})
+        assert added["success"] is True, added
+        tools["session_start"]("no-unit-formula")
+
+        loaded = tools["formula_get"]("no_units", load_into_session=True)
+        assert loaded["session_loaded"] is True, loaded
+
+        out = tools["math"]("dimension", "x + 1", session=False)
+        assert out["consistent"] is True, out
+
+    def test_unparseable_variable_unit_warns_and_stays_unknown(self, gov_env):
+        """A library unit the parser cannot read must degrade, not fail."""
+        tools = gov_env.mcp
+        added = _add(tools, id="odd_units", name="Odd units",
+                     sympy_str="x + y", variables={"x": {"unit": "not-a-unit!!"}})
+        assert added["success"] is True, added
+        tools["session_start"]("odd-unit-formula")
+
+        loaded = tools["formula_get"]("odd_units", load_into_session=True)
+        assert loaded["session_loaded"] is True, loaded
+        out = tools["math"]("dimension", "x + y", session=False)
+        assert out["consistent"] is None
+        assert "x" in out["unknown_symbols"]

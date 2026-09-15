@@ -398,6 +398,26 @@ class SymbolRegistry:
             domain = MathDomain.from_string(domain)
         return DOMAIN_ASSUMPTION_HINTS.get(domain, {})
 
+    def unit_declarations(self) -> dict[str, str]:
+        """Explicit per-symbol units, for persistence.
+
+        Built-in ``GLOBAL``/``DOMAIN`` entries are semantic catalogue hints, not
+        declarations about a derivation, and the dimension checker refuses to
+        use them; only ``USER``/``SESSION`` registrations are worth carrying
+        across a save/load (see ``symkit_mcp.tools._unit_context``).
+        """
+        return {
+            s.name: s.default_unit
+            for s in self.list_symbols()
+            if s.default_unit and s.scope in (SymbolScope.USER, SymbolScope.SESSION)
+        }
+
+    def restore_unit_declarations(self, declarations: dict[str, str] | None) -> None:
+        """Re-register persisted unit declarations as user registrations."""
+        for name, unit in (declarations or {}).items():
+            if unit:
+                self.register(name, name, default_unit=unit)
+
 
 # Global singleton (usually each DerivationSession holds its own, or uses the global one directly)
 _global_registry = SymbolRegistry()

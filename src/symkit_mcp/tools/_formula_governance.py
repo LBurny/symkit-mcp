@@ -80,6 +80,23 @@ def persist_entry(entry: FormulaEntry, library_path: str | None) -> None:
         get_catalog().add_entry(entry)
 
 
+def with_variable_units(expression: str, formula: Any) -> str | dict[str, Any]:
+    """Pair a loaded expression with the variable units the library declares.
+
+    ``formula_get(load_into_session=True)`` used to hand only the expression
+    string to ``session.load_formula``, so a curated formula's per-variable
+    ``unit`` metadata — which ``formula_get`` itself displays — never reached
+    the dimension checker: the documented unit source "the unit declared on
+    each loaded formula's variables" was unreachable from the MCP surface.
+    ``session.load_formula`` accepts a dict, which is how the domain API has
+    always carried them.
+    """
+    variables = getattr(formula, "variables", None) or {}
+    if not variables:
+        return expression
+    return {"expression": expression, "variables": variables}
+
+
 def add_response(
     entry: FormulaEntry,
     *,

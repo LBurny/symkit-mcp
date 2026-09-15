@@ -325,7 +325,7 @@ def register_formula_tools(mcp: Any) -> None:
                 # Prefer sympy_str; fall back to latex for formulas that cannot be parsed yet.
                 expression_to_load = result.sympy_str or result.latex or str(result.expression)
                 load_result = session.load_formula(
-                    expression_to_load,
+                    gov.with_variable_units(expression_to_load, result),
                     formula_id=result.id,
                     source=formula_source_enum,
                     source_detail=formula_source,

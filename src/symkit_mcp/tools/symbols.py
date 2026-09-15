@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from symkit.domain.math_domain import MathDomain
 from symkit.domain.symbol_registry import SymbolScope
+from symkit_mcp.tools import _unit_context
 from symkit_mcp.tools._state import get_session
 
 
@@ -64,16 +64,11 @@ def register_symbol_tools(mcp: Any) -> None:
             aliases=aliases or [],
         )
 
-        # Unknown domains are stored verbatim (no silent degradation to
-        # "general", run-021) — but say so explicitly.
-        warning = None
-        try:
-            MathDomain(domain.lower().replace(" ", "_"))
-        except ValueError:
-            warning = (
-                f"'{domain}' is not a built-in domain; stored verbatim as a "
-                "custom domain."
-            )
+        _unit_context.persist_declaration(session)
+
+        # Unknown domains and unreadable units are stored verbatim (no silent
+        # degradation to "general", run-021) — but say so explicitly.
+        warning = _unit_context.declaration_warning(domain, unit)
 
         return {
             "success": True,

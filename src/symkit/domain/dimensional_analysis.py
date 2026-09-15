@@ -53,8 +53,15 @@ def check_expression_dimensions(
     unit_map: dict[str, str],
 ) -> DimensionReport:
     """Check ``expr`` against ``unit_map`` (symbol name -> unit string)."""
-    if not unit_map or expr is None:
+    if expr is None:
         return DimensionReport(consistent=None)
+    if not unit_map:
+        # Nothing to check against, so still no verdict — but name the symbols
+        # that would need a declaration. "Which ones do I declare?" is what this
+        # response is read for, and an empty list answered nothing.
+        bare = _DimensionChecker(unit_map)
+        bare.dimension_of(expr)
+        return DimensionReport(consistent=None, unknown_symbols=list(bare.unknown_symbols))
     checker = _DimensionChecker(unit_map)
     net = checker.dimension_of(expr)
     if checker.issues:
@@ -207,9 +214,17 @@ class _DimensionChecker:
     def _dimension_of_sum(self, expr: sp.Add) -> dict[str, int] | None:
         combined: dict[str, int] | None = None
         first_term: sp.Basic | None = None
+        undetermined = False
         for term in expr.args:
             dim = self.dimension_of(term)
             if dim is None:
+                # Keep checking the remaining terms (a mismatch between *known*
+                # terms is still a definite finding), but the dimension of the
+                # whole sum is not determined: reporting a vector built from a
+                # subset dropped the un-reducible term, so ``sqrt(m) + s`` came
+                # back as ``{time: 1}`` — a determined-looking answer to a
+                # question the checker had not answered.
+                undetermined = True
                 continue
             if combined is None:
                 combined, first_term = dim, term
@@ -219,16 +234,25 @@ class _DimensionChecker:
                     f"{first_term} ({_describe(combined)}) vs "
                     f"{term} ({_describe(dim)})"
                 )
+        if undetermined and not self.issues:
+            return None
         return combined
 
     def _dimension_of_product(self, expr: sp.Mul) -> dict[str, int] | None:
         total: dict[str, int] = {}
+        unknown = False
         for factor in expr.args:
             dim = self.dimension_of(factor)
             if dim is None:
-                return None
+                # Keep walking: a later factor can still carry a *definite*
+                # inconsistency, and every unresolved symbol must be named.
+                # Returning early here made the verdict depend on factor order
+                # (``u*(p + v)`` was accepted while ``(p + v)*u`` was failed)
+                # and reported one unknown symbol per round trip.
+                unknown = True
+                continue
             _accumulate(total, dim)
-        return _drop_zeros(total)
+        return None if unknown else _drop_zeros(total)
 
     def _dimension_of_power(self, expr: sp.Pow) -> dict[str, int] | None:
         base, exponent = expr.args

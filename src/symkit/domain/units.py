@@ -26,6 +26,18 @@ _CHAR_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
     ("^", "**"),
     ("（", "("),
     ("）", ")"),
+    ("µ", "u"),  # U+00B5 MICRO SIGN
+    ("μ", "u"),  # U+03BC GREEK SMALL LETTER MU
+)
+
+# Whole-token respellings applied before the character substitutions above.
+# These are spellings a domain author actually writes whose dimension is
+# unambiguous but whose token is absent from the SymPy namespace; without them
+# the symbol degrades to "unknown" and the whole expression goes inconclusive.
+_TOKEN_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
+    ("degC", "K"), ("celsius", "K"), ("°C", "K"), ("℃", "K"),
+    ("degF", "K"), ("fahrenheit", "K"), ("°F", "K"), ("℉", "K"),
+    ("°", "deg"),  # U+00B0 DEGREE SIGN (angle, dimensionless)
 )
 
 # Names that denote "no unit known" rather than a parse failure.
@@ -35,7 +47,7 @@ _UNKNOWN_SENTINELS = frozenset({"", "-"})
 # formula write path requires a non-empty unit, using ``"-"`` for a
 # dimensionless or unknown quantity, so the analyser has to read ``"-"`` as an
 # assertion rather than as missing information.
-_DIMENSIONLESS_MARKERS = frozenset({"-", "1", "dimensionless", "unitless", "none", "无量纲"})
+_DIMENSIONLESS_MARKERS = frozenset({"-", "1", "dimensionless", "unitless", "none", "无量纲", "%", "‰", "ppm"})
 
 
 def is_dimensionless_marker(text: str) -> bool:
@@ -56,10 +68,12 @@ _UNIT_NAMESPACE: dict[str, Any] = _unit_namespace()
 
 
 def _normalize_unit_text(text: str) -> str:
-    """Fold display glyphs down to plain Python arithmetic syntax."""
+    """Fold display glyphs and respellings down to plain Python arithmetic."""
     normalized = text.strip()
     if normalized in _UNKNOWN_SENTINELS:
         return ""
+    for old, new in _TOKEN_SUBSTITUTIONS:
+        normalized = normalized.replace(old, new)
     for old, new in _CHAR_SUBSTITUTIONS:
         normalized = normalized.replace(old, new)
     return "".join(normalized.split())
@@ -86,16 +100,28 @@ def parse_unit(text: str) -> sp.Expr | None:
     return parsed
 
 
-def dimension_dependencies(unit_expr: sp.Basic) -> dict[str, int]:
+def dimension_dependencies(unit_expr: sp.Basic) -> dict[str, int] | None:
     """Base-quantity dimension vector for a SymPy unit expression.
 
-    Keys are base-quantity names (``mass``, ``length``, ``time``, ...);
-    dimensionless expressions yield ``{}``.  Unresolvable inputs yield ``{}``
-    rather than raising.
+    Keys are base-quantity names (``mass``, ``length``, ``time``, ...).  ``{}``
+    means dimensionless; ``None`` means the vector is not expressible as
+    integer base powers (``sqrt(m)``, ``m**(1/3)``) or the input cannot be
+    resolved at all.
+
+    ``None`` and ``{}`` must stay distinct: rounding a fractional power to
+    ``length ** 0`` reports a dimensioned quantity as dimensionless, which is
+    worse than admitting the unit is unknown.
     """
     try:
         dimensional = SI.get_dimensional_expr(unit_expr)
         raw = SI.get_dimension_system().get_dimensional_dependencies(dimensional)
     except Exception:
-        return {}
-    return {str(dim.name): int(power) for dim, power in raw.items()}
+        return None
+    powers = {str(dim.name): sp.Rational(power) for dim, power in raw.items()}
+    # SI defines the steradian as a dimensionless derived unit; SymPy gives it a
+    # dimension of its own, which would leak a non-base name into a vector whose
+    # contract says "keys are base quantities".
+    powers.pop("steradian", None)
+    if any(power.q != 1 for power in powers.values()):
+        return None
+    return {name: int(power) for name, power in powers.items()}

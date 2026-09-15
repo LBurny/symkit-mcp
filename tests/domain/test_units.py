@@ -107,3 +107,67 @@ def test_collect_unit_map_keeps_explicit_registrations():
     )
 
     assert collect_unit_map(session)["k"] == "1/m"  # type: ignore[arg-type]
+
+
+# --- A fractional power is not an integer dimension vector (dim round 2) ----
+
+
+def test_dimension_dependencies_rejects_fractional_powers():
+    """``sqrt(m)`` cannot be written as integer base powers.
+
+    ``int(power)`` turned ``length ** (1/3)`` into ``length ** 0``, which reads
+    as *dimensionless* — so ``x`` declared in ``sqrt(m)`` was laundered into a
+    dimensionless quantity and ``x**3`` came back ``consistent: true``.
+    """
+    assert dimension_dependencies(sp.sqrt(meter)) is None
+    assert dimension_dependencies(meter ** sp.Rational(1, 3)) is None
+    assert dimension_dependencies(meter ** sp.Rational(3, 2)) is None
+
+
+def test_dimension_dependencies_integer_powers_still_work():
+    assert dimension_dependencies(meter**2 / second) == {"length": 2, "time": -1}
+
+
+# --- Real-world unit glyphs (dim lab round 2) -------------------------------
+
+
+def test_micro_prefix_glyphs_resolve():
+    """The SI micro prefix is written as U+00B5 or Greek mu U+03BC.
+
+    ``um`` was in the namespace and resolved, while ``µm`` and ``μm`` — the
+    spellings a physicist actually types — were silently UNKNOWN, which turned
+    the whole expression inconclusive instead of checked.
+    """
+    for text in ("\u00b5m", "\u03bcm", "um"):
+        assert dimension_dependencies(parse_unit(text)) == {"length": 1}, text
+    for text in ("\u00b5s", "\u03bcs", "us"):
+        assert dimension_dependencies(parse_unit(text)) == {"time": 1}, text
+
+
+def test_temperature_glyphs_are_temperature():
+    """``K`` resolved but ``°C``, ``℃`` and ``degC`` did not, so every
+    thermodynamics card written in Celsius went inconclusive."""
+    for text in ("K", "\u00b0C", "\u2103", "degC", "celsius"):
+        assert dimension_dependencies(parse_unit(text)) == {"temperature": 1}, text
+    for text in ("\u00b0F", "\u2109", "fahrenheit"):
+        assert dimension_dependencies(parse_unit(text)) == {"temperature": 1}, text
+
+
+def test_angle_glyphs_are_dimensionless():
+    for text in ("deg", "rad", "\u00b0"):
+        assert dimension_dependencies(parse_unit(text)) == {}, text
+
+
+def test_steradian_is_dimensionless():
+    """SI defines the steradian as a dimensionless derived unit; reporting a
+    made-up ``steradian`` base quantity broke the "keys are base quantities"
+    contract of the dimension vector."""
+    for text in ("sr", "steradian"):
+        assert dimension_dependencies(parse_unit(text)) == {}, text
+
+
+def test_percent_glyphs_assert_dimensionless():
+    from symkit.domain.units import is_dimensionless_marker
+
+    for text in ("%", "\u2030", "ppm"):
+        assert is_dimensionless_marker(text), text
