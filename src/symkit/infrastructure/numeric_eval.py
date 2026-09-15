@@ -31,6 +31,17 @@ _CANCELLATION_RATIO = sp.Rational(1, 1000)
 # arbitrarily large); such sums keep the previous ``evalf`` behaviour.
 _MAX_EXACT_TERMS = 100_000
 
+# A substitution value above this magnitude is applied numerically instead of
+# exactly: ``(1 + 1/n)**n`` at ``n = 10**6`` builds a ~6-million-digit rational
+# under exact substitution and ``evalf`` then never returns (r18 A3).  Smaller
+# values keep the exact route so their digits do not move.
+_EXACT_SUBS_LIMIT = 10**4
+
+_CANCELLATION_WARNING = (
+    "catastrophic cancellation suspected; result computed at "
+    f"{_DOUBLE_DPS}-digit working precision"
+)
+
 
 def _term_count(sum_expr: sp.Sum) -> int | None:
     """Number of terms in a finite ``Sum``, or ``None`` if not decidable."""
@@ -87,12 +98,58 @@ def _eval_finite_sum(sum_expr: sp.Sum) -> tuple[Any, bool]:
     return value, False
 
 
-def numeric_evalf(expr: Any) -> tuple[Any, list[str]]:
+def _needs_numeric_substitution(subs: dict[Any, Any]) -> bool:
+    """True when exact substitution could build an astronomically large number."""
+    return any(
+        isinstance(value, sp.Integer) and bool(sp.Abs(value) > _EXACT_SUBS_LIMIT)
+        for value in subs.values()
+    )
+
+
+def _replace_finite_sums(
+    sums: list[tuple[Any, Any]],
+) -> tuple[dict[Any, Any], list[str]]:
+    """Map each finite ``Sum`` node to its high-precision value, with warnings."""
+    mapping: dict[Any, Any] = {}
+    warnings: list[str] = []
+    for node, resolved in sums:
+        value, suspected = _eval_finite_sum(resolved)
+        mapping[node] = value
+        if suspected:
+            warnings.append(_CANCELLATION_WARNING)
+    return mapping, warnings
+
+
+def _evalf_numerically(expr: Any, subs: dict[Any, Any]) -> tuple[Any, list[str]]:
+    """``evalf(subs=...)`` without ever building an exact substituted rational."""
+    if not isinstance(expr, sp.Basic):
+        return expr.subs(subs).evalf(), []
+    finite_sums = [
+        (node, node.subs(subs))
+        for node in expr.atoms(sp.Sum)
+        if _is_small_finite_sum(node.subs(subs))
+    ]
+    mapping, warnings = _replace_finite_sums(finite_sums)
+    return expr.xreplace(mapping).evalf(subs=subs), warnings
+
+
+def numeric_evalf(
+    expr: Any, subs: dict[Any, Any] | None = None
+) -> tuple[Any, list[str]]:
     """Numerically evaluate ``expr``; finite ``Sum`` atoms at high precision.
+
+    ``subs`` is the substitution recorded on the call.  A large-integer value is
+    applied *numerically* through ``evalf(subs=...)``; anything else is
+    substituted exactly first, preserving the previous values bit for bit.
 
     Returns ``(value, warnings)``.  Non-``Basic`` inputs (e.g. a matrix) are
     handled exactly as the plain ``evalf`` call did before.
     """
+    if subs and _needs_numeric_substitution(subs):
+        return _evalf_numerically(expr, subs)
+    if subs:
+        expr = expr.subs(subs)
+        expr = expr.doit() if isinstance(expr, sp.Basic) else expr
     if not isinstance(expr, sp.Basic):
         return expr.evalf(), []
 
@@ -100,14 +157,5 @@ def numeric_evalf(expr: Any) -> tuple[Any, list[str]]:
     if not finite_sums:
         return expr.evalf(), []
 
-    mapping: dict[Any, Any] = {}
-    warnings: list[str] = []
-    for sum_expr in finite_sums:
-        value, suspected = _eval_finite_sum(sum_expr)
-        mapping[sum_expr] = value
-        if suspected:
-            warnings.append(
-                "catastrophic cancellation suspected; result computed at "
-                f"{_DOUBLE_DPS}-digit working precision"
-            )
+    mapping, warnings = _replace_finite_sums([(node, node) for node in finite_sums])
     return expr.xreplace(mapping).evalf(), warnings

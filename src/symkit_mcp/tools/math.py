@@ -294,15 +294,15 @@ def _record_step_if_possible(
     """Record a successful math() call to the current session when possible."""
     sess = get_session()
     if sess is None:
-        return
+        from symkit_mcp.tools.session import _flag_unrecorded_math_step
+        return _flag_unrecorded_math_step(result)
     if operation == "dimension":
         _record_dimension_step(sess, expression, result, description, notes)
     elif result_obj is not None:
         _record_math_step(
-            sess, operation, expression, preprocessed, result,
-            input_obj, result_obj,
-            variable=variable, order=order, lower=lower, upper=upper,
-            point=point, direction=direction, substitution=substitution,
+            sess, operation, expression, preprocessed, result, input_obj, result_obj,
+            variable=variable, order=order, lower=lower, upper=upper, point=point,
+            direction=direction, substitution=substitution,
             description=description, notes=notes,
         )
 

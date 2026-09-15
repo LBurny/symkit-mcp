@@ -53,6 +53,40 @@ def _as_str_list(value: list[str] | str | None) -> list[str]:
     return list(value)
 
 
+def _flag_unrecorded_math_step(result: dict[str, Any]) -> None:
+    """Mark a ``math(session=True)`` result as not recorded (no active session).
+
+    An operator following the documented workflow believed the step had been
+    captured; saying so explicitly stops the derivation from losing it silently
+    (r18 C3). The mathematical fields of ``result`` are left untouched.
+    """
+    result["session_recorded"] = False
+    result.setdefault("warnings", []).append(
+        "session=True was requested but no derivation session is active, so "
+        "this step was not recorded; call session_start first (or pass "
+        "session=False to silence this)."
+    )
+
+
+def _suspect_identity_warning(suspect_steps: list[Any], auto_save: bool) -> list[str]:
+    """Warn about unreduced differences without claiming an unwritten save.
+
+    ``session_complete(auto_save=false)`` writes nothing to the formula library,
+    yet the message used to say "the formula is saved with verified=false"
+    (r18 C2). The unreduced-difference half is true and stays; only the save
+    claim follows the actual ``auto_save`` flag.
+    """
+    if not suspect_steps:
+        return []
+    lead = (
+        f"{len(suspect_steps)} step(s) recorded an unreduced difference "
+        "(suspect_identity)"
+    )
+    if auto_save:
+        return [f"{lead}; the formula is saved with verified=false"]
+    return [f"{lead}; auto_save=false, so nothing was saved"]
+
+
 def _detect_risks(session: DerivationSession) -> list[dict[str, str]]:
     """Analyze current expression for common risks."""
     risks: list[dict[str, str]] = []
@@ -639,10 +673,7 @@ def register_session_tools(mcp: Any) -> None:
             and not suspect_steps
         )
         if suspect_steps:
-            warnings.append(
-                f"{len(suspect_steps)} step(s) recorded an unreduced difference "
-                "(suspect_identity); the formula is saved with verified=false"
-            )
+            warnings.extend(_suspect_identity_warning(suspect_steps, auto_save))
         verification_method = "step_verifier" if is_verified else ""
         verified_at = datetime.now().isoformat() if is_verified else None
 

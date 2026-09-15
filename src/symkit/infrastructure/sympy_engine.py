@@ -10,6 +10,7 @@ import sympy as sp
 from sympy.core.function import AppliedUndef
 
 from symkit.domain.assumption_binding import apply_assumptions, resolve_assumed_symbol
+from symkit.domain.dsolve_ics import dsolve_with_ics
 from symkit.domain.entities import Expression, ExpressionType
 from symkit.domain.expression_parser import (
     TRANSFORMATIONS,
@@ -528,22 +529,21 @@ class SymPyEngine(SymbolicEngine):
         """Solve an ordinary differential equation.
 
         ``ics`` maps applied-function points to values, e.g.
-        ``{V(0): V_0}``, and is forwarded to ``sympy.dsolve``.
+        ``{V(0): V_0}``, applied through a bounded constant solve (r18 A1).
         """
         if not ode.is_valid:
             return ode
         try:
             f = sp.Function(func)
-            # The independent variable must match the symbol inside the parsed
-            # ODE.  With an assumption on ``t`` the ODE holds
-            # ``Symbol('t', positive=True)``; asking dsolve about a plain
-            # ``Symbol('t')`` failed with "is not a solvable differential
-            # equation in v(t)".
+            # Match the assumed ``t`` inside the parsed ODE (not a bare Symbol).
             v = resolve_assumed_symbol(var, self._get_assumptions(var, context))
-            if isinstance(ode.sympy_expr, sp.Equality):
-                result = sp.dsolve(ode.sympy_expr, f(v), ics=ics)
-            else:
-                result = sp.dsolve(sp.Eq(ode.sympy_expr, 0), f(v), ics=ics)
+            equation = (
+                ode.sympy_expr if isinstance(ode.sympy_expr, sp.Equality)
+                else sp.Eq(ode.sympy_expr, 0)
+            )
+            result, refusal = dsolve_with_ics(equation, f, v, ics)
+            if refusal:
+                return _failed(f"dsolve: {refusal}")
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.EQUATION)
         except Exception as e:

@@ -44,6 +44,11 @@ _NOTE = (
     "identical (e.g. x = x or 0 = 0), so nothing was verified."
 )
 
+_TRIVIAL_STATEMENT_REASON = (
+    "the two sides translate to the same Lean expression; the goal is "
+    "reflexivity (X = X) and certifies no algebra"
+)
+
 
 @dataclass
 class _StepRecord:
@@ -135,11 +140,18 @@ def _retry_unproven_field_lanes(
     if not retries:
         return
     assumptions = _merge_assumptions(session.assumption_engine.get_assumptions(), user_assumptions)
-    pending = [
-        (entry, statement)
-        for entry in retries
-        if (statement := _retry_statement(entry, assumptions)) is not None
-    ]
+    pending: list[tuple[_StepRecord, LeanStatement]] = []
+    for entry in retries:
+        statement = _retry_statement(entry, assumptions)
+        if statement is None:
+            continue
+        if _statement_is_tautology(statement):
+            # Clearing denominators can map two distinct rational functions onto
+            # the same numerator, so the retry goal is `X = X` and `ring`
+            # discharges it without using the step's algebra (r18 C1).
+            _trivialise(entry)
+            continue
+        pending.append((entry, statement))
     if not pending:
         return
     outcomes = {o.name: o for o in checker.check([s for _, s in pending])}
@@ -272,6 +284,28 @@ def _goal_is_trivial(input_expr: sp.Basic, output_expr: sp.Basic) -> bool:
     return bool(input_expr == output_expr)
 
 
+def _statement_is_tautology(statement: LeanStatement) -> bool:
+    """True when the translated goal is reflexivity (both sides the same).
+
+    Distinct SymPy inputs can still render to the same Lean expression: clearing
+    a rational identity's denominators maps ``(a/b) + (c/d)`` and
+    ``(a*d + b*c)/(b*d)`` onto the same numerator, so ``ring`` proves ``X = X``
+    without touching the step's algebra (r18 C1). Such a goal certifies nothing
+    and must not be counted ``proven``.
+    """
+    return statement.lhs == statement.rhs
+
+
+def _trivialise(entry: _StepRecord) -> None:
+    """Bucket an already-planned step as ``trivial`` and drop its Lean goal."""
+    entry.certification = "trivial"
+    entry.reason = _TRIVIAL_STATEMENT_REASON
+    entry.lane = None
+    entry.statement = None
+    entry.detail = None
+    entry.outcome = None
+
+
 def _plan_eligible(
     session: DerivationSession,
     step: DerivationStep,
@@ -310,6 +344,10 @@ def _plan_eligible(
         )
     except UntranslatableError as exc:
         return _StepRecord(step, "untranslatable", reason=str(exc), record=record)
+    if _statement_is_tautology(statement):
+        # The inputs differ but translate to the same Lean expression (e.g. a
+        # commutative reordering normalized by the renderer): still `X = X`.
+        return _StepRecord(step, "trivial", reason=_TRIVIAL_STATEMENT_REASON, record=record)
     rendered = _render_statement(statement)
     return _StepRecord(
         step,

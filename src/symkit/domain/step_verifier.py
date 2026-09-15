@@ -39,7 +39,11 @@ from symkit.domain.final_result import (
 )
 from symkit.domain.symbol_registry import SymbolRegistry
 from symkit.domain.value_objects import VerificationResult, VerificationStatus
-from symkit.domain.verification_guardrails import collect_warnings, reverse_integrate
+from symkit.domain.verification_guardrails import (
+    collect_warnings,
+    reverse_integrate,
+    verify_evalf,
+)
 
 if TYPE_CHECKING:
     from symkit.domain.derivation_session import DerivationStep
@@ -116,7 +120,7 @@ class StepVerifier:
         elif op == OperationType.LIMIT:
             result = self._verify_limit(step, input_expr, output_expr, assumptions)
         elif op == OperationType.EVALF:
-            result = self._verify_evalf(input_expr, output_expr)
+            result = verify_evalf(step, input_expr, output_expr, assumptions, self._parse)
         else:
             result = VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
@@ -676,46 +680,6 @@ class StepVerifier:
         return VerificationResult.failure(
             "ODE solution does not satisfy the equation",
             residual=str(residual),
-        )
-
-    def _verify_evalf(
-        self, input_expr: sp.Basic, output_expr: sp.Basic
-    ) -> VerificationResult:
-        """Verify numeric evaluation by independent re-evaluation."""
-        try:
-            # N of an inert finite ``Sum`` drifts in double precision; the
-            # tool evaluates it exactly via ``doit`` (r16 task-19 step 13).
-            expected = complex(sp.N(evaluate_pending(input_expr), 20))
-            actual = complex(sp.N(output_expr, 20))
-        except (TypeError, ValueError):
-            # evalf over symbolic input (``2*x`` → ``2.0*x``): compare
-            # ``N(input)`` with the output; a mismatch stays INCONCLUSIVE.
-            try:
-                expected_sym = sp.N(evaluate_pending(input_expr), 20)
-                diff_sym = sp.simplify(expected_sym - output_expr)
-            except (TypeError, ValueError):
-                return VerificationResult(
-                    status=VerificationStatus.INCONCLUSIVE,
-                    message="evalf input/output is not purely numeric",
-                )
-            if is_numerically_zero(diff_sym):
-                return VerificationResult.success(
-                    "Numeric evaluation verified (symbolic comparison)"
-                )
-            return VerificationResult(
-                status=VerificationStatus.INCONCLUSIVE,
-                message="evalf output does not match the numeric evaluation of its input",
-                details={"expected": str(expected_sym), "actual": str(output_expr)},
-            )
-        # Quadrature of an inert Integral needs a relative tolerance (task-18).
-        quadrature = input_expr.has(sp.Integral) or output_expr.has(sp.Integral)
-        tol = (1e-6 if quadrature else 1e-12) * max(1.0, abs(expected))
-        if abs(expected - actual) < tol:
-            return VerificationResult.success("Numeric evaluation verified")
-        return VerificationResult.failure(
-            "Numeric evaluation mismatch",
-            expected=str(expected),
-            actual=str(actual),
         )
 
     def _verify_limit(

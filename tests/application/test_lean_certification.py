@@ -150,23 +150,32 @@ class LaneChecker:
         ]
 
 
-def test_field_lane_falls_back_to_cleared_ring(tmp_path):
-    """An unproven field goal is retried as its denominator-free ring identity."""
+def test_vacuous_field_retry_is_bucketed_trivial(tmp_path):
+    """A cleared-denominator retry that is reflexivity must not certify `proven`.
+
+    r18 task-18: the field lane's fallback clears denominators on both sides, and
+    because the translator has already normalized the step's input the two
+    numerators come out *identical* — the retry goal is ``X = X`` and Lean closes
+    it by reflexivity without touching the step's algebra. Counting that as
+    `proven` inflated the summary. The retry is now bucketed `trivial`, so it
+    never reaches the checker.
+    """
     session = DerivationSession(session_id="", name="t", auto_verify=True)
     session._persist_path = tmp_path / "s.json"
     session.assumption_engine.assume("x", "nonzero")
     session.load_formula("1/x + 1/x**3", formula_id="f1")
-    session.simplify()  # field lane, non-trivial: 1/x + 1/x³ -> (x² + 1)/x³
+    session.simplify()  # field lane: 1/x + 1/x³ -> (x² + 1)/x³
     checker = LaneChecker()
     report = certify_session(session, checker)
 
     assert any(s.lane == "field" for s in checker.seen)
-    assert any(s.lane == "ring" for s in checker.seen)
+    assert not any(s.lane == "ring" for s in checker.seen), "the vacuous retry must not be sent"
     row = next(r for r in report["steps"] if r["operation"] == "simplify")
-    assert row["certification"] == "proven"
-    assert row["lane"] == "field+ring"
+    assert row["certification"] == "trivial"
+    assert "reflexivity" in (row["reason"] or "")
     step = next(s for s in session.steps if s.operation.value == "simplify")
-    assert json.loads(step.verification_result)["details"]["lean"]["lane"] == "field+ring"
+    lean = json.loads(step.verification_result)["details"]["lean"]
+    assert lean["lane"] == "field", "only the primary attempt belongs in the record"
 
 
 # --- round-17 B1: trivial goals certify nothing and must not inflate `proven` ---

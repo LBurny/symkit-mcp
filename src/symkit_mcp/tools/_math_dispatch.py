@@ -28,6 +28,7 @@ from symkit.domain.expression_parser import (
     preprocess_unicode,
 )
 from symkit.domain.value_objects import MathContext
+from symkit.infrastructure.matrix_exp import matrix_exp_guard
 from symkit.infrastructure.numeric_eval import numeric_evalf
 from symkit.infrastructure.sympy_engine import (
     SymPyEngine,
@@ -528,6 +529,8 @@ def _execute_operation_inner(
 ) -> dict[str, Any]:
     """Execute one operation; see :func:`_execute_operation` for the contract."""
     preprocessed = _preprocess(expr_str)
+    if (guard := matrix_exp_guard(operation, preprocessed, substitution)) is not None:
+        return guard
     context = _effective_context(assumption_context)
 
     # Helper to parse with consistent error handling
@@ -588,8 +591,7 @@ def _execute_operation_inner(
         parsed = _require_parse_with_assumptions(preprocessed)
         if isinstance(parsed, dict):
             return parsed
-        input_obj = parsed
-        result = parsed
+        input_obj = result = parsed
 
     # ── NUMERIC EVALUATION ──
     elif operation == "evalf":
@@ -597,13 +599,13 @@ def _execute_operation_inner(
         if isinstance(parsed, dict):
             return parsed
         input_obj = parsed
+        subs: dict[sp.Basic, Any] | None = None
         if substitution:
             subs, subs_error = _build_subs_dict(substitution)
             if subs_error is not None:
                 return subs_error
-            assert subs is not None
-            parsed = parsed.subs(_rekey_subs_to_expression(parsed, subs)).doit()
-        result, op_warnings = numeric_evalf(dense_matrix_form(parsed))
+            subs = _rekey_subs_to_expression(parsed, subs or {})
+        result, op_warnings = numeric_evalf(dense_matrix_form(parsed), subs)
 
     # ── SOLVE ──
     elif operation == "solve":
@@ -620,9 +622,7 @@ def _execute_operation_inner(
                 if isinstance(parsed, sp.Basic):
                     free_names = {str(s) for s in parsed.free_symbols}
                 elif isinstance(parsed, (list, tuple)):
-                    free_names = {
-                        str(s) for eq in parsed for s in eq.free_symbols
-                    }
+                    free_names = {str(s) for eq in parsed for s in eq.free_symbols}
                 else:
                     free_names = set()
                 free = sorted(free_names)
@@ -772,8 +772,7 @@ def _execute_operation_inner(
             # Parse as ODE: convert "diff(y,t) - k*y" or "dy/dt - k*y" to SymPy form
             ode_expr, ode_error = _parse_ode(preprocessed, v, func_var)
             if ode_expr is None:
-                return {"success": False,
-                        "error": ode_error or "Cannot parse ODE"}
+                return {"success": False, "error": ode_error or "Cannot parse ODE"}
             # Context assumptions (k, m positive) shape the solution form; without
             # them sympy returns complex-root exponentials, not the trig form.
             ode_expr = _apply_context_assumptions(ode_expr, context)
