@@ -15,6 +15,7 @@
    - **已发布版**（测 PyPI 版本）：装 `symkit-mcp==X.Y.Z` 时必须 `--default-index https://pypi.org/simple`——本机默认 pip 索引是阿里镜像，滞后官方数小时。
 3. **lane 划分**：每 lane 5–7 卡串行，**并行 ≤3 条 lane**，每 lane 独立 `SYMKIT_DATA_DIR`（`data/pure`、`data/theory`、…）。Lean 认证卡例外：`run_task_lean.sh` 的 `SYMKIT_DATA_DIR` 指向 Lean 安装根（认证要访问 lean-workspace），不走 lab data-dir 隔离——刻意设计；该 lane 其余普通卡仍走 `run_task.sh` + lab data-dir。
 4. **卡片清单**：主控亲写；确定哪张卡走 Lean lane（需真实 Lean 安装）。
+5. **系统提示词**：决定操作员是否带上推荐系统提示词（`docs/recommended-system-prompt.md`，给真客户端的规范引导）。带上 = 测"引擎在真实客户端引导下的表现"；不带 = 测 harness 默认提示词下的裸引擎。最有价值的用法是**同一张卡两种都跑**：两次都错是引擎缺陷，只有不带时错则是提示词没交代清（见硬规则 13）。
 
 ## 第 1 步：搭实验台
 
@@ -36,7 +37,10 @@ cp <skill>/assets/{run_task.sh,run_suite.sh,run_task_lean.sh,analyze.py} .
 mkdir -p probe tasks findings runs
 cp <skill>/assets/probe_smoke.py probe/smoke.py
 cp <skill>/assets/probe_lean_real.py probe/lean_real.py   # 有 Lean 认证卡时
+mkdir -p prompt
+cp /i/Formulation/example/symkit-mcp-master/docs/recommended-system-prompt.md prompt/system-prompt.md
 export RUN_PREFIX=rNN   # run_suite.sh 用；analyze.py 用 argv
+# 注入推荐系统提示词（可选，见下）：export SYSTEM_PROMPT_FILE="$PWD/prompt/system-prompt.md"
 
 # 4. 花 AI 费用之前先确认服务器可用
 .venv/Scripts/python.exe probe/smoke.py   # 期望: 工具数与当前版本一致 + session_certify present
@@ -45,6 +49,7 @@ export RUN_PREFIX=rNN   # run_suite.sh 用；analyze.py 用 argv
 - **HEAD 轮测的是当前工作区**（含未提交修复）——wheel 版本号仍是上一发布版（如 1.7.0）属正常，沙箱轮不做版本号 bump；因此重装一律 `--force-reinstall`（硬规则 7）。smoke 的工具数期望值以当前源码为准（1.7.0 = 45 仅为参照），lab README 里写清 wheel 实际版本与来源（工作区 HEAD 还是干净 tag）。
 - `mcp<2` 是历史教训钉住的（pin 原因见 run-001 findings 记忆）。lab venv 装 symkit-mcp 时会带上 mcp，探针脚本用它的 client 端。
 - `.mcp.json` **不要手写**——`run_task.sh` 每次运行在 `runs/<run-id>/.mcp.json` 生成，注入该 run 的 `SYMKIT_DATA_DIR`。`SYMKIT_DATA_DIR` 必须在服务器进程启动前生效（组合根 lru_cache）。
+- **推荐系统提示词拷副本进 lab**：从 master 拷 `docs/recommended-system-prompt.md` 到 `prompt/system-prompt.md`，并在 README 记下来源修订（`git -C ../symkit-mcp-master log -1 --format=%h -- docs/recommended-system-prompt.md`）。拷副本而不是让 lab 每次去读 master：收尾删重物时，这轮实际用的提示词修订仍随 run 归档，跨轮对比才成立。该文件体例就是提示词本身，整份直接传给 `SYSTEM_PROMPT_FILE`，别加标题/前言/分隔线。跑 A/B 时在不注入的那条 lane 里 `unset SYSTEM_PROMPT_FILE`，run-id 用后缀区分（如 `-p` / `-nop`）。
 - `run_task_lean.sh` 硬编码维护者环境（`SYMKIT_DATA_DIR=D:/Code/Mathlib/data`、`ELAN_HOME=D:/Code/Mathlib/elan`）；没有这套安装就跳过 Lean lane，或先在 lab 里跑 `symkit-lean-setup` 并把两个变量改指 lab。
 - lab 里写个 `README.md`：本轮目标、被测 wheel 版本/来源、lane 划分、卡片清单。
 - stderr 里的 `unrecognized_model` 是无害的标题生成警告。
@@ -57,10 +62,11 @@ export RUN_PREFIX=rNN   # run_suite.sh 用；analyze.py 用 argv
 
 1. **需求用原始用户口径**：一到两句用户会说的话。模糊卡不列公式、不给可验证锚点、不指定步数——这是压"引擎在真实使用方式下的表现"。针对性验证卡可以展开 (a)(b)(c) 并加"特别观察"（历史缺陷复查，要求原样摘录）。
 2. **纪律段落照模板逐字写**：禁读源码目录、禁读其他 lane 的 findings/runs、禁写沙箱外、所有符号数学必须走 MCP 工具禁止心算、同报错重试 ≤2。
-3. **产物要求明确**：会话名（kebab-case）、每步完整 JSON 摘录（含 details/warning）、异常情形给原文、缺陷分类口径（CRASH/WRONG/SILENT/UX/OK）、报告写到 `<LAB绝对路径>\findings\task-NN.md`。
+3. **产物要求明确**：会话名（kebab-case）、**判定/异常字段的原文摘录**（`verification_status`、`details`、`warning`、`certification`、`reason`，以及反例）、缺陷分类口径（CRASH/WRONG/SILENT/UX/OK）、报告写到 `<LAB绝对路径>\findings\task-NN.md`。**不要要求"每个调用的完整 JSON"**——r18 的 task-01 操作员为此在自己 Claude Code 转录里 Grep 了 8 次回收产物，纯属 harness 开销。
 4. **长程回归卡保持逐字节一致**（传统：Spalart–Allmaras 五子目标卡 task-02），跨轮对比才有效。
 5. **重计算卡加护栏**：大 n 禁显式分数链、单表达式 ≤200 显式加项、数值求和给上限（教训：n=10⁶ 调和数逐项分数链让 lcm 失控，单卡 32 分钟 4.5GB）。
 6. **回归类检查不进模糊卡**——模糊卡会自由发挥甚至照录假 PASS；确定性断言一律进 regress 探针。
+7. **要测客户端系统提示词就注入它**：`SYSTEM_PROMPT_FILE=<abs path> bash run_task.sh ...` / `bash run_task_lean.sh ...`（内部转 `--append-system-prompt-file`；用 append，替换默认提示词会连带废掉 harness 自己的工具说明）。这样每张卡同时检验"服务器是否按其推荐提示词所描述的方式工作"——把提示词里每条工具名/语法/判定来源写成 regress 探针的确定性断言（先例 r18 的 T/P 段，21 条里一条 P10 直接查出提示词里的 `assume` 调用式不合法）。
 7. 卡片路径**必须是本 lab 绝对路径**。
 
 卡片数量参考：综合轮 15–20 张（3 lane），专项轮 5–6 张。单卡预算 max-turns 50（Lean 卡 60），实际 2–8 分钟/卡，历史综合轮总成本 $10–60。

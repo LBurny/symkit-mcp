@@ -15,6 +15,7 @@ bash run_task_lean.sh tasks/task-15-*.md r16-task-15 60
 
 - `run_task.sh <task> <run-id> <data-dir> [max-turns]`：无头 Claude（`claude -p`，stream-json、`--strict-mcp-config`、bypassPermissions），`.mcp.json` 按 run 生成并注入该 lane 的 `SYMKIT_DATA_DIR`。
 - 多 lane 并行：开多个终端各跑一条 `run_suite.sh`，data-dir 互不相同。**并行 ≤3**。
+- **系统提示词注入**：`SYSTEM_PROMPT_FILE=<lab 内副本>` 对单卡、lane、Lean 三个 runner 都生效（`run_suite.sh` 靠环境变量透传）。A/B 用法：同一张卡注入与不注入各跑一次（run-id 加 `-p` / `-nop` 后缀），两次都错才是引擎缺陷，只有不注入时错说明是提示词没交代清——归因结论回写 `docs/recommended-system-prompt.md`（硬规则 13）。
 - 产物：`runs/<run-id>/stream.jsonl`（完整事件流）、`stderr.log`。**会话 JSON 落在用户 AppData，不理会 CWD**——需要留证时从 `%LOCALAPPDATA%\symkit\symkit\derivation_sessions\` 拷回 `runs/<run-id>/`。
 - 监控：`wc -l runs/*/stream.jsonl` 看进度；单卡超 10 分钟查 CPU——卡死的真身是最内层 python.exe（stub .exe → venv python → anaconda python 三层链里 CPU 最高的那个）。杀树：`taskkill /PID <pid> /T /F`；Agent 被取消后 `claude.exe` 孤儿树会存活，也要杀。
 - **`claude` 的进程名是 `node.exe`**（npx shim），`tasklist | grep -i claude` 在三条 lane 全忙时也会返回 0——别据此判断"跑完了"。判断卡死看 `stream.jsonl` 尾部的 `tool_progress` 心跳（`"elapsed_time_seconds"`）：单个 `math` 调用涨到几百秒就是楔死（r17：order=4 的 diff 卡了 15 分钟，`tasklist` 里只看得到 node.exe 与 python.exe）。孤儿 MCP 服务器会锁 lab 的 `.venv/Scripts/symkit-mcp.exe`，`uv pip install --force-reinstall` 报 `os error 32` 时先按可执行路径筛进程并杀掉。
@@ -64,3 +65,5 @@ bash run_task_lean.sh tasks/task-15-*.md r16-task-15 60
 4. **early return 会静默跳过后续探针**：脚本里每个分支都要么继续跑要么 exit 非 0；跑探针的人（含子代理）汇报 PASS 前逐条对照原始输出。
 5. **操作员自述只当线索**：其"纯黑箱/未执行 shell"的自称可能与 stream 里的 Bash 调用矛盾——核验看 stream.jsonl，不看自述。
 6. Lean 通道的降级路径也是探针对象：无 Lean 环境时 `lean_available: false` + 安装指引、其余 44 工具照常。
+7. **定位"挂住的调用"按 heartbeat 的 `parent_tool_use_id` 反查**，不要取 stream 里最后一个 `tool_use`——tool_use 块在调用返回前就落盘，两者常常不是同一个调用。r18 有一次按"最后一个"归因，写出来的探针（对那个表达式 6 种变体全 0.03–0.9 s）当场把自己的结论驳回。
+8. **单会话内无法给"不返回的调用"设时限**：楔死类契约写成 per-case 子进程 + 硬 cap + 两侧对照的独立探针（`audit3`/`audit6`/`audit11` 模板），不要放进 regress 电池——asyncio 层没有超时，电池会被永久挂住，kill 子进程还可能留下孤儿服务器占满 CPU。

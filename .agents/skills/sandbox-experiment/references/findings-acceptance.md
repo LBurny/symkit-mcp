@@ -54,6 +54,7 @@ RUN_PREFIX=rNN bash run_suite.sh data/<lane> <n> <n>
 
 - `CHANGELOG.md`：本轮版本条目（缺陷修复按严重度列，量化断言要有 whitebox 佐证）。
 - `README.md` / `README.zh-CN.md` / `docs/symkit-design*.md`：工具数、类目数、测试数同步（**5 份对外文档中英同步**）。
+- `docs/recommended-system-prompt.md`：本轮若动了工具语义、输入解析、保留名或判定口径，逐条核对该文档里的断言是否仍然成立——它是给真客户端的引导，说错会让客户端按错的方式调工具（如把 `f(x)` 当乘积、把 `E` 当自然常数）。提示词自身要改时保持"文件即提示词"体例（无标题/前言/分隔线）。
 - 版本号与发布流程按既有惯例（tag push → OIDC 发 PyPI；`pypi.org/pypi/<pkg>/json` 是 CDN 缓存的，验发布看版本专属 URL）。
 
 ## 收尾：知识沉淀与清理

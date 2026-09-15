@@ -58,12 +58,13 @@ symkit-mcp-test-rNN/
 10. **回归类检查不交给模糊需求卡**——模糊卡管 UX/发现性，确定性断言走主控亲写预期值的 regress 探针。
 11. **大计算护栏写进卡**：大 n 禁显式分数链、单表达式 ≤200 显式加项（曾因 lcm(1..10⁶) 单卡跑 32 分钟 / 4.5GB）。
 12. **改一处语义要查全部出口**（如"最终表达式"有 session_show 与 session_complete 两处）和**全部同源副本**（一个启发式可能在多处实现）。
+13. **推荐系统提示词是被交付面，不是背景资料**。给真客户端的规范引导在仓库 `docs/recommended-system-prompt.md`（体例即提示词本身：无标题、无前言、无分隔线）。跑卡时用 `SYSTEM_PROMPT_FILE=<lab 内副本绝对路径> bash run_suite.sh ...`，它经 `--append-system-prompt-file` 整份追加到 harness 默认提示之后——追加而非替换，替换会连带丢掉 harness 自己的工具说明。不设这个变量，操作员跑的是 harness 默认提示词，测不到交付给用户的引导。该文档里每条断言（`f(x)` 解析为未定义函数、`E`/`I` 保留为普通符号、`pi`/`oo` 才是常量、会话链与 `assume` 口径）都能被黑箱证伪：同一张卡注入与不注入各跑一次，两次都错是引擎缺陷，只有不注入时错则是提示词没交代清。
 
 ## 各步要点（细节在 references）
 
 **第 1–2 步（搭台 + 写卡）**：master 构建本轮 wheel（`uv build --out-dir <lab>/dist`，不受运行中 exe 锁影响）→ lab 建独立 venv 装 wheel（官方索引，阿里镜像滞后）→ `probe/smoke.py` 确认服务器可用 + 工具数吻合再花钱。试验卡用原始用户口径写需求，纪律段落照模板，重计算卡加护栏。→ [lab-setup.md](references/lab-setup.md)
 
-**第 3–4 步（跑卡 + 探针）**：`run_task.sh <task> <run-id> <data-dir> [turns]` 单卡；`RUN_PREFIX=<rr> bash run_suite.sh <data-dir> <start> <end>` 按 lane 串行，≤3 lane 并行各用独立 data-dir。跑完 `analyze.py` 出汇总表（注意客户端噪声虚增计数）。缺陷用 stdio 探针 `probe/audit*.py` 坐实，先重放操作员指控再定根因。→ [probes.md](references/probes.md)
+**第 3–4 步（跑卡 + 探针）**：`run_task.sh <task> <run-id> <data-dir> [turns]` 单卡；`RUN_PREFIX=<rr> bash run_suite.sh <data-dir> <start> <end>` 按 lane 串行，≤3 lane 并行各用独立 data-dir。客户端引导经 `SYSTEM_PROMPT_FILE` 注入（硬规则 13），不设即 harness 默认提示词。跑完 `analyze.py` 出汇总表（注意客户端噪声虚增计数）。缺陷用 stdio 探针 `probe/audit*.py` 坐实，先重放操作员指控再定根因。→ [probes.md](references/probes.md)
 
 **第 5–6 步（修复 + 验收）**：每个 agent 指控先独立复现（历史驳回率不低），TDD 修复；冻结文件净零行改动。修完重建 wheel force-reinstall 进 lab venv，探针全绿 + 失败卡换新 run-id 重跑（旧 findings 先备份），主控跑四门禁（pytest / ruff / mypy / modularity），CHANGELOG / README / docs 计数 / 记忆同步。→ [findings-acceptance.md](references/findings-acceptance.md)
 
