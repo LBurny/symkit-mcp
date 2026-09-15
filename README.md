@@ -198,6 +198,7 @@ uv run symkit-mcp      # dev server
 
 - [Architecture](ARCHITECTURE.md) — DDD layering and tool inventory
 - [SymKit Design](docs/symkit-design.md) ([中文](docs/symkit-design.zh-CN.md)) — in-depth technical design
+- [Recommended system prompt](docs/recommended-system-prompt.md) — agent-side prompt for tool-driven derivations
 - [Roadmap](ROADMAP.md) — what's coming next
 - [Formula library fields](formulas/README.md) — YAML entry format
 
