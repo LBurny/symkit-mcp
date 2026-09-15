@@ -5,15 +5,15 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.9.3] - 2026-09-15
 
-A theory / new-formula / theorem derivation round (`symkit-mcp-test-r18`: 18
-black-box cards over three lanes — physics-context theory derivations, new
-formula derivations, theorem derivations with one real-kernel Lean card — plus an
-adversarial card and an assumption-honesty card). It is also the first round run
-with the client document `docs/recommended-system-prompt.md` attached as the
-system prompt, so every claim that document makes about the tool surface was
-checked against the server.
+Nine defects from a theory / new-formula / theorem derivation round
+(`symkit-mcp-test-r18`: 18 black-box cards over three lanes — physics-context
+theory derivations, new formula derivations, theorem derivations with one
+real-kernel Lean card — plus an adversarial card and an assumption-honesty card).
+That round is also the first run with the client document
+`docs/recommended-system-prompt.md` attached as the system prompt, so every claim
+that document makes about the tool surface was checked against the server.
 
 The mathematics was correct on all 18 cards. Every defect below is in
 verification, robustness or reporting.
