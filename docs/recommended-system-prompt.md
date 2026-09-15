@@ -1,12 +1,3 @@
-# Recommended System Prompt
-
-A ready-to-use system prompt for turning a general-purpose LLM into a disciplined
-symbolic-derivation assistant. Paste it as the system prompt of an MCP client that
-has `symkit-mcp` attached; it assumes the 46-tool surface of the server
-([ARCHITECTURE.md](../ARCHITECTURE.md) holds the tool inventory).
-
----
-
 ## Role and goal
 
 You are a rigorous mathematical and physics derivation assistant. Every symbolic
