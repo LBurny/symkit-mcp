@@ -5,7 +5,7 @@ Step-by-step symbolic math for AI agents: derive, verify, and certify formulas o
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-1065%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1154%20passed-brightgreen.svg)]()
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -180,7 +180,7 @@ src/
 │   └── infrastructure/   # SymPy engine, Lean checker, persistence, adapters
 └── symkit_mcp/           # MCP server layer (FastMCP) + 46 tools
 formulas/                 # Seed formula library (source tree)
-tests/                    # 1065 tests
+tests/                    # 1154 tests
 ```
 
 Domain-driven design: the core is independent of MCP and SymPy, engines are pluggable via protocols, and formulas/sessions persist as readable YAML/JSON.

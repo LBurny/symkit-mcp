@@ -5,6 +5,88 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+A theory / new-formula / theorem derivation round (`symkit-mcp-test-r18`: 18
+black-box cards over three lanes — physics-context theory derivations, new
+formula derivations, theorem derivations with one real-kernel Lean card — plus an
+adversarial card and an assumption-honesty card). It is also the first round run
+with the client document `docs/recommended-system-prompt.md` attached as the
+system prompt, so every claim that document makes about the tool surface was
+checked against the server.
+
+The mathematics was correct on all 18 cards. Every defect below is in
+verification, robustness or reporting.
+
+### Fixed
+
+- `dsolve` with `ics` no longer wedges the server. Solving a third-order linear
+  ODE with initial conditions ran `sympy`'s constant solve against nested-radical
+  characteristic roots and never returned (`y''' - 7y'' + 16y' - 13y` with
+  `y(0)=y'(0)=0, y''(0)=1`: 15 minutes of heartbeats on one call, killed; the
+  single-process server stops answering every other tool meanwhile). The
+  conditions are now applied through a bounded linear system
+  (`dsolve_ics.DSOLVE_ICS_OPS_CAP`), which returns the particular solution in
+  about 5 s; an over-budget or singular system is refused with a named reason
+  instead of hanging, and first/second-order `ics` results are unchanged.
+- `evalf` step verification honours the step's `substitution`. The verifier
+  recomputed the numeric value from the archived *unsubstituted* input, so
+  correct results came back `inconclusive` ("evalf output does not match the
+  numeric evaluation of its input") with an `expected` field that still contained
+  the free symbols. Five cards hit this.
+- `evalf` with a large-integer substitution no longer builds exact rationals.
+  `evalf("(1 + 1/n)**n", substitution={"n": "1000000"})` substituted exactly,
+  producing a six-million-digit rational, and never returned; it now evaluates
+  numerically in 0.02 s. Values at n = 10^3/10^4/10^5 are identical to before.
+- A false identity is no longer certified. `equation_identity` promoted agreement
+  at sampled points to `is_identity: true` / `verdict: "TRUE"`, so
+  `Eq(sqrt(a*b), sqrt(a)*sqrt(b))` with complex `a`, `b` — which the engine leaves
+  unreduced — was reported as a true identity. A `TRUE` verdict now requires an
+  exact symbolic zero; sampling can only downgrade to `UNKNOWN`. True identities
+  still verify, and `Eq(1,2)` is still `FALSE`.
+- The numeric residual test no longer overclaims. Its tolerance carried no
+  conditioning information and its constant path attached a "numerically nonzero
+  at tested points" claim to a literal constant: `simplify("sec(x)**2 - tan(x)**2")`
+  (whose step difference is exactly zero) was announced as numerically nonzero in
+  the verification message. Sampling now evaluates at 30 digits and scales its
+  tolerance by the substituted parts; a constant residual is reported by its
+  exact value, not as a sampled claim.
+- `session_certify` no longer counts a tautological goal as `proven`. The field
+  lane's cleared-denominator retry normalizes both sides, so a faithful step could
+  produce the Lean goal `X = X` — proved by reflexivity and counted in
+  `summary.proven`. Such a goal is now bucketed `trivial` with the reason "the two
+  sides translate to the same Lean expression"; real identities still come back
+  `proven` with a non-tautological statement.
+- `session_complete(auto_save=false)` no longer claims a formula was saved. The
+  warning said "the formula is saved with verified=false" while nothing was
+  written; it now says `auto_save=false, so nothing was saved` and keeps the true
+  unreduced-difference half. Eight cards quoted this.
+- `math(..., session=True)` with no active session is no longer silent. The flag
+  was ignored and the response looked like a plain success, so a client following
+  the recommended workflow could lose a step without noticing. The response now
+  carries `session_recorded: false` and a warning; the mathematical fields are
+  unchanged.
+- A matrix exponential no longer wedges the server. `(Matrix([[2,1,0],[0,3,1],
+  [1,0,2]])*t).exp()` — and its `evalf`, float-entry and no-substitution variants —
+  never returned, because the parser evaluates `Matrix.exp()` eagerly and SymPy
+  expands it through the eigen-decomposition of `x^3 - 7x^2 + 16x - 13` (nested
+  radicals). A numeric request over a fully numeric matrix now takes a numeric
+  route (`matrix.evalf().exp()`, agreeing with `mpmath.expm` to better than
+  1e-9) and returns the matrix in 0.44 s; a still-symbolic matrix is refused with
+  the reason instead of hanging. Diagonal, triangular and 2x2 matrices keep the
+  previous path and values.
+
+### Documentation
+
+- `docs/recommended-system-prompt.md` corrected against the server: the `assume`
+  example was missing its `variables` argument (the form as written fails schema
+  validation), the session-chain rule did not say that
+  `math(..., session=True)` records a step automatically, the claim that
+  `session_verify_step` certifies a manually recorded step is wrong (a `custom`
+  step is never automatically verifiable), `verified` on an operator step means
+  the output reproduces rather than that a claim is true, and the formula-library
+  instruction now says a zero-hit search is normal.
+
 ## [1.9.2] - 2026-09-15
 
 Three defects in the session recording and comparison layer, found while
