@@ -96,6 +96,21 @@ class TestOutcomeAfterChangeOfVariables:
 
         assert sp.Symbol("z") in sp.sympify(result["final_expression"]).free_symbols
 
+    def test_note_between_two_renames_does_not_stale_the_outcome(self):
+        session = _session("note-in-rename-chain")
+        session.load_formula("x**2 + 2*x + 1", formula_id="f1")
+        session.substitute("x", "y - 1")
+        session.insert_note_after_step(len(session.steps), "observing the rewrite")
+        # A pure rename shares no symbol with the lineage, so it can only be
+        # reached through the consume-the-previous-output chain — a note (empty
+        # output) must not reset that chain memory (r17 review).
+        session.substitute("y", "z + 1")
+
+        result = session.complete()
+
+        z = sp.Symbol("z")
+        assert sp.sympify(result["final_expression"]) == z**2 + 2 * z + 1
+
     def test_trailing_hand_recorded_definition_is_not_the_outcome(self):
         session = _session("custom-outcome")
         session.load_formula("x**2 + 2*x + 1", formula_id="f1")

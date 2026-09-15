@@ -906,13 +906,13 @@ class DerivationSession:
         Selection order:
 
         1. A closing exact-zero self-check (r14 task-08); a trailing nonzero
-           constant is useless (run-008), and a zero superseded by later
-           symbolic work is a residual, not the answer (r17 tasks 02-05).
+           constant is useless (run-008), a zero superseded by later symbolic
+           work is a residual (r17 tasks 02-05), a later probe supersedes nothing.
         2. The last symbolic output involving a goal target variable — free
            symbol, applied-function name, Equality lhs, or CUSTOM binding.
         3. The last lineage output, else the last symbolic output, else the
            current expression; a step consuming the previous output continues
-           the lineage across renames (r17 audit1).
+           the lineage across renames, and notes do not break it (r17 audit1).
         """
         targets: list[str] = []
         if self.goal is not None and self.goal.target_variables:
@@ -923,8 +923,8 @@ class DerivationSession:
         zero_outcome: sp.Basic | None = None
         for step in self.steps:
             is_custom = step.operation == OperationType.CUSTOM
-            chained = bool(previous_srepr) and step.input_srepr == previous_srepr
-            previous_srepr = step.output_srepr
+            chained = bool(step.output_srepr) and step.input_srepr == previous_srepr
+            previous_srepr = step.output_srepr or previous_srepr  # empty-output steps (notes) keep the chain
             out = safe_load_expression(
                 step.output_expression, step.output_srepr
             )

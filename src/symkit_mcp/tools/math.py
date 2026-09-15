@@ -152,17 +152,17 @@ def _step_input_expressions(
     input_expressions: dict[str, str] = {
         # A coarse bucket records matrix ops as matrix_op.
         "operation": operation,
-        # The submitted string: sympy folds eagerly (``hermite(3, 0.7)`` ->
-        # ``-5.656``), so ``str(input_obj)`` loses the provenance (r17 audit6).
-        "original": preprocessed if isinstance(preprocessed, str) else str(input_obj or ""),
+        # The submitted string: sympy folds eagerly (``hermite(3, 0.7)`` -> ``-5.656``), so
+        # ``str(input_obj)`` loses the provenance (r17 audit6); explicit None check: sympy's 0/false are falsy.
+        "original": (preprocessed if isinstance(preprocessed, str)
+                     else str(input_obj) if input_obj is not None else ""),
     }
     if operation == "substitute" and substitution:
         input_expressions["replacement"] = ", ".join(
             f"{k} = {v}" for k, v in substitution.items()
         )
-        # Machine-readable copy. The human-readable join is lossy: a value
-        # containing a comma (``Rational(1,6)``, ``Eq(a, b)``) splits into
-        # fragments the verifier cannot parse (task-02 step 23).
+        # Machine-readable copy: the human-readable join splits a value with a
+        # comma (``Rational(1,6)``, ``Eq(a, b)``) into fragments (task-02 step 23).
         input_expressions["replacement_map"] = json.dumps(
             substitution, ensure_ascii=False
         )

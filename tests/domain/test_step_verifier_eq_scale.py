@@ -17,6 +17,7 @@ from __future__ import annotations
 import sympy as sp
 
 from symkit.domain.derivation_session import DerivationStep, OperationType
+from symkit.domain.final_result import equations_equivalent
 from symkit.domain.step_verifier import StepVerifier
 from symkit.domain.value_objects import VerificationStatus
 
@@ -95,7 +96,7 @@ class TestReverseIntegrationStaysBounded:
 
     ``math("diff", "(1 - 2*x*t + t**2)**(-1/2)", variable="t", order=4)`` returns
     in 0.02s with ``session=False`` but hung the single-process server for 15+
-    minutes with the default ``session=True``: the differentation check reverse
+    minutes with the default ``session=True``: the differentiation check reverse
     integrates the output once per order, and the *second* ``sympy.integrate`` on
     the 701-operation intermediate never returns. The check now stops when the
     expression grows past the cap and reports INCONCLUSIVE instead.
@@ -127,3 +128,25 @@ class TestReverseIntegrationStaysBounded:
         )
         result = StepVerifier().verify_step(step, prior_expr=source)
         assert result.status == VerificationStatus.VERIFIED, result.message
+
+
+class TestEquationEquivalenceSymmetry:
+    """``equations_equivalent`` must treat both sides alike (r17 review).
+
+    The structural-zero shortcut only looked at the right-hand difference, so
+    ``equiv(0, sin(x)**2 + cos(x)**2 - 1)`` was False while the mirrored call
+    was True — two forms of the same all-zero equation disagreed.
+    """
+
+    def test_zero_sides_are_compared_symmetrically(self):
+        x = sp.Symbol("x")
+        trig_zero = sp.sin(x) ** 2 + sp.cos(x) ** 2 - 1  # simplifies to 0, is not 0
+
+        assert equations_equivalent(trig_zero, sp.Integer(0))
+        assert equations_equivalent(sp.Integer(0), trig_zero)
+        assert equations_equivalent(trig_zero, trig_zero)
+
+    def test_distinct_expressions_stay_distinct(self):
+        x, y = sp.symbols("x y")
+        assert not equations_equivalent(x, y)
+        assert not equations_equivalent(sp.Integer(0), x)

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import sympy as sp
+
 from symkit_mcp.tools import math as math_tools
 
 
@@ -57,3 +59,12 @@ def test_recorded_input_keeps_a_function_call() -> None:
         "evalf", "hermite(3, 0.7)", None, None, None, "+-"
     )
     assert recorded["original"] == "hermite(3, 0.7)"
+
+
+def test_recorded_input_survives_a_falsy_parsed_object() -> None:
+    # Non-string submissions archive the parsed object; sympy's 0/false are
+    # falsy, so ``input_obj or ""`` blanked them instead of recording them.
+    recorded = math_tools._step_input_expressions(
+        "expand", 0, sp.Integer(0), None, None, "+-"
+    )
+    assert recorded["original"] == "0"

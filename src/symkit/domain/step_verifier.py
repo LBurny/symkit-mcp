@@ -382,7 +382,7 @@ class StepVerifier:
                 message=(
                     "Reverse integration skipped: the expression passed the size "
                     "budget, where sympy.integrate has no bound and would risk "
-                    "wedging the server (r17)."
+                    "wedging the server."
                 ),
             )
         diff = sp.simplify(integral - input_expr)

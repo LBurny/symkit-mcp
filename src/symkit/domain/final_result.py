@@ -107,8 +107,8 @@ def equations_equivalent(left_diff: sp.Basic, right_diff: sp.Basic) -> bool:
     ``Eq(x, 0)`` with the difference flipped in sign. Comparing the differences
     for exact equality called the tool's own output a failed step (r17 audit5).
     """
-    if right_diff == 0:
-        return bool(sp.simplify(left_diff) == 0)
+    if right_diff == 0 or left_diff == 0:
+        return bool(sp.simplify(left_diff) == 0 and sp.simplify(right_diff) == 0)
     ratio = sp.simplify(left_diff / right_diff)
     return bool(ratio.is_number and ratio.is_finite and ratio != 0)
 
