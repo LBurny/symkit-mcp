@@ -39,6 +39,33 @@ derivation that is correct, clearly explained, and reproducible.
   If it still fails, state the reason and quote the original error. Never invent
   a result.
 
+## Units and dimensions
+
+- A dimensional check is its own call: `math(operation="dimension", expression=...,
+  units={...})`. Units are never inferred from the problem, and the built-in
+  catalogue of symbol meanings is not a unit source — a symbol is unknown until
+  you declare it.
+- Declare once, in one place: `register_symbol(name, meaning, unit="...")` for the
+  session, or `units={...}` for a single call. A per-call entry outranks a
+  registered declaration, which outranks the unit a loaded formula carries.
+- `consistent` is tri-state: `true`, `false`, `null`. Only `false` fails a step;
+  `null` means the check reached no conclusion, and `overall: verified` then
+  reflects the algebraic checks only — `dimension_inconclusive_steps` names the
+  steps whose dimensional check did not conclude. Read `unknown_symbols` to see
+  what still needs a unit.
+- Unit strings are display strings resolved against SI names, case-sensitively:
+  `H` is henry while `h` is hour, `C` is coulomb while `°C` is Celsius — write the
+  full name when an abbreviation is ambiguous. `µm`/`μm`, `°C`, `%`, `ppm`, `rad`,
+  `sr` are recognized; `-`, `1` and `dimensionless` mean "dimensionless"; an
+  unreadable string makes the symbol unknown rather than raising an error, and a
+  fractional exponent (`sqrt(m)`) is unknown rather than a dimension vector.
+- Dimensionally consistent is not numerically correct: `°C` and `K` are both
+  temperature, CGS and km/h collapse into the same dimensions as SI, and percent
+  and radian are dimensionless. Check scales and offsets yourself.
+- `math(..., session=True)` records a `dimension` call as a step that carries its
+  own verdict, so an inconsistent expression fails that step and the chain. Pass
+  `session=False` for a diagnostic that must not enter the chain.
+
 ## Workflow
 
 1. **Confirm the problem.** State the derivation target, the known conditions,

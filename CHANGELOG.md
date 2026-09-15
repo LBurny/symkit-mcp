@@ -5,6 +5,114 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed (round 2: dimensional robustness)
+
+A second dimensional round drove a 43-case robustness battery at the fixed
+build — every case in its own process with a hard cap, so a wedge is reported
+rather than hanging the run (0 hangs, 0 crashes) — plus 24 black-box cards.
+
+- A recorded `dimension` step now carries its own verdict. Such a step *is* a
+  dimensional verdict, but it sat in the chain as CUSTOM/inconclusive ("no
+  automatic verification available") while the tool had just called the
+  expression inconsistent, so `overall` and `failed_steps` showed no trace of a
+  finding the user had already been handed. The post-check also re-judged the
+  archived expression against the *session's* declarations, which do not include
+  units passed per call, so a step that had resolved temperature was annotated
+  `dimension_unknown_symbols: ["x"]` — a step contradicting itself. Recorded
+  dimension steps are now reported from their own record: inconsistent fails the
+  step and the chain, consistent verifies, undetermined stays inconclusive.
+- An explicit `register_symbol` declaration now outranks the unit a loaded
+  formula carries. `collect_unit_map` applied formula variables *last*, so
+  loading a library formula silently overwrote what the user had declared for
+  the same symbol — contradicting the function's own "weakest source first"
+  docstring. Formula units are still used for symbols the user never declared.
+- A recorded dimension step keeps an undetermined result. `result_dimension or
+  {}` wrote `{}` for a `null` verdict, so a step's provenance said
+  "dimensionless" where the live response had said "no idea" — the same collapse
+  three cards hit independently.
+- `message` no longer appends "has net dimension: dimensionless" to an
+  expression it just called inconsistent (`exp(L)` read as one sentence
+  contradicting itself).
+- `register_symbol` warns about a unit it cannot read. `formula_add` already
+  warned; the registry accepted `unit="dB"` in silence, so the symbol quietly
+  counted as unknown in every later check and the user found out only when a
+  result came back `inconclusive`.
+- A fractional exponent in a *unit string* is no longer laundered into
+  "dimensionless". ``dimension_dependencies`` did ``int(power)``, so
+  ``sqrt(m)``, ``m^(1/3)`` and ``m^0.5`` became ``length ** 0``; a symbol
+  declared that way read as dimensionless and ``x**3`` came back
+  ``consistent: true`` with an empty dimension vector. A non-integer power is
+  now reported as *unknown* — never as a vector with the fractional part
+  silently dropped — and an unresolvable unit is no longer reported as
+  dimensionless either.
+- Unit strings a domain author actually writes now resolve: the SI micro
+  prefix ``µm``/``μm`` (U+00B5 / U+03BC; ``um`` already worked, so the glyph
+  spellings were the gap), ``°C``/``℃``/``degC``/``°F``/``°``, and ``%``/``‰``/
+  ``ppm`` as dimensionless. Previously each of these degraded to "unknown",
+  which turned the whole expression inconclusive instead of checked. The
+  steradian is also read as the dimensionless derived unit SI defines it to be,
+  instead of leaking a ``steradian`` key into a vector whose contract says
+  "keys are base quantities".
+- ``register_symbol`` persists its declaration immediately. It only reached
+  disk when some *later* step happened to save the session, so a restart right
+  after declaring units resumed a session that knew none of them (found by
+  declaring 30 symbols with no steps and resuming in a fresh process; the
+  2-symbol case passed only because a recorded step saved the file).
+
+### Fixed (dimensional correctness)
+
+- A dimensional inconsistency is no longer hidden by an unresolved symbol, and
+  the verdict no longer depends on factor order. The product walker returned
+  `None` at the first factor whose dimension was unknown, so `u*(p + v)` was
+  accepted while `(p + v)*u` was failed — identical mathematics, opposite
+  verdicts — and the Pa-versus-m/s mismatch inside was never examined. Every
+  factor is now visited; a factor that stays unresolved still makes the result
+  `null`, but any *definite* inconsistency further in is reported. This also
+  makes the verify chain agree with `math("dimension", ...)`: the same step used
+  to be `verified`/`overall: verified` while the diagnostic op called it
+  inconsistent.
+- Every unresolved symbol in a product is reported, not just the first one.
+  `rho*v*t` with one declared unit used to name only `rho`, turning unit
+  registration into one symbol per round trip.
+- Declared units survive a session reload. Unit declarations live in the
+  symbol registry, which the session payload did not carry, so a server restart
+  resumed a session that knew no units at all — while `lookup_symbol` still
+  answered with the *built-in catalogue* default (`rho` to `kg/m^3`), a value
+  the checker deliberately refuses to use. The wrong answer looked plausible and
+  nothing reported the loss: `session_resume` returned `success: true` and the
+  steps were intact. Sessions now persist explicit `USER`/`SESSION` unit
+  declarations and restore them on load; the catalogue default is never
+  resurrected as a declaration.
+- A formula's per-variable units reach the verify chain.
+  `formula_get(load_into_session=True)` passed only the expression string to
+  `session.load_formula`, so the curated `unit` metadata that `formula_get`
+  itself displays was never usable: the documented unit source "the unit
+  declared on each loaded formula's variables" was unreachable from the MCP
+  surface and the chain saw no units. The load path now carries the variable
+  dict, which is how the domain API has always accepted them.
+  (`session_load_formula` still takes a bare expression by signature, so it
+  carries nothing — use `formula_get(..., load_into_session=True)`.)
+- An inconclusive dimensional check is disclosed. `overall` only reflects the
+  algebraic verdict, so a chain whose units were half declared reported a bare
+  `overall: verified`, indistinguishable from "and the units are fine" — in the
+  one feature the README advertises. `session_verify_session` (and
+  `session_show`'s verification summary) now report
+  `dimension_inconclusive_steps` plus a `warnings` entry naming them. A session
+  with no declared units is not annotated: no check was attempted, which is not
+  an inconclusive result.
+- Frozen-file ratchet: `derivation_session.py` (1817 to 1805),
+  `session.py` (1085 to 1084) and `formula.py` shrank while gaining these fixes.
+
+### Kept by decision
+
+- `math("simplify", ..., units={})` is still rejected. The fail-loud parameter
+  audit treats an empty dict as "supplied but unused", which is shared machinery
+  (`substitution={}`, `assumptions=[]` behave the same); exempting `units` alone
+  would give one parameter different semantics from its neighbours. The error
+  message names the parameter, so the failure is actionable.
+
 ## [1.9.3] - 2026-09-15
 
 Nine defects from a theory / new-formula / theorem derivation round

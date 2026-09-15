@@ -617,7 +617,7 @@ Tests are organized by functional layer in `tests/`, with shared fixtures
 | `test_formula_search.py` | Formula search framework |
 | `test_unified_math_coverage.py` | `math()` unified tool coverage, incl. integral transforms |
 
-Current status: 1154 tests pass; Ruff and MyPy report no errors.
+Current status: 1187 tests pass; Ruff and MyPy report no errors.
 
 ---
 
