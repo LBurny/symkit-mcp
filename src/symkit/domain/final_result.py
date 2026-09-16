@@ -136,25 +136,66 @@ def _reduce_identity_difference(diff: sp.Basic) -> sp.Basic:
     return diff
 
 
+_DERIVATIVE_VACUOUS_MESSAGE = (
+    "Recorded equation is not verified: its derivative terms evaluate to zero on plain symbols"
+    " (no functional dependence declared), so both sides collapse to 0 and the identity check"
+    " is vacuous — unverified, not verified. Declare fields as functions of their variables"
+    " (e.g. u_t_i(t, x_i)) or record the equation's meaning in notes."
+)
+
+_DEFINITION_NOT_IDENTITY_MESSAGE = (
+    "Recorded equation is not verified: the left side is a name that does not occur on the"
+    " right, so this reads as a definition or naming convention, which is not checkable as an"
+    " identity. The sides nevertheless differ by {diff} at tested points. Record a definition"
+    " as its right-hand expression or in notes; a derived identity needs sides that share"
+    " symbols."
+)
+
+
+def _is_definition_shape(expr: sp.Equality) -> bool:
+    """A bare-name LHS absent from the RHS — a naming convention, not an identity claim.
+
+    ``E_t == e_t + u_t_i**2/2 + k_t`` names a quantity; an identity check would only
+    measure the name against its own expansion (field report 26e9028b).
+    """
+    return bool(
+        isinstance(expr.lhs, sp.Symbol)
+        and str(expr.lhs) not in {str(s) for s in expr.rhs.free_symbols}
+    )
+
+
 def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, str]:
     """Status and message for a manually recorded (CUSTOM) step's output.
 
     A recorded ``Eq(a, b)`` is content-checked on ``a - b``: an *exact* zero
     verifies, rational-substitution-nonzero fails (disproven), anything else
     stays inconclusive — unproven, not disproven.  Sampling must not certify a
-    recorded identity (r18): a difference that agrees with zero only on the
-    positive reals (``sqrt(a*b) == sqrt(a)*sqrt(b)``) is not an identity.  A
-    trig-aware reduction runs first (task-17).  Non-equation outputs keep their
-    truth-value verdict or the historical "no automatic verification" verdict.
+    recorded identity (r18); a trig-aware reduction runs first (task-17).  Two
+    shapes are exempt from the falsification branches because there the check
+    cannot mean anything: a definition (bare-name LHS absent from the RHS) is
+    true by fiat, and an equation whose derivatives all collapse to zero on
+    plain symbols verifies nothing (every such equation would "pass").
+    Non-equation outputs keep their truth-value or "no verification" verdict.
     """
     if isinstance(expr, sp.Equality):
-        diff = _reduce_identity_difference(
-            sp.simplify(evaluate_pending(expr.lhs) - evaluate_pending(expr.rhs))
-        )
+        lhs_eval = evaluate_pending(expr.lhs)
+        rhs_eval = evaluate_pending(expr.rhs)
+        if (
+            (expr.lhs.has(sp.Derivative) or expr.rhs.has(sp.Derivative))
+            and lhs_eval == 0
+            and rhs_eval == 0
+        ):
+            return VerificationStatus.INCONCLUSIVE, _DERIVATIVE_VACUOUS_MESSAGE
+        diff = _reduce_identity_difference(sp.simplify(lhs_eval - rhs_eval))
         if diff == 0:
             return VerificationStatus.VERIFIED, "Identity verified: both sides are equal"
         if not diff.free_symbols:
             return VerificationStatus.FAILED, f"Equation is false: the sides differ by {diff}"
+        if _is_definition_shape(expr):
+            return (
+                VerificationStatus.INCONCLUSIVE,
+                _DEFINITION_NOT_IDENTITY_MESSAGE.format(diff=diff),
+            )
         if numeric_residual_verdict(diff) is True:
             return (
                 VerificationStatus.FAILED,

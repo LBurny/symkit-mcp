@@ -53,6 +53,59 @@ class TestLeibnizDerivatives:
         assert expr.is_Equality
 
 
+class TestLeibnizParenthesizedNumerators:
+    """Parenthesized numerators ``d(expr)/dY`` must become Derivative (B13).
+
+    The bare-symbol regex left every ``d(...)`` numerator unmatched, so
+    ``∂(p*u1**2)/∂x1`` silently degraded to ``Function('d')(...)/Symbol('dx1')``
+    — a garbage fraction whose LaTeX rendering mimics a real derivative
+    (field report, compressible RANS derivation).
+    """
+
+    def test_bare_identifier_in_parens(self):
+        assert preprocess_leibniz_derivatives("d(u1)/dx1") == "Derivative(u1, x1)"
+
+    def test_compound_numerator(self):
+        assert preprocess_leibniz_derivatives("d(p*u1**2)/dx1") == "Derivative(p*u1**2, x1)"
+
+    def test_numerator_with_function_notation(self):
+        assert (
+            preprocess_leibniz_derivatives("d(p*u1(x1)**2)/dx1")
+            == "Derivative(p*u1(x1)**2, x1)"
+        )
+
+    def test_higher_order_parenthesized(self):
+        assert preprocess_leibniz_derivatives("d^2(u1)/dx1^2") == "Derivative(u1, (x1, 2))"
+
+    def test_mismatched_orders_left_untouched(self):
+        assert preprocess_leibniz_derivatives("d^2(u1)/dx1^3") == "d^2(u1)/dx1^3"
+
+    def test_no_denominator_means_no_rewrite(self):
+        assert preprocess_leibniz_derivatives("d(x) + 1") == "d(x) + 1"
+
+    def test_unicode_partial_compound_form_parses(self):
+        expr, error = parse_expression_string("∂(p*u1**2)/∂x1")
+        assert error is None
+        assert expr == sp.Derivative(sp.Symbol("p") * sp.Symbol("u1") ** 2, sp.Symbol("x1"))
+
+    def test_unicode_higher_order_parenthesized_parses(self):
+        expr, error = parse_expression_string("∂^2(u1)/∂x1^2")
+        assert error is None
+        assert expr == sp.Derivative(sp.Symbol("u1"), (sp.Symbol("x1"), 2))
+
+    def test_full_parse_bare_higher_order(self):
+        # ``preprocess_unicode`` folds ``^`` into ``**`` before this pass, so
+        # the higher-order patterns must accept both spellings end to end.
+        expr, error = parse_expression_string("d^2k/dt^2")
+        assert error is None
+        assert expr == sp.Derivative(sp.Symbol("k"), (sp.Symbol("t"), 2))
+
+    def test_full_parse_material_higher_order(self):
+        expr, error = parse_expression_string("D^2u/Dt^2")
+        assert error is None
+        assert expr == sp.Derivative(sp.Symbol("u"), (sp.Symbol("t"), 2))
+
+
 class TestMaterialDerivative:
     """Uppercase D/Dt is converted to Derivative(..., t)."""
 

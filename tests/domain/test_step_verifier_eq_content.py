@@ -110,6 +110,77 @@ class TestCustomEqualityContent:
         assert _payload(step)["status"] == "verified"
 
 
+class TestDefinitionShapedEquations:
+    """A bare-name LHS absent from the RHS reads as a definition (field B1).
+
+    ``E_t == e_t + u_t_i**2/2 + k_t`` is a naming convention, not a claim about
+    shared symbols; the identity check measured the name against its own
+    expansion and called the definition "disproven".  A definition is true by
+    fiat, so the verdict must stay inconclusive — the sides still differ, but a
+    falsification claim answers the wrong question.  A compound LHS keeps the
+    full identity check (D7).
+    """
+
+    def test_definition_is_inconclusive_not_disproven(self) -> None:
+        session = _session()
+        step = _record(session, "E_t == e_t + u_t_i**2/2 + k_t")
+        payload = _payload(step)
+        assert payload["status"] == "inconclusive"
+        assert "definition" in payload["message"]
+        assert "disproven" not in payload["message"]
+
+    def test_averaged_equation_of_state_is_inconclusive(self) -> None:
+        session = _session()
+        step = _record(session, "p_b == rho_b*R_gas*T_t")
+        assert _payload(step)["status"] == "inconclusive"
+
+    def test_definition_message_still_discloses_the_difference(self) -> None:
+        session = _session()
+        step = _record(session, "E_t == e_t + u_t_i**2/2 + k_t")
+        assert "u_t_i**2/2" in _payload(step)["message"]
+
+    def test_lhs_occurring_on_rhs_stays_fully_checked(self) -> None:
+        # x - y = 0 claims an identity between two shared symbols; the check
+        # must not read it as a definition.
+        session = _session()
+        step = _record(session, "x - y = 0")
+        payload = _payload(step)
+        assert payload["status"] == "failed"
+
+
+class TestDerivativeEquationVacuity:
+    """doit() collapses derivatives on plain symbols to 0 (field B2).
+
+    Both sides of a recorded PDE collapsed to zero, so any two derivative
+    equations verified as "both sides are equal" — a vacuous green for
+    structural records.  A derivative identity whose evaluation produces real
+    content (``d(x**2)/dx = 2*x``) must still verify.
+    """
+
+    def test_derivative_pde_is_not_verified(self) -> None:
+        session = _session()
+        step = _record(
+            session,
+            "Eq(Derivative(rho_b*u_t_i,t)+Derivative(rho_b*u_t_i*u_t_j,x_j),"
+            " -Derivative(p_b,x_i)+Derivative(tau_b_ij-rho_b*R_ij,x_j))",
+        )
+        payload = _payload(step)
+        assert payload["status"] == "inconclusive"
+        assert "vacuous" in payload["message"]
+
+    def test_derivative_rhs_zero_is_not_verified(self) -> None:
+        session = _session()
+        step = _record(session, "Eq(Derivative(rho_b,t) + Derivative(rho_b*u_t_j,x_j), 0)")
+        assert _payload(step)["status"] == "inconclusive"
+
+    def test_meaningful_derivative_identity_still_verifies(self) -> None:
+        session = _session()
+        step = _record(session, "Derivative(x**2, x) = 2*x")
+        payload = _payload(step)
+        assert payload["status"] == "verified"
+        assert "Identity verified" in payload["message"]
+
+
 class TestEquationIdentityDetails:
     def _simplify_step(self, session: DerivationSession, text: str) -> DerivationStep:
         from symkit.domain.expression_parser import parse_user_expression

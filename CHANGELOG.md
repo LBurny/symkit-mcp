@@ -5,6 +5,45 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Parenthesized Leibniz derivatives no longer mis-parse into a silent garbage
+  fraction. `∂` is normalized to `d` and the bare-symbol pattern only matched
+  `dX/dY`, so `∂(p*u1**2)/∂x1` and even `d(u1)/dx1` degraded to
+  `Function('d')(...)/Symbol('dx1')` with `success: true`, no warning, and a
+  LaTeX rendering that mimicked a real derivative. The parser now rewrites
+  parenthesized numerators (one nesting level, first- and higher-order) to
+  `Derivative`, matching the bare form; higher-order patterns also accept the
+  `**` spelling that `preprocess_unicode` produces from `^`, which previously
+  made every `d^2X/dY^2` form unreachable end to end.
+- A recorded equation whose left side is a name absent from the right (a
+  definition such as `E_t == e_t + u_t_i**2/2 + k_t`) no longer reads as
+  "disproven". The identity check measured the name against its own expansion
+  and failed the step; a definition is true by fiat, so the verdict is now
+  inconclusive with the difference still disclosed and guidance toward
+  recording definitions as the bare right-hand expression. Equations with
+  shared-symbol sides keep the full check.
+- A recorded equation containing derivatives no longer verifies vacuously.
+  `doit` collapses derivatives of plain symbols to zero, so both sides of any
+  derivative-heavy equation evaluated to 0 and every such record read as
+  "Identity verified: both sides are equal" — including PDE balances whose
+  sides are structurally unrelated. When the raw sides carry derivatives and
+  both sides evaluate to exactly zero, the verdict is inconclusive with the
+  vacuity named; a derivative identity with real content (`d(x**2)/dx = 2*x`)
+  still verifies.
+- `generate_output` markdown reports no longer drop counts from a
+  `verification` dict without `total`: the legacy fallback rendered only
+  truthy `failed`/`inconclusive` values and never looked at `verified`, so
+  `{verified: 7, failed: 0, inconclusive: 7}` rendered as just
+  `inconclusive: 7`, understating the verification. All present counts
+  (including zeros) now render.
+- `generate_output` markdown reports no longer wrap non-identifier keys in
+  math mode (`$连续方程$`); they render as plain text, and a steps item may
+  carry a `number` (or `step`) key that is honored instead of renumbering the
+  report's steps 1..n.
+
 ## [1.11.0] - 2026-09-16
 
 Operator-feedback hardening after a 29-step compressible-RANS derivation

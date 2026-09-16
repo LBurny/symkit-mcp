@@ -235,7 +235,7 @@ _MATERIAL_DERIVATIVE_FUNC_RE: re.Pattern[str] = re.compile(
 
 # Regex for higher-order material derivative ``D^2 u / Dt^2``.
 _MATERIAL_DERIVATIVE_HO_RE: re.Pattern[str] = re.compile(
-    r"\bD\^(\d+)\s*([A-Za-z_][A-Za-z0-9_]*)\s*/\s*\bDt\b\^(\d+)",
+    r"\bD(?:\^|\*\*)(\d+)\s*([A-Za-z_][A-Za-z0-9_]*)\s*/\s*\bDt\b(?:\^|\*\*)(\d+)",
 )
 
 # Compile-once regex caches.
@@ -299,11 +299,13 @@ def preprocess_diff_to_derivative(expr_str: str) -> str:
 def preprocess_leibniz_derivatives(expr_str: str) -> str:
     """Convert Leibniz derivative notation (e.g. ``dX/dY``) into SymPy ``Derivative(...)``.
 
-    Supports first-order forms like ``dX/dY`` and higher-order forms like
-    ``d^2X/dY^2``. Also supports uppercase material derivative ``D(X)/Dt``.
+    Supports first-order ``dX/dY`` and parenthesized ``d(expr)/dY`` (one
+    nesting level), higher-order ``d^2X/dY^2``/``d^2(expr)/dY^2``, and ``D(X)/Dt``.
     Non-matching ``d`` or ``D`` tokens are left untouched.
     """
-    result = _LEIBNIZ_HIGHER_ORDER_RE.sub(_leibniz_higher_repl, expr_str)
+    result = _LEIBNIZ_PAREN_HO_RE.sub(_leibniz_higher_repl, expr_str)
+    result = _LEIBNIZ_HIGHER_ORDER_RE.sub(_leibniz_higher_repl, result)
+    result = _LEIBNIZ_PAREN_RE.sub(_leibniz_first_repl, result)
     result = _LEIBNIZ_FIRST_ORDER_RE.sub(_leibniz_first_repl, result)
     result = _MATERIAL_DERIVATIVE_HO_RE.sub(_material_derivative_ho_repl, result)
     result = _MATERIAL_DERIVATIVE_RE.sub(_material_derivative_repl, result)
@@ -315,8 +317,12 @@ _LEIBNIZ_FIRST_ORDER_RE: re.Pattern[str] = re.compile(
     r"\bd([A-Za-z_][A-Za-z0-9_]*)\b\s*/\s*\bd([A-Za-z_][A-Za-z0-9_]*)\b",
 )
 _LEIBNIZ_HIGHER_ORDER_RE: re.Pattern[str] = re.compile(
-    r"\bd\^(\d+)\s*([A-Za-z_][A-Za-z0-9_]*)\b\s*/\s*\bd([A-Za-z_][A-Za-z0-9_]*)\b\^(\d+)",
+    r"\bd(?:\^|\*\*)(\d+)\s*([A-Za-z_][A-Za-z0-9_]*)\b\s*/\s*\bd([A-Za-z_][A-Za-z0-9_]*)\b(?:\^|\*\*)(\d+)",
 )
+_LEIBNIZ_PAREN_HO_RE: re.Pattern[str] = re.compile(
+    r"\bd(?:\^|\*\*)(\d+)\s*\(((?:[^()]|\([^()]*\))*)\)\s*/\s*\bd([A-Za-z_][A-Za-z0-9_]*)\b(?:\^|\*\*)(\d+)",
+)
+_LEIBNIZ_PAREN_RE: re.Pattern[str] = re.compile(r"\bd\s*\(((?:[^()]|\([^()]*\))*)\)\s*/\s*\bd([A-Za-z_][A-Za-z0-9_]*)\b")
 
 
 def _leibniz_first_repl(match: re.Match[str]) -> str:

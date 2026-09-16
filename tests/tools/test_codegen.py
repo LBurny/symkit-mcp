@@ -86,6 +86,71 @@ class TestReportVerificationRendering:
         assert r"$\rho$" in result["report"]
         assert "$C_{d}$" in result["report"]
 
+    def test_verified_count_renders_without_total(self, fresh_manager):
+        # Field 26e9028b: a verification dict without ``total`` fell into the
+        # legacy fallback, which iterated only failed/inconclusive and filtered
+        # zero counts — verified: 7 and failed: 0 silently vanished while
+        # inconclusive: 7 rendered, understating the verification in the report.
+        _ = fresh_manager
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        tool = mcp.tools["generate_output"]
+        result = tool(
+            format="markdown_report",
+            problem="p",
+            given={},
+            steps=[],
+            results={},
+            verification={"verified": 7, "failed": 0, "inconclusive": 7,
+                          "note": "inconclusive steps are manual averages"},
+        )
+        assert result["success"]
+        report = result["report"]
+        assert "- verified: 7" in report
+        assert "- failed: 0" in report
+        assert "- inconclusive: 7" in report
+        assert "inconclusive steps are manual averages" in report
+
+    def test_non_ascii_keys_are_not_wrapped_in_math_mode(self, fresh_manager):
+        # Field 26e9028b: Chinese keys became pseudo-LaTeX ($连续方程$).
+        _ = fresh_manager
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        tool = mcp.tools["generate_output"]
+        result = tool(
+            format="markdown_report",
+            problem="p",
+            given={"连续方程": "rho_b 守恒"},
+            steps=[],
+            results={"动量方程": "-p_b*u_t_i"},
+        )
+        assert result["success"]
+        report = result["report"]
+        assert "$连续方程$" not in report
+        assert "$动量方程$" not in report
+        assert "连续方程 = rho_b 守恒" in report
+
+    def test_step_block_honors_provided_step_numbers(self, fresh_manager):
+        # Field 26e9028b: report steps renumbered 1..n while the session's real
+        # numbers were 4..18; an explicit per-step number must be honored.
+        _ = fresh_manager
+        mcp = MockMCP()
+        codegen.register_codegen_tools(mcp)
+        tool = mcp.tools["generate_output"]
+        result = tool(
+            format="markdown_report",
+            problem="p",
+            given={},
+            steps=[
+                {"description": "continuity", "expression": "x", "number": 4},
+                {"description": "momentum", "expression": "y"},
+            ],
+            results={},
+        )
+        assert result["success"]
+        assert "### Step 4: continuity" in result["report"]
+        assert "### Step 2: momentum" in result["report"]
+
 class TestGenerateSympyScript:
     """Regression (run-018): the generated script declared only the symbols of
     `expressions`; symbols appearing solely in `operations` (e.g. solve inputs)

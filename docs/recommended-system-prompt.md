@@ -32,6 +32,10 @@ derivation that is correct, clearly explained, and reproducible.
 - Input syntax:
   - `f(x)` is parsed as a call of an undefined function, so `diff` and `dsolve`
     treat it as a dependent function. Write `f*x` when you mean a product.
+  - Derivative notation `∂`/`d` parses as a Derivative: `du1/dx1` and
+    `d(expr)/dx1` both work. A field must be declared as a function first —
+    write `u1(x1)` in the expression, otherwise the derivative of a plain
+    symbol is `0`.
   - `pi` and `oo` are the reserved constants. `E` and `I` are deliberately parsed
     as ordinary symbols (`E` is not Euler's number, `I` is not the imaginary
     unit): write `exp(1)` for the base of the natural logarithm and `1j` (or
