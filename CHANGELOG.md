@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Operator-feedback hardening after a 29-step compressible-RANS derivation
+session (Favre-averaged momentum equations, Lean kernel certification).
+
+### Fixed
+
+- `session_complete` no longer embeds every step's full record in its return.
+  A 29-step session returned 55.6 KB, the client truncated it to a preview,
+  and the operator never saw `target_reached: false` or the target-mismatch
+  warning it carried. The return now carries a compact `steps_summary` (step
+  number, operation, verification status) while the full records remain
+  available via `session_get_steps`, and `warnings` / `target_reached` are
+  reported ahead of the bulk fields so even a truncated preview shows them.
+  The auto-save library write reads the chain from the session rather than
+  from the payload, so staged records keep their step descriptions.
+- `session_verify_session` counts the kernel verdicts `session_certify`
+  attached under `details.lean` and reports them as `lean` (proven/unproven)
+  in the summary and its display text. The remaining counts stay SymPy-side,
+  so a chain of 23 SymPy-verified steps of which only 12 carry a kernel proof
+  can no longer read as fully certified from the summary alone.
+
+### Added
+
+- `lean_status(warmup=true)`: a retryable warm-up entry that compiles a
+  trivial ring proof through the same batch checker `session_certify` uses,
+  priming the workspace caches. The first compile after setup is slow and
+  could surface as a raw client request timeout in the middle of a
+  certification; the warm-up reports its outcome (smoke_passed, elapsed_s,
+  and retry guidance on timeout) as an explicit step instead. The full
+  asynchronous-job design (per-call deadline for long certifications) remains
+  open.
+
 ## [1.10.0] - 2026-09-16
 
 A black-box complex-derivation round against a purpose-built lab

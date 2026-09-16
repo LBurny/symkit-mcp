@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any, Literal
 
+import sympy as sp
+
 from symkit.application.lean_certification import certify_session
+from symkit.domain.lean_translation import translate_equality
 from symkit.infrastructure.lean_batch import LeanBatchChecker
 from symkit.infrastructure.lean_toolchain import (
     describe_environment,
@@ -55,21 +59,51 @@ def register_certification_tools(mcp: Any) -> None:
             "example": "lean_status()",
         }
     )
-    def lean_status() -> dict[str, Any]:
-        """Check whether the optional Lean 4 kernel backend is ready, without changing anything.
+    def lean_status(warmup: bool = False) -> dict[str, Any]:
+        """Check whether the optional Lean 4 kernel backend is ready.
 
-        Read-only and side-effect free: it never runs Lean and never downloads, so
-        it is safe to call before deciding whether to certify. Reports the resolved
-        toolchain, Mathlib, and workspace paths, where each was resolved from,
-        which layer is missing, and the exact command to fix it. Use this instead
-        of listing directories or running `lake --version` yourself.
+        Read-only by default: it never runs Lean and never downloads, so it is
+        safe to call before deciding whether to certify. With warmup=true it
+        compiles a trivial ring proof through the same batch checker
+        session_certify uses, priming the workspace caches: the first compile
+        after setup is slow and can exceed a client's request timeout, so warm
+        up first (or retry the warmup) instead of certifying cold.
+
+        Args:
+            warmup: When true, run the workspace smoke compile and report the
+                outcome under `warmup` (smoke_passed, elapsed_s, and retry
+                guidance when the per-batch timeout was hit).
 
         Returns:
             Environment report: availability, per-layer status (toolchain/Mathlib/
             workspace), `resolved_from` (ELAN_HOME, SYMKIT_DATA_DIR, lake source),
             `missing` layer names, and `next_step` guidance.
         """
-        return describe_environment()
+        report = describe_environment()
+        if not warmup:
+            return report
+        status = detect_status()
+        if not status.available or not status.lake_path or not status.workspace:
+            report["warmup"] = {"skipped": status.reason}
+            return report
+        checker = LeanBatchChecker(Path(status.lake_path), Path(status.workspace))
+        statement = translate_equality(
+            sp.Integer(2) * 2, sp.Integer(4), name="symkit_warmup"
+        )
+        started = time.monotonic()
+        outcome = checker.check([statement])[0]
+        smoke: dict[str, Any] = {
+            "smoke_passed": outcome.proven,
+            "detail": outcome.detail,
+            "elapsed_s": round(time.monotonic() - started, 1),
+        }
+        if not outcome.proven:
+            smoke["next_step"] = (
+                "the first workspace compile can exceed the per-batch timeout; "
+                "call lean_status(warmup=true) again or raise SYMKIT_LEAN_TIMEOUT"
+            )
+        report["warmup"] = smoke
+        return report
 
     @mcp.tool(
         meta={

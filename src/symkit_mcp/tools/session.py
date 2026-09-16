@@ -634,7 +634,8 @@ def register_session_tools(mcp: Any) -> None:
                 heuristic outcome selection.
 
         Returns:
-            Complete derivation record
+            Complete derivation record with a compact ``steps_summary``; the
+            full step records remain available via ``session_get_steps()``.
         """
         session = get_session()
         if session is None:
@@ -677,7 +678,6 @@ def register_session_tools(mcp: Any) -> None:
             try:
                 saved = save_derivation_formula(
                     session,
-                    result,
                     is_verified=is_verified,
                     verification_method=verification_method,
                     verified_at=verified_at,
@@ -1071,6 +1071,8 @@ def register_session_tools(mcp: Any) -> None:
 
         Returns:
             Summary with total, verified, failed and inconclusive counts.
+            Kernel verdicts attached by session_certify are counted under
+            ``lean`` (proven/unproven); the rest of the counts stay SymPy-side.
         """
         session = get_session()
         if session is None:

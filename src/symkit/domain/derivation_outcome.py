@@ -112,6 +112,34 @@ def select_representative_expression(
     return candidates[-1][0]
 
 
+def steps_summary(steps: list[DerivationStep]) -> list[dict[str, Any]]:
+    """Compact per-step rows for the ``session_complete`` return.
+
+    Embedding every step's full record in the completion payload overflowed
+    the client's tool-output budget on long derivations and pushed the
+    ``warnings`` / ``target_reached`` fields out of the visible preview
+    (operator feedback, 2026-09-16).  The full records stay behind
+    ``session_get_steps``; this summary only answers "which steps exist and
+    how did each verify".
+    """
+    rows: list[dict[str, Any]] = []
+    for step in steps:
+        record = None
+        if step.verification_result:
+            try:
+                record = verification_result_from_json(step.verification_result)
+            except (TypeError, ValueError):
+                record = None
+        rows.append(
+            {
+                "step_number": step.step_number,
+                "operation": step.operation.value,
+                "status": record.status.value if record else None,
+            }
+        )
+    return rows
+
+
 def target_coverage(
     session: DerivationSession, current: sp.Basic
 ) -> tuple[list[str], set[str], bool]:

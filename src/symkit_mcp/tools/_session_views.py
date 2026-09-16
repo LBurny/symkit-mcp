@@ -11,6 +11,7 @@ from typing import Any
 import sympy as sp
 
 from symkit.domain.derivation_session import DerivationSession
+from symkit.domain.step_verifier import verification_result_from_json
 from symkit.infrastructure.derivation_repository import (
     DerivationResult,
     get_repository,
@@ -27,7 +28,9 @@ def verification_summary(session: DerivationSession) -> dict[str, Any]:
 
     Moved here from ``session.py`` (bylaw section 5.1) to keep that module
     within its frozen size while ``session_complete`` gained the explicit
-    ``final_expression`` override.
+    ``final_expression`` override. Kernel verdicts attached by
+    ``session_certify`` (``details.lean``) are counted under ``lean`` so the
+    SymPy counts alone cannot read as a kernel certification (2026-09-16).
     """
     summary = _unit_context.summary_with_dimension_disclosure(session)
     display_lines = [
@@ -49,8 +52,38 @@ def verification_summary(session: DerivationSession) -> dict[str, Any]:
         display_lines.append(
             f"  ⚠️ assumption conflicts: {len(summary['assumption_conflicts'])}"
         )
+    lean = _kernel_counts(session)
+    if lean is not None:
+        summary["lean"] = lean
+        display_lines.append(
+            f"  🔬 Lean kernel: proven {lean['proven']}, unproven {lean['unproven']}"
+        )
     summary["display_text"] = "\n".join(display_lines)
     return summary
+
+
+def _kernel_counts(session: DerivationSession) -> dict[str, int] | None:
+    """Count the ``details.lean`` verdicts ``session_certify`` attached, if any.
+
+    Steps that never reached the kernel (skipped/untranslatable/trivial) carry
+    no sub-record, so a session without a certification yields ``None`` and the
+    summary stays exactly as it was.
+    """
+    counts = {"proven": 0, "unproven": 0}
+    found = False
+    for step in session.steps:
+        if not step.verification_result:
+            continue
+        try:
+            details = verification_result_from_json(step.verification_result).details
+        except (TypeError, ValueError):
+            continue
+        lean = (details or {}).get("lean") or {}
+        status = lean.get("status")
+        if status in counts:
+            counts[status] += 1
+            found = True
+    return counts if found else None
 
 
 def render_session_header(
@@ -125,7 +158,6 @@ def pick_savable_expression(
 
 def save_derivation_formula(
     session: DerivationSession,
-    result: dict[str, Any],
     *,
     is_verified: bool,
     verification_method: str,
@@ -159,7 +191,6 @@ def save_derivation_formula(
     result_id = staging_id(session.name or fallback_name, saved_expression_str)
     derivation_result = _build_staged_result(
         session,
-        result,
         saved_expr,
         result_id,
         is_verified=is_verified,
@@ -187,7 +218,6 @@ def save_derivation_formula(
 
 def _build_staged_result(
     session: DerivationSession,
-    result: dict[str, Any],
     saved_expr: sp.Basic,
     result_id: str,
     *,
@@ -214,7 +244,7 @@ def _build_staged_result(
         latex=sp.latex(saved_expr),
         variables=build_auto_variables(saved_expr, session),
         derived_from=list(session.formulas.keys()),
-        derivation_steps=[step["description"] for step in result["steps"]],
+        derivation_steps=[step.description for step in session.steps],
         assumptions=assumptions,
         session_ids=session_ids,
         verified=is_verified,

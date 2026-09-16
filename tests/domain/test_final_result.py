@@ -23,9 +23,12 @@ from symkit.domain.derivation_session import (
 )
 from symkit.domain.final_result import select_headline
 
-# The exact response keys complete() produced before D8; a session without a
-# failed step must not gain or lose any of them.
-_LEGACY_COMPLETE_KEYS = {
+# The exact response keys complete() produces; a session without a failed step
+# must not gain or lose any of them. Since 2026-09-16 the payload embeds a
+# compact ``steps_summary`` instead of the full step records (which stayed
+# behind get_steps), and ``warnings``/``target_reached`` moved ahead of the
+# bulk fields so a truncated preview still shows them.
+_COMPLETE_KEYS = {
     "final_expression",
     "final_latex",
     "formulas_used",
@@ -35,7 +38,7 @@ _LEGACY_COMPLETE_KEYS = {
     "provenance",
     "session_id",
     "status",
-    "steps",
+    "steps_summary",
     "success",
     "target_reached",
     "total_steps",
@@ -123,7 +126,7 @@ class TestCompleteSkipsFailedStep:
         session = DerivationSession(session_id="d8-clean", name="d8-clean")
         session.load_formula("m*a", formula_id="f1")
         result = session.complete()
-        assert set(result.keys()) == _LEGACY_COMPLETE_KEYS
+        assert set(result.keys()) == _COMPLETE_KEYS
         assert result["final_expression"] == "a*m"
 
 

@@ -33,6 +33,7 @@ from symkit.domain.derivation_outcome import (
     is_note_step,
     resolve_target_reached,
     select_representative_expression,
+    steps_summary,
 )
 from symkit.domain.derivation_pattern import DerivationPattern
 from symkit.domain.derivation_planner import DerivationPlanner
@@ -1412,22 +1413,23 @@ class DerivationSession:
         self.status = SessionStatus.COMPLETED
         self._update_timestamp()
 
-        # Create complete derivation record
+        # Create complete derivation record. Steps are summarized, not embedded:
+        # full records stay behind get_steps() so the preview cannot hide the warnings above.
         result = {
             "success": True,
             "session_id": self.session_id,
             "name": self.name,
             "status": self.status.value,
+            "total_steps": self.step_count,
+            "warnings": warnings,
+            "target_reached": target_reached,
             "final_expression": str(outcome),
             "final_latex": sp.latex(outcome),
-            "total_steps": self.step_count,
-            "steps": self.get_steps(),
+            "steps_summary": steps_summary(self.steps),
             "formulas_used": {fid: f.to_dict() for fid, f in self.formulas.items()},
             "verification_summary": verification_summary,
             "goal": self.goal.to_dict() if self.goal else None,
             "progress": progress,
-            "target_reached": target_reached,
-            "warnings": warnings,
             **headline_fields,
             "provenance": {
                 "created_at": self.created_at,
