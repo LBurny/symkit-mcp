@@ -5,6 +5,118 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-09-16
+
+A black-box complex-derivation round against a purpose-built lab
+(`symkit-mcp-test-r19`: 16 operator cards over three lanes — hard pure-formula
+derivations, fuzzy theory-modeling requests, and adversarial cards with
+deliberately false premises, all under the recommended client system prompt).
+Fifteen cards finished SUCCESS with clean discipline and zero crashes; one card
+wedged a long-lived server for 29.5 minutes and was killed, exposing the
+structural no-internal-timeout risk that stays open. Twenty-nine defects were
+confirmed with reproduction probes and fixed in three fix waves; the rebuilt
+wheel passed every acceptance probe (smoke, the 20-assertion regress battery,
+the family audits) and the six affected cards re-run against it, whose reruns
+surfaced four further defects that were fixed the same way.
+
+### Fixed
+
+- A simplification of an expression that merely *contains* a subtraction no
+  longer draws a false identity advisory. The suspect-identity heuristic read
+  any input with a negated term as an `A - B` claim and graded the *output*
+  (which legitimately is nonzero) as a residual, asserting "numerically nonzero
+  at tested points" about steps whose input-output difference was exactly zero.
+  The advisory now fires only for a genuine two-sided difference (one positive
+  and one negated compound), and its wording names the referent ("the input has
+  the form A - B and its value did not reduce to zero...").
+- A delivered result no longer disappears. The headline heuristic handed back a
+  trailing comparison residual (`0`) or an intermediate expansion while the real
+  deliverable stayed out of every result field (7 of 16 cards). A zero that is
+  later superseded by any output is no longer treated as the closing conclusion,
+  and `session_complete(final_expression="...")` now lets the caller declare the
+  deliverable explicitly; the override is validated, reported in
+  `final_expression`, and is what gets saved.
+- The goal/progress fields no longer manufacture success. Text-mined "targets"
+  (`n`, `i`, `x` picked out of a goal sentence) granted `matches_target: true`
+  and a constant 0.7 score, and `target_reached: true` coexisted with
+  `overall: failed`. Targets are now tri-state: no explicit target reports
+  `null`, auto-extracted variables confer nothing, and `target_reached` cannot
+  be `true` when verification failed.
+- A bracket list of equations (`"[eq1, eq2]"`) reaches the system solver. The
+  parser turns bracket lists into matrices (a documented design), so even a
+  trivial 2x2 linear system came back "No solution found"; the solve path now
+  routes a flat matrix of scalar expressions or equations to the system solver.
+  Set literals get a curated refusal naming the supported spellings.
+- A recorded equation that the parser collapsed to a boolean no longer verifies
+  green. `simplify("Eq(0, 5)")` archived its input as the boolean `False`, the
+  verifier only saw "boolean value preserved", and a contradiction proof read as
+  verified; the claim is now recovered from the archived input string and
+  judged: false sides fail with "the asserted equation is FALSE (0 != 5)", true
+  sides verify as an identity.
+- A solve headline can no longer be a boolean or a root the response itself
+  reports as excluded. Under assumptions, `solve` once returned
+  `expression: "False"`, `solution: "0"` — the restored trivial root double-listed
+  as both kept and filtered — while the useful root hid in `all_solutions`. The
+  headline is now the first non-excluded root, restored roots are not also
+  reported as filtered, and boolean pseudo-solutions are dropped with a warning.
+- Notes and failed calls now leave honest traces. A `session_add_note` step no
+  longer counts in verification totals or inconclusive lists, and a failing
+  `math(session=True)` call records a note carrying the operation and the error,
+  so a core rejection is no longer invisible in the chain.
+- A later dimensional check can no longer silently overturn a definitive
+  algebraic verdict. Re-verification folds the dimension post-check over the
+  archived step, so a step recorded "Identity verified" could flip to
+  "dimensionally inconsistent" with no disclosure; the algebraic verdict is now
+  kept and the disagreement is attached (`dimension_disagreement`,
+  `dimension_failed_steps` at the session level).
+- An inconclusive dimensional check no longer blames missing units when the
+  real cause is a dimension that cannot be represented (a `sqrt` producing a
+  fractional power); the cause is named in `dimension_inconclusive_reason`.
+- A formula library write is gated by the formula's own declared units.
+  `formula_add` and the `session_complete` auto-save refused nothing: a formula
+  like `E = m*v**3` with `E: J, m: kg, v: m/s` declared was filed with top-level
+  green fields. A decidable inconsistency now blocks the write with
+  `not_saved_reason`; an incomplete unit map still saves to staging.
+- Units declared to `formula_add` reach the session's `formulas_used` record
+  instead of being dropped to `null` (the YAML copy always carried them).
+- A derivative of order three or higher verifies again by reverse integration;
+  the order-n comparison previously ignored integration-constant ambiguity of
+  degree below n, so Rodrigues-type higher derivatives were stuck inconclusive.
+  Differentiation verification now leads with a direct recomputation channel
+  (`d^n(input)/dvar^n` compared against the recorded output), so steps whose
+  parameters would branch the antiderivative into a sympy `Piecewise` — a
+  damped-oscillator derivative with assumption-free parameters — verify
+  instead of stalling inconclusive; reverse integration stays as the fallback
+  with its size-budget refusal intact. Matrix-operation steps archive their
+  input srepr instead of an empty string.
+- `session_complete(final_expression=...)` no longer trips the empty-chain
+  guard: a chain whose steps are dimension checks (which archive outputs but
+  set no current expression) can be completed with an explicit deliverable.
+- `session_start` accepts `target_expression` — passing one used to be
+  silently swallowed by the tool schema while the goal recorded `null`.
+- Algebraic solve on a system whose entries contain applied functions (like
+  `f(t)`) returns a curated refusal instead of sympy's
+  `'FunctionClass' and 'Integer'` operand error.
+- The remaining rough edges of the solve surface are curated: a power as the
+  solve variable, an inequality, and an HTML-escaped comparator each get a
+  one-line refusal naming the supported syntax; an expression-valued assumption
+  string is rejected with guidance instead of being whitespace-shredded into
+  meaningless tokens; a dsolve whose initial conditions are contradictory
+  reports the inconsistency instead of leaking sympy's ValueError, and its
+  initial-condition key hint quotes the derivative-key form unambiguously.
+
+### Added
+
+- `math(integrate, ..., method="risch")` — the advertised `method` parameter now
+  works for integration (`risch` maps to sympy's Risch route; anything else is
+  refused with the supported values listed).
+- `math(parse, ...)` returns the `symbols` it extracted, as its description
+  always promised.
+- An indefinite integral that lands on a special function says so
+  ("Antiderivative uses special function(s): erfi — not expressible with
+  elementary functions") instead of silently substituting `erfi`/`Ei`/`Si` for
+  the requested elementary form.
+
 ## [1.9.4] - 2026-09-15
 
 Two black-box dimensional rounds against a purpose-built lab

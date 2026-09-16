@@ -98,8 +98,14 @@ class TestReverseIntegrationStaysBounded:
     in 0.02s with ``session=False`` but hung the single-process server for 15+
     minutes with the default ``session=True``: the differentiation check reverse
     integrates the output once per order, and the *second* ``sympy.integrate`` on
-    the 701-operation intermediate never returns. The check now stops when the
+    the 701-operation intermediate never returns.  The check now stops when the
     expression grows past the cap and reports INCONCLUSIVE instead.
+
+    Since r19 F37 a correct derivative is decided by direct recomputation before
+    reverse integration is attempted, so the 4th-order case now terminates with
+    a definitive VERIFIED verdict instead of the size-budget INCONCLUSIVE (the
+    refusal still fires for an output direct recomputation cannot match — see
+    ``tests/regression/test_r19_verifier.py``).
     """
 
     def test_fourth_order_nested_power_derivative_terminates(self):
@@ -113,8 +119,8 @@ class TestReverseIntegrationStaysBounded:
             key="original",
         )
         result = StepVerifier().verify_step(step, prior_expr=source)
-        assert result.status == VerificationStatus.INCONCLUSIVE
-        assert "skipped" in result.message.lower()
+        assert result.status == VerificationStatus.VERIFIED
+        assert "direct recomputation" in result.message
 
     def test_first_order_derivative_still_verifies(self):
         x, t = sp.symbols("x t")

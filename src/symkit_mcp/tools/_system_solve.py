@@ -16,6 +16,7 @@ from typing import Any
 import sympy as sp
 
 from symkit.domain.value_objects import MathContext
+from symkit_mcp.tools._op_helpers import applied_function_solve_error
 
 # Asserted property -> predicate that is True when a solution value *provably*
 # violates it.  Symbolic or otherwise undecidable values yield None and are
@@ -88,6 +89,59 @@ def _partition_solutions(
     return kept, dropped, reasons
 
 
+def _assemble_system_response(
+    solutions: Any,
+    variables: list[sp.Symbol],
+    context: MathContext | None,
+    variable: str,
+    operation: str,
+    input_obj: Any,
+) -> dict[str, Any]:
+    """Normalize, assumption-filter and render one system's ``solve`` answer."""
+    # sp.solve returns a dict for a single solution, a list of dicts/tuples
+    # otherwise — normalize to a list (run-018; solutions[0] on the dict
+    # raised a bare KeyError: 0).
+    if isinstance(solutions, dict):
+        solutions = [solutions]
+    if not solutions:
+        return {"success": False, "error": f"No solution found for {variable}"}
+
+    kept, dropped, reasons = _partition_solutions(solutions, variables, context)
+    if not kept:
+        return {
+            "success": False,
+            "error": f"No solution found for {variable} under the active assumptions",
+        }
+
+    warnings: list[str] = []
+    if dropped:
+        warnings.append(
+            "Solutions omitted by the active assumptions: " + "; ".join(reasons) + "."
+        )
+    if len(kept) > 1:
+        warnings.append(
+            f"headline 'solution' shows the first of {len(kept)} solutions; "
+            "see all_solutions for the rest"
+        )
+    first = kept[0]
+    # A compound answer re-parsed through ``sympify(str(first))`` raised a bare
+    # operand TypeError naming SymPy internals (r19 F35).
+    result = sp.sympify(str(first))
+    return {
+        "success": True,
+        "expression": str(result),
+        "latex": sp.latex(result),
+        "solution": str(first),
+        "solution_latex": sp.latex(result),
+        "all_solutions": [str(s) for s in kept],
+        "filtered_by_assumptions": dropped,
+        "warnings": warnings,
+        "operation": operation,
+        "_input_obj": input_obj,
+        "_result_obj": result,
+    }
+
+
 def solve_system(
     parsed: Any,
     variable: str,
@@ -105,46 +159,13 @@ def solve_system(
         next((s for s in eq_syms if str(s) == name), None) or sp.Symbol(name)
         for name in var_names
     ]
-    solutions = sp.solve(eqs, variables)
-    # sp.solve returns a dict for a single solution, a list of dicts/tuples
-    # otherwise — normalize to a list (run-018; solutions[0] on the dict
-    # raised a bare KeyError: 0).
-    if isinstance(solutions, dict):
-        solutions = [solutions]
-    if not solutions:
-        return {"success": False, "error": f"No solution found for {variable}"}
-
-    kept, dropped, reasons = _partition_solutions(solutions, variables, context)
-    if not kept:
-        return {
-            "success": False,
-            "error": (
-                f"No solution found for {variable} under the active assumptions"
-            ),
-        }
-
-    warnings: list[str] = []
-    if dropped:
-        warnings.append(
-            "Solutions omitted by the active assumptions: " + "; ".join(reasons) + "."
+    try:
+        solutions = sp.solve(eqs, variables)
+        return _assemble_system_response(
+            solutions, variables, context, variable, operation, input_obj
         )
-    if len(kept) > 1:
-        warnings.append(
-            f"headline 'solution' shows the first of {len(kept)} solutions; "
-            "see all_solutions for the rest"
-        )
-    first = kept[0]
-    result = sp.sympify(str(first))
-    return {
-        "success": True,
-        "expression": str(result),
-        "latex": sp.latex(result),
-        "solution": str(first),
-        "solution_latex": sp.latex(result),
-        "all_solutions": [str(s) for s in kept],
-        "filtered_by_assumptions": dropped,
-        "warnings": warnings,
-        "operation": operation,
-        "_input_obj": input_obj,
-        "_result_obj": result,
-    }
+    except (TypeError, AttributeError) as exc:
+        curated = applied_function_solve_error(exc)
+        if curated is not None:
+            return curated
+        raise

@@ -158,6 +158,15 @@ class TestSessionExternalAdapters:
             "_build_external_adapters",
             lambda _sources: [FormulaInfoAdapter(FakeExternalAdapter())],
         )
+        # Hermetic against the process-shared formula index, as the sibling
+        # TestDeriveExternalSources does: auto_save in any earlier test of the
+        # run accumulates staging entries, and scored library candidates
+        # (external results are pinned at 0.5) would crowd the fake external
+        # card out of top_k.
+        monkeypatch.setattr(
+            "symkit.domain.derivation_session._library_candidates",
+            lambda: [],
+        )
         result = mcp.tools["derive"](
             "derive energy relation",
             external_sources=["fake_external"],

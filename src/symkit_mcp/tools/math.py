@@ -16,13 +16,22 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from symkit.domain.assumption_binding import ASSUMPTION_KEYWORDS
 from symkit.domain.assumption_engine import AssumptionLevel
 from symkit.domain.derivation_session import OperationType
 from symkit.domain.value_objects import MathContext
+from symkit_mcp.tools._assumption_text import expression_valued_assumption
 from symkit_mcp.tools._math_dispatch import (
     _OP_TYPE_MAP,
     _execute_operation,
     _preprocess,
+)
+from symkit_mcp.tools._math_recording import (
+    _render_dimension_display,
+    _sympy_command,
+    matrix_input_srepr,
+    record_failed_operation_note,
+    session_assumption_strings,
 )
 from symkit_mcp.tools._state import get_context, get_session, set_context
 
@@ -31,14 +40,20 @@ def _parse_assumption_clause(a: str) -> tuple[str, dict[str, bool]] | None:
     """Parse an assumption clause into ``(variable, {prop: True, ...})``.
 
     Accepts both ``"x is positive real"`` and ``"x positive real"`` forms.
-    Returns ``None`` when the clause cannot be understood (caller warns).
+    Returns ``None`` when the clause is not a recognizable symbol-plus-
+    properties clause (caller warns) — an expression-valued entry such as
+    ``"Omega**2*b**2 + ... is positive"`` must not be split on whitespace and
+    applied as garbage properties (r19 F23).
     """
     parts = a.strip().split()
-    if len(parts) >= 3 and parts[1] == "is":
-        return parts[0], dict.fromkeys(parts[2:], True)
-    if len(parts) >= 2:
-        return parts[0], dict.fromkeys(parts[1:], True)
-    return None
+    properties = (
+        parts[2:] if len(parts) >= 3 and parts[1] in ("is", "has") else parts[1:]
+    )
+    if not parts[0:1] or not parts[0].isidentifier() or not properties:
+        return None
+    if not all(prop in ASSUMPTION_KEYWORDS for prop in properties):
+        return None
+    return parts[0], dict.fromkeys(properties, True)
 
 
 def _normalize_assume_input(
@@ -79,6 +94,10 @@ def _apply_call_assumptions(
         return None, applied, warnings
     ctx = get_context()
     for clause_text in assumptions:
+        rejected = expression_valued_assumption(clause_text)
+        if rejected is not None:
+            warnings.append(rejected)
+            continue
         clause = _parse_assumption_clause(clause_text)
         if clause is None:
             warnings.append(
@@ -98,46 +117,6 @@ def _apply_call_assumptions(
                     var_name, *props_dict, level=AssumptionLevel.SESSION
                 )
     return ctx, applied, warnings
-
-
-def _render_dimension_display(result: dict[str, Any]) -> str:
-    """Render the ``dimension`` operation's verdict as display text."""
-    status = result.get("consistent")
-    if status is True:
-        label = "✅ dimensionally consistent"
-    elif status is False:
-        label = "❌ dimensionally inconsistent"
-    else:
-        label = "⚠️ dimensionally inconclusive"
-    lines = [f"🔹 **DIMENSION** result: {label}"]
-    issues = result.get("issues") or []
-    if issues:
-        lines.extend(f"- {issue}" for issue in issues)
-    elif result.get("message"):
-        lines.append(f"- {result['message']}")
-    return "\n".join(lines)
-
-
-def _sympy_command(
-    operation: str,
-    variable: str | None,
-    order: int,
-    lower: str | None,
-    upper: str | None,
-    point: str | None,
-) -> str:
-    """A sympy_command string the step verifier can parse."""
-    if operation == "diff":
-        if order == 1:
-            return f"diff(expr, {variable})"
-        return f"diff(expr, {variable}, {order})"
-    if operation == "integrate":
-        if lower is not None and upper is not None:
-            return f"integrate(expr, ({variable}, {lower}, {upper}))"
-        return f"integrate(expr, {variable})"
-    if operation == "limit":
-        return f"limit(expr, {variable}, {point or '0'})"
-    return f"math('{operation}', ...)"
 
 
 def _step_input_expressions(
@@ -221,9 +200,13 @@ def _record_math_step(
                 operation, variable, order, lower, upper, point
             ),
             notes=notes,
+            # Snapshot the session's assumptions onto the step record (r19 F19):
+            # a step archived assumptions=[] although assume(...) was in effect.
+            assumptions=session_assumption_strings(sess),
             # The live input object so the step archives an input_srepr and
             # verification never re-parses a display string (invariant I2).
             prior_expr=input_obj,
+            input_srepr=matrix_input_srepr(input_obj),
         )
         sess.current_expression = result_obj
         result["step"] = sess.step_count
@@ -468,6 +451,7 @@ def register_math_tools(mcp: Any) -> None:
         result_obj = result.pop("_result_obj", None)
 
         if assumption_warnings:
+            result["assumption_warnings"] = list(assumption_warnings)
             result.setdefault("warnings", []).extend(assumption_warnings)
 
         # Build display text
@@ -492,6 +476,12 @@ def register_math_tools(mcp: Any) -> None:
                 )
         else:
             result["display_text"] = f"❌ **{operation}** failed: {result.get('error', 'unknown')}"
+            # A failed attempt must not vanish from the chain (r19 F10): record
+            # a note-type trace so the gap is visible and attributable.
+            if session:
+                record_failed_operation_note(
+                    get_session(), operation, str(result.get("error", ""))
+                )
 
         return result
 

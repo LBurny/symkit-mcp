@@ -29,8 +29,8 @@ def test_verify_session_surfaces_suspect_step(fresh_session_manager):
     _ = fresh_session_manager
     tools = _tools()
     tools["session_start"]("suspect_surface")
-    # task-13 #4: (x+y)^2 - x^2 - y^2 reduces to 2xy; the identity is false.
-    tools["math"](operation="expand", expression="(x + y)**2 - x**2 - y**2", session=True)
+    # task-13 #4 / r19 F1: a genuine A - B; (x+y)^2 - (x^2 + y^2) is 2xy, false.
+    tools["math"](operation="expand", expression="(x + y)**2 - (x**2 + y**2)", session=True)
 
     result = tools["session_verify_session"]()
     assert result["overall"] == "verified"  # polarity is unchanged
@@ -43,7 +43,7 @@ def test_complete_surfaces_suspect_step(fresh_session_manager):
     _ = fresh_session_manager
     tools = _tools()
     tools["session_start"]("suspect_complete")
-    tools["math"](operation="expand", expression="(x + y)**2 - x**2 - y**2", session=True)
+    tools["math"](operation="expand", expression="(x + y)**2 - (x**2 + y**2)", session=True)
 
     result = tools["session_complete"](auto_save=False)
     summary = result["verification_summary"]
@@ -70,7 +70,7 @@ def test_suspect_step_keeps_verified_status(fresh_session_manager):
     _ = fresh_session_manager
     tools = _tools()
     tools["session_start"]("suspect_status")
-    tools["math"](operation="expand", expression="(x + y)**2 - x**2 - y**2", session=True)
+    tools["math"](operation="expand", expression="(x + y)**2 - (x**2 + y**2)", session=True)
     session = _state.get_session()
     assert session is not None
     assert '"suspect_identity": "unreduced"' in session.steps[0].verification_result

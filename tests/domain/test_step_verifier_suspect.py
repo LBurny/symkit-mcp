@@ -120,9 +120,13 @@ class TestSuspectIdentity:
         assert result.message.endswith("output matches the recomputed operator result")
 
     def test_expand_nonzero_difference_is_unreduced(self, verifier):
+        # A genuine two-sided ``A - B`` whose value is nonzero: ``(x+y)^2`` minus
+        # the group ``x^2 + y^2`` reduces to 2xy, so the identity is false.  (A
+        # bare three-term sum ``... - x**2 - y**2`` no longer earns the advisory:
+        # it is an ordinary simplification, r19 F1.)
         step = _make_step(
             OperationType.EXPAND,
-            "(x + y)**2 - x**2 - y**2",
+            "(x + y)**2 - (x**2 + y**2)",
             "2*x*y",
         )
         result = verifier.verify_step(step, prior_expr=None)

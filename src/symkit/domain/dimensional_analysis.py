@@ -470,6 +470,12 @@ def apply_dimension_check(
         details["dimension_unknown_symbols"] = report.unknown_symbols
     if report.dimensions:
         details["dimensions"] = report.dimensions
+    if report.consistent is None and report.indeterminate_reasons:
+        # Why the check reached no conclusion: "non_integer_exponent" (a
+        # fractional-power dimension is not representable) is a different
+        # finding from "some symbol has no unit" and must not be reported as
+        # the latter (r19 F25).
+        details["dimension_indeterminate_reasons"] = list(report.indeterminate_reasons)
     status = result.status
     message = result.message
     if report.consistent is False:

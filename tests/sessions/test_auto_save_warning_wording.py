@@ -26,9 +26,9 @@ def _tools() -> dict[str, Any]:
 
 def _suspect_session(tools: dict[str, Any], name: str) -> None:
     tools["session_start"](name)
-    # The identity is false: the difference is nonzero, so the step carries
-    # details.suspect_identity="unreduced".
-    tools["math"](operation="expand", expression="(x + y)**2 - x**2 - y**2", session=True)
+    # A genuine two-sided difference whose value is nonzero (2xy), so the step
+    # carries details.suspect_identity="unreduced".
+    tools["math"](operation="expand", expression="(x + y)**2 - (x**2 + y**2)", session=True)
 
 
 def _suspect_warning(result: dict[str, Any]) -> str:

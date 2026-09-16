@@ -103,6 +103,31 @@ class DerivationGoal:
     target_variables: list[str] = field(default_factory=list)
     domain: str = ""
     assumptions: list[str] = field(default_factory=list)
+    #: True when ``target_variables`` came from the caller (session_start /
+    #: session_set_goal / direct assignment) rather than prose mining.  Only
+    #: explicit targets may confer a target match or progress score (r19 F4);
+    #: text-mined names are a planning hint, not a contract.
+    target_variables_explicit: bool = False
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """A direct ``target_variables = [...]`` assignment marks it explicit.
+
+        ``from_text`` must therefore go through :meth:`set_target_variables`,
+        which writes the flag itself; every other assignment (session tools,
+        tests, callers) means the value was supplied deliberately.
+        """
+        object.__setattr__(self, name, value)
+        if name == "target_variables":
+            object.__setattr__(self, "target_variables_explicit", bool(value))
+
+    def set_target_variables(self, variables: list[str], *, explicit: bool) -> None:
+        """Set ``target_variables`` with an explicit provenance flag."""
+        object.__setattr__(self, "target_variables", list(variables))
+        object.__setattr__(self, "target_variables_explicit", explicit)
+
+    def has_explicit_target_variables(self) -> bool:
+        """Whether the caller declared the target variables (not text mining)."""
+        return self.target_variables_explicit and bool(self.target_variables)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -110,6 +135,7 @@ class DerivationGoal:
             "target_expression": self.target_expression,
             "target_form": self.target_form,
             "target_variables": self.target_variables,
+            "target_variables_explicit": self.target_variables_explicit,
             "domain": self.domain,
             "assumptions": self.assumptions,
         }
@@ -117,34 +143,39 @@ class DerivationGoal:
     def has_explicit_target(self) -> bool:
         """Whether the goal defines a checkable target at all.
 
-        A text-only goal (no target expression, no target variables, and the
-        default ``derive_expression`` form) can never match anything; warning
+        A text-only goal (no target expression, no explicit target variables, and
+        the default ``derive_expression`` form) can never match anything; warning
         about a "missed target" for it is noise (2026-09-14 turbine round,
-        defect #4).
+        defect #4).  Text-mined variables do not make a goal checkable (r19 F4).
         """
         if self.target_expression:
             return True
-        if self.target_variables:
+        if self.has_explicit_target_variables():
             return True
         return bool(self.target_form) and self.target_form != "derive_expression"
 
     @classmethod
     def from_text(cls, text: str, domain: str = "") -> DerivationGoal:
-        """Parse a goal from natural-language goal text."""
+        """Parse a goal from natural-language goal text.
+
+        The extracted variables are heuristic, so they are recorded as
+        non-explicit: progress only trusts a caller-supplied ``target_variables``.
+        """
         target_expression = cls._extract_target_expression(text)
         target_form = cls._extract_target_form(text)
         target_variables = cls._extract_variables(text)
         detected_domain = domain or cls._detect_domain(text)
         assumptions = cls._extract_assumptions(text)
 
-        return cls(
+        goal = cls(
             text=text,
             target_expression=target_expression,
             target_form=target_form,
-            target_variables=target_variables,
             domain=detected_domain,
             assumptions=assumptions,
         )
+        goal.set_target_variables(target_variables, explicit=False)
+        return goal
 
     @classmethod
     def _extract_target_expression(cls, text: str) -> str | None:

@@ -26,19 +26,20 @@ from symkit.domain.assumption_binding import apply_assumptions
 from symkit.domain.assumption_engine import AssumptionEngine
 from symkit.domain.derivation_goal import (
     DerivationGoal,
-    narrow_target_variables,
-    parse_target_expression,
-    target_variables_reached,
+)
+from symkit.domain.derivation_outcome import (
+    completion_outcome,
+    compute_goal_progress,
+    is_note_step,
+    resolve_target_reached,
+    select_representative_expression,
 )
 from symkit.domain.derivation_pattern import DerivationPattern
 from symkit.domain.derivation_planner import DerivationPlanner
 from symkit.domain.expr_io import safe_load_expression
 from symkit.domain.final_result import (
-    candidate_names,
-    headline_fallback,
     suspect_identity_steps,
     suspect_identity_warning,
-    symbol_names,
 )
 from symkit.domain.formula import Formula, FormulaParser, FormulaSource, ParseError
 from symkit.domain.formula_recommender import (
@@ -903,13 +904,14 @@ class DerivationSession:
     def representative_expression(self) -> sp.Basic | None:
         """The step output that best represents this derivation's outcome.
 
-        Selection order:
+        Selection order (implemented in
+        :func:`symkit.domain.derivation_outcome.select_representative_expression`):
 
         1. A closing exact-zero self-check (r14 task-08); a trailing nonzero
-           constant is useless (run-008), a zero superseded by later symbolic
-           work is a residual (r17 tasks 02-05), a later probe supersedes nothing.
-        2. The last symbolic output involving a goal target variable — free
-           symbol, applied-function name, Equality lhs, or CUSTOM binding.
+           constant is useless (run-008), a zero superseded by ANY later step
+           output — symbolic or nonzero constant — is a residual (r19 F2a), and
+           note/empty-output steps leave the chain untouched.
+        2. The last symbolic output involving a goal target variable.
         3. The last lineage output, else the last symbolic output, else the
            current expression; a step consuming the previous output continues
            the lineage across renames, and notes do not break it (r17 audit1).
@@ -917,49 +919,7 @@ class DerivationSession:
         targets: list[str] = []
         if self.goal is not None and self.goal.target_variables:
             targets = list(self.goal.target_variables)
-
-        candidates: list[tuple[sp.Basic, set[str], bool, bool]] = []
-        previous_srepr = ""
-        zero_outcome: sp.Basic | None = None
-        for step in self.steps:
-            is_custom = step.operation == OperationType.CUSTOM
-            chained = bool(step.output_srepr) and step.input_srepr == previous_srepr
-            previous_srepr = step.output_srepr or previous_srepr  # empty-output steps (notes) keep the chain
-            out = safe_load_expression(
-                step.output_expression, step.output_srepr
-            )
-            if out is None:
-                continue
-            if not out.free_symbols:
-                if out == 0:
-                    zero_outcome = out
-                continue
-            candidates.append((out, symbol_names(out), is_custom, chained))
-            zero_outcome = None
-
-        # A closing exact-zero self-check is the conclusion (r14 task-08); a zero
-        # that later symbolic work superseded is just a residual (r17 tasks 02-05).
-        if zero_outcome is not None:
-            return zero_outcome
-        if not candidates:
-            return self.current_expression
-
-        if targets:
-            for out, _names, _is_custom, _chained in reversed(candidates):
-                if set(targets) & candidate_names(out, _names):
-                    return out
-
-        lineage: set[str] = set()
-        lineage_members: list[sp.Basic] = []
-        for out, names, is_custom, chained in candidates:
-            if is_custom:
-                continue
-            if not lineage or names & lineage or chained:
-                lineage |= names
-                lineage_members.append(out)
-        if lineage_members:
-            return lineage_members[-1]
-        return candidates[-1][0]
+        return select_representative_expression(self.steps, targets, self.current_expression)
 
     def verify_step(self, step_number: int) -> dict[str, Any]:
         """Re-verify a single step.
@@ -1007,9 +967,16 @@ class DerivationSession:
         }
 
     def verify_derivation(self) -> dict[str, Any]:
-        """Verify the entire derivation chain and return a summary."""
+        """Verify the entire derivation chain and return a summary.
+
+        Pure note steps (``session_add_note`` and the failed-call traces) carry
+        no mathematical claim, so they are excluded from every count and from
+        the step-number lists — they remain visible in ``session_get_steps``
+        (r19 F5).
+        """
+        substantive = [step for step in self.steps if not is_note_step(step)]
         summary: dict[str, Any] = {
-            "total": len(self.steps),
+            "total": len(substantive),
             "verified": 0,
             "failed": 0,
             "inconclusive": 0,
@@ -1020,7 +987,7 @@ class DerivationSession:
         }
 
         verified_substantive = 0
-        for step in self.steps:
+        for step in substantive:
             if step.verification_result:
                 record = verification_result_from_json(step.verification_result)
             else:
@@ -1126,127 +1093,14 @@ class DerivationSession:
         except Exception:
             return False
 
-    def _target_coverage(self, current: sp.Basic) -> tuple[list[str], set[str], bool]:
-        symbols: list[set[str]] = []
-        verified: list[set[str]] = []
-        for step in self.steps:
-            out = safe_load_expression(step.output_expression, step.output_srepr)
-            if out is None or not out.free_symbols:
-                continue
-            names = {str(s) for s in out.free_symbols}
-            symbols.append(names)
-            try:
-                if verification_result_from_json(step.verification_result).is_verified:
-                    verified.append(names)
-            except (TypeError, ValueError):
-                continue
-        targets = narrow_target_variables(self.goal.target_variables if self.goal else [], symbols)
-        seen = {str(s) for s in _free_symbols(current)} | set().union(*symbols)
-        return targets, set(targets) - seen, target_variables_reached(targets, verified)
-
     def compute_progress(self) -> dict[str, Any]:
-        """Compute progress of the current expression relative to the goal."""
-        if self.goal is None:
-            return {
-                "has_goal": False,
-                "progress_score": 0.0,
-                "matches_target": False,
-                "remaining_gaps": ["No goal set"],
-            }
+        """Progress of the current expression relative to the goal.
 
-        gaps: list[str] = []
-        score = 0.0
-        matches = False
-
-        current = self.current_expression
-        if current is None:
-            gaps.append("No current expression")
-            return {
-                "has_goal": True,
-                "goal": self.goal.to_dict(),
-                "progress_score": score,
-                "matches_target": matches,
-                "remaining_gaps": gaps,
-            }
-
-        target = parse_target_expression(self.goal.target_expression) if self.goal.target_expression else None
-
-        # Direct target expression match
-        if target is not None:
-            if self._expressions_equivalent(
-                current, target, self.assumption_engine.get_assumptions()
-            ):
-                matches = True
-                score = 1.0
-            else:
-                gaps.append("Current expression does not match target expression")
-                score = 0.5
-
-        # Target form: solve for variable.  The variable counts as solved when
-        # ANY step output (or the current expression) is an equation with the
-        # variable isolated on the left — later steps may legitimately move the
-        # current expression onward (e.g. numeric evaluation), which used to
-        # false-report "Not yet solved" (run-005/006).
-        if self.goal.target_form and self.goal.target_form.startswith("solve_for_"):
-            var = self.goal.target_form.split("_", 2)[-1]
-            solved = isinstance(current, sp.Equality) and str(current.lhs) == var
-            if not solved:
-                for step in self.steps:
-                    out = safe_load_expression(
-                        step.output_expression, step.output_srepr
-                    )
-                    if isinstance(out, sp.Equality) and str(out.lhs) == var:
-                        solved = True
-                        break
-            if solved:
-                matches = True
-                score = max(score, 1.0)
-            else:
-                gaps.append(f"Not yet solved for {var}")
-
-        # Target form: reduce variables
-        if self.goal.target_form == "reduce_symbols":
-            current_symbols = len(_free_symbols(current))
-            if self.steps:
-                initial = safe_load_expression(
-                    self.steps[0].output_expression,
-                    self.steps[0].output_srepr,
-                )
-                if initial is not None:
-                    try:
-                        initial_symbols = len(initial.free_symbols)
-                        if current_symbols < initial_symbols:
-                            score = max(score, (initial_symbols - current_symbols) / initial_symbols)
-                        else:
-                            gaps.append("Number of variables has not decreased")
-                    except Exception:
-                        gaps.append("Could not compute symbol reduction")
-                else:
-                    gaps.append("Could not load initial expression for comparison")
-            else:
-                gaps.append("No initial expression to compare")
-
-        # Target coverage: narrowed to the chain's symbols; any verified step
-        # covering every target marks the goal reached even when final is 0.
-        targets, missing, reached = self._target_coverage(current)
-        if targets:
-            if missing:
-                gaps.append(f"Missing target variables: {', '.join(sorted(missing))}")
-            else:
-                matches = matches or reached
-                score = max(score, 0.7)
-            if not self.goal.target_expression and not (
-                self.goal.target_form or ""
-            ).startswith("solve_for_"):
-                score = max(score, 0.7 * (1.0 - len(missing) / max(len(targets), 1)))
-
-        return {
-            "has_goal": True,
-            "goal": self.goal.to_dict(),
-            "progress_score": score,
-            "matches_target": matches,
-            "remaining_gaps": gaps,
-        }
+        Delegates to :func:`symkit.domain.derivation_outcome.compute_goal_progress`,
+        which owns the tri-state ``matches_target`` contract (r19 F4): ``None``
+        when the goal defines no checkable target, else a bool.
+        """
+        return compute_goal_progress(self)
 
     def get_steps(self) -> list[dict[str, Any]]:
         """Get all steps."""
@@ -1510,24 +1364,23 @@ class DerivationSession:
             "formulas_loaded": self.formula_ids,
         }
 
-    def complete(self, require_target_match: bool = False) -> dict[str, Any]:
+    def complete(self, require_target_match: bool = False, final_override: sp.Basic | None = None) -> dict[str, Any]:
         """Complete the derivation.
 
         With ``require_target_match`` the session pauses (and reports failure)
-        unless the current expression matches the goal target.
+        unless the current expression matches the goal target.  ``final_override``
+        is a caller-declared deliverable: it supplies the headline and removes
+        the "no result expression" requirement (r19x task-14).
         """
-        if self.current_expression is None:
-            return {
-                "success": False,
-                "error": "No result expression. Perform some derivation steps first.",
-            }
+        if self.current_expression is None and final_override is None:
+            return {"success": False, "error": "No result expression. Perform some derivation steps first."}
 
         verification_summary = self.verify_derivation()
-        outcome, headline_fields = headline_fallback(
-            self.outcome_expression(), self.steps, verification_summary.get("failed_steps") or []
+        outcome, headline_fields = completion_outcome(
+            self, verification_summary.get("failed_steps") or [], final_override
         )
         progress = self.compute_progress()
-        target_reached = bool(progress.get("matches_target"))
+        target_reached = resolve_target_reached(progress.get("matches_target"), verification_summary.get("overall"))
 
         warnings: list[str] = []
         if not target_reached and self.goal is not None and self.goal.has_explicit_target():
@@ -1691,9 +1544,12 @@ class DerivationSession:
                 text=goal_data.get("text", ""),
                 target_expression=goal_data.get("target_expression"),
                 target_form=goal_data.get("target_form"),
-                target_variables=goal_data.get("target_variables", []),
                 domain=goal_data.get("domain", ""),
                 assumptions=goal_data.get("assumptions", []),
+            )
+            session.goal.set_target_variables(
+                goal_data.get("target_variables", []),
+                explicit=goal_data.get("target_variables_explicit", False),
             )
 
         # Set persistence path

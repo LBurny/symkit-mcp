@@ -262,22 +262,25 @@ def reverse_integration_operands(
 def _unreduced_phrase(residual: sp.Basic) -> str:
     """Honest wording for a nonzero residual in a non-asserted operator step.
 
-    A constant residual was decided by exact arithmetic, not by sampling: it is
-    reported as its exact value.  Saying "numerically nonzero at tested points"
-    of a constant (r18 audit5) invented sampling evidence that never existed.
+    The referent is named explicitly — *the input's* form ``A - B`` — because the
+    old text said only "the difference", which the operator could read as a
+    residual the tool invented (r19 F1).  A constant residual was decided by
+    exact arithmetic, not by sampling: it is reported as its exact value.  Saying
+    "numerically nonzero at tested points" of a constant (r18 audit5) invented
+    sampling evidence that never existed.
     """
     if residual.free_symbols:
         return (
-            "the difference did not reduce to zero (simplifier limitation); it is "
-            "numerically nonzero at tested points, but an operator step over a plain "
-            "expression does not assert an identity — record it as an equation for a "
-            "definitive true/false verdict"
+            "the input has the form A - B and its value did not reduce to zero (it "
+            "is numerically nonzero at tested points); an operator step does not "
+            "assert the identity A = B — record it as an equation for a definitive "
+            "true/false verdict"
         )
     return (
-        f"the difference did not reduce to zero; it evaluates to the exact value "
-        f"{residual} (no sampling needed), but an operator step over a plain expression "
-        "does not assert an identity — record it as an equation for a definitive "
-        "true/false verdict"
+        f"the input has the form A - B and its value did not reduce to zero; it "
+        f"evaluates to the exact value {residual} (no sampling needed), and an "
+        "operator step does not assert the identity A = B — record it as an "
+        "equation for a definitive true/false verdict"
     )
 
 
@@ -303,9 +306,9 @@ def classify_suspect_identity(
         return ("unreduced", _unreduced_phrase(residual))
     return (
         "unreduced",
-        "the difference did not reduce to zero (simplifier limitation); identity "
-        "unproven, not disproven — record it as an equation for a definitive "
-        "true/false verdict",
+        "the input has the form A - B; the difference did not reduce to zero "
+        "(simplifier limitation) — identity unproven, not disproven — record it "
+        "as an equation for a definitive true/false verdict",
     )
 
 
@@ -341,6 +344,77 @@ def boolean_equation_verdict(
         "verifier cannot confirm",
         {},
     )
+
+
+_CLAIM_EQ = re.compile(r"^\s*Eq\s*\((.*)\)\s*$", re.DOTALL)
+
+
+def equation_claim_sides(text: str) -> tuple[str, str] | None:
+    """Split a recorded explicit equation claim into its two side strings.
+
+    Recognises the ``Eq(lhs, rhs)`` and ``lhs = rhs`` recorded forms and returns
+    ``None`` for an ordinary expression.  The sides are returned as written,
+    never re-parsed here, so the caller binds their symbols with its own
+    assumption-aware parser (r19 F9).
+    """
+    stripped = text.strip()
+    match = _CLAIM_EQ.match(stripped)
+    if match is not None:
+        return _split_claim(match.group(1), ",")
+    if any(op in stripped for op in ("==", "<=", ">=", "!=")):
+        return None
+    return _split_claim(stripped, "=")
+
+
+def _split_claim(inner: str, separators: str) -> tuple[str, str] | None:
+    """Split ``inner`` at its first depth-0 separator, skipping quotes."""
+    depth = 0
+    quoted = False
+    for index, char in enumerate(inner):
+        if char == "'":
+            quoted = not quoted
+        elif quoted:
+            continue
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif depth == 0 and char in separators:
+            left, right = inner[:index].strip(), inner[index + 1:].strip()
+            return (left, right) if left and right else None
+    return None
+
+
+def asserted_equation_verdict(
+    operation: str, lhs: sp.Basic, rhs: sp.Basic
+) -> tuple[VerificationStatus, str, dict[str, Any]]:
+    """Verdict for a boolean-collapsed step that archived an explicit equation.
+
+    An operator that collapsed an asserted ``A = B`` to a boolean must be judged
+    on the claim, not on the boolean it happened to preserve: a DISPROVEN
+    equation otherwise read as a green "boolean value preserved" step (r19 F9).
+    Runs the :func:`boolean_equation_verdict` semantics on the recovered claim —
+    a true claim verifies, a claim rational substitution confirms false FAILS
+    with ``suspect_identity: "numeric"``, anything else stays INCONCLUSIVE.
+    """
+    status, message, details = boolean_equation_verdict(
+        operation, sp.Eq(lhs, rhs, evaluate=False)
+    )
+    if status == VerificationStatus.VERIFIED:
+        return (
+            status,
+            f"{operation.capitalize()} verified: the asserted equation holds",
+            details,
+        )
+    if status == VerificationStatus.FAILED:
+        return (
+            status,
+            f"{operation.capitalize()} failed: the asserted equation is FALSE "
+            f"({lhs} ≠ {rhs}); the difference is numerically nonzero at tested "
+            "points",
+            details,
+        )
+    return status, message, details
 
 
 def residual_verdict(residual: sp.Basic) -> VerificationStatus:
@@ -413,8 +487,8 @@ def suspect_identity_steps(steps: Sequence[DerivationStep]) -> list[int]:
 def suspect_identity_warning(flagged: Sequence[int]) -> str:
     """One-line disclosure for a session carrying unreduced differences."""
     return (
-        f"{len(flagged)} step(s) record a difference that did not reduce to zero; "
-        "see suspect_identity_steps"
+        f"{len(flagged)} step(s) submitted A - B difference forms whose values did "
+        "not reduce to zero; see suspect_identity_steps"
     )
 
 

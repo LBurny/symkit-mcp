@@ -175,12 +175,17 @@ class TestSessionGoalIntegration:
 
 def test_progress_covers_intermediate_step_variables(fresh_session_manager):
     """Regression (run-002): 目标变量只要出现在任意步骤就应算覆盖，
-    progress_score 不应因最终表达式不含该变量而恒为 0。"""
+    progress_score 不应因最终表达式不含该变量而恒为 0。
+
+    r19 F4: 文本挖掘出的目标变量不再赋予进度；本用例声明显式 target_variables
+    以继续验证“中间步骤覆盖”这一回归语义。"""
     _ = fresh_session_manager
     mcp = MockMCP()
     _register_all_tools(mcp)
     mcp.tools["session_start"]("prog")
-    mcp.tools["session_set_goal"]("derive the wall damping function f_w")
+    mcp.tools["session_set_goal"](
+        "derive the wall damping function f_w", target_variables=["f_w"]
+    )
 
     # f_w 只出现在中间步骤；之后 current_expression 不再含它
     mcp.tools["session_record_step"](expression="f_w", description="wall damping")

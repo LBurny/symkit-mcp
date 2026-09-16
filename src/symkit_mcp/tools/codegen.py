@@ -36,7 +36,13 @@ def _to_latex(expr_str: str) -> str:
     try:
         import sympy as sp
 
-        return str(sp.latex(sp.sympify(expr_str)))
+        from symkit.domain.expression_parser import build_reserved_local_dict
+
+        # ``sympify`` folds ``E``/``I`` into exp(1)/1j; protect the user-variable
+        # names the unified parser reserves (r19 F20) so ``E`` renders as ``E``.
+        protected = build_reserved_local_dict(expr_str)
+        expr = sp.sympify(expr_str, locals=protected) if protected else sp.sympify(expr_str)
+        return str(sp.latex(expr))
     except Exception:
         return expr_str.replace("**", "^")
 

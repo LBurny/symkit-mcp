@@ -15,14 +15,16 @@ from symkit.domain.assumption_binding import (
 )
 from symkit.domain.assumption_engine import AssumptionEngine
 from symkit.domain.expr_io import evaluated_form, substitution_pairs
-from symkit.domain.expression_form import is_difference_form, recorded_leading_negative
+from symkit.domain.expression_form import recorded_difference_form
 from symkit.domain.expression_parser import (
     parse_expression_string,
 )
 from symkit.domain.final_result import (
+    asserted_equation_verdict,
     boolean_equation_verdict,
     classify_suspect_identity,
     definite_integral_variables,
+    equation_claim_sides,
     equation_identity,
     equations_equivalent,
     evaluate_pending,
@@ -41,17 +43,13 @@ from symkit.domain.symbol_registry import SymbolRegistry
 from symkit.domain.value_objects import VerificationResult, VerificationStatus
 from symkit.domain.verification_guardrails import (
     collect_warnings,
+    direct_differentiation_verdict,
     reverse_integrate,
     verify_evalf,
 )
 
 if TYPE_CHECKING:
     from symkit.domain.derivation_session import DerivationStep
-
-# Archived difference whose negated term is neither a bare symbol nor numeric.
-_ARCHIVE_DIFFERENCE = re.compile(
-    r"Mul\(Integer\(-1\),\s*(?!Integer\()(?!Mul\(Integer)(?!Symbol\()\S"
-)
 
 
 class StepVerifier:
@@ -103,10 +101,11 @@ class StepVerifier:
             result = VerificationResult.success("Formula loaded successfully")
         elif op in (OperationType.SIMPLIFY, OperationType.EXPAND, OperationType.FACTOR):
             # srepr loading flattens -(A - B); inspect the archive directly (task-11).
-            diff_form = is_difference_form(input_expr)
-            if step.input_srepr and not recorded_leading_negative(step.input_expressions):
-                diff_form = diff_form or bool(_ARCHIVE_DIFFERENCE.search(step.input_srepr))
-            result = self._verify_equality(input_expr, output_expr, op.value, diff_form)
+            diff_form = recorded_difference_form(
+                input_expr, step.input_expressions, step.input_srepr
+            )
+            claim = self._equation_claim(step, assumptions)
+            result = self._verify_equality(input_expr, output_expr, op.value, diff_form, claim)
         elif op == OperationType.DIFFERENTIATE:
             result = self._verify_differentiation(step, input_expr, output_expr, assumptions)
         elif op == OperationType.INTEGRATE:
@@ -301,6 +300,7 @@ class StepVerifier:
         input_expr: sp.Basic, output_expr: sp.Basic,
         operation: str,
         difference_input: bool = False,
+        claim: sp.Equality | None = None,
     ) -> VerificationResult:
         """Verify that simplify/expand/factor preserves the expression value."""
         out_bool = self._boolean_value(output_expr)
@@ -312,6 +312,8 @@ class StepVerifier:
                 status, message, identity = boolean_equation_verdict(operation, input_expr)
                 return VerificationResult(status=status, message=message, details=identity)
             in_bool = self._boolean_value(input_expr)
+            if in_bool is not None and claim is not None:
+                return self._equation_claim_verdict(operation, claim)
             if in_bool is not None:
                 # Under session assumptions the parser may collapse an Eq to a
                 # boolean before recording (run-016): a flip is a bug.
@@ -355,6 +357,41 @@ class StepVerifier:
             f"{operation.capitalize()} changes expression value", difference=str(diff)
         )
 
+    def _equation_claim(
+        self,
+        step: DerivationStep,
+        assumptions: dict[str, dict[str, bool]],
+    ) -> sp.Equality | None:
+        """Recover an archived ``Eq(a, b)`` / ``a = b`` claim, if any.
+
+        ``Eq(0, 5)`` evaluates to ``False`` at parse time, so the archived input
+        is a boolean while ``input_expressions["original"]`` still holds the
+        claim.  Without recovering it the step reported "boolean value preserved"
+        and a DISPROVEN equation read green in the chain (r19 F9).  The sides
+        parse through the same assumption-aware, protected-name parser as every
+        other step input, so an identity decided by a session assumption (e.g.
+        ``x`` positive) is judged under that assumption.
+        """
+        for key in ("original", "equation"):
+            sides = equation_claim_sides(step.input_expressions.get(key, ""))
+            if sides is None:
+                continue
+            lhs = self._parse(sides[0], assumptions)
+            rhs = self._parse(sides[1], assumptions)
+            if lhs is None or rhs is None:
+                return None
+            return sp.Eq(lhs, rhs, evaluate=False)
+        return None
+
+    def _equation_claim_verdict(
+        self, operation: str, claim: sp.Equality
+    ) -> VerificationResult:
+        """Verdict for a boolean-collapsed step whose archived input is a claim."""
+        status, message, details = asserted_equation_verdict(
+            operation, claim.lhs, claim.rhs
+        )
+        return VerificationResult(status=status, message=message, details=details)
+
     def _verify_differentiation(
         self,
         step: DerivationStep,
@@ -377,9 +414,13 @@ class StepVerifier:
 
         # Repeat reverse integration for each differentiation order, so
         # integrating `2` once recovers `2*x` and twice recovers `x**2`.
-        integral = reverse_integrate(
-            output_expr, var_sym, extract_order_from_command(step.sympy_command)
-        )
+        order = extract_order_from_command(step.sympy_command)
+        # Direct recomputation first: reverse integration is blind to a correct
+        # derivative whose antiderivative branches (r19 F37).
+        direct = direct_differentiation_verdict(input_expr, output_expr, var_sym, order)
+        if direct is not None:
+            return direct
+        integral = reverse_integrate(output_expr, var_sym, order)
         if integral is None:
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
@@ -390,8 +431,13 @@ class StepVerifier:
                 ),
             )
         diff = sp.simplify(integral - input_expr)
+        # Two n-th antiderivatives of the same function differ by a polynomial of
+        # degree < n (the constants of integration), so the residual is admitted
+        # exactly when its order-th derivative vanishes.  Checking only the first
+        # derivative (r17-era) failed every order >= 3 case: the missing degree-2
+        # term of a cubic's triple integral looked like a wrong derivative (r19 F11).
         if diff.free_symbols <= {var_sym} and is_numerically_zero(
-            sp.diff(diff, var_sym)
+            sp.diff(diff, var_sym, order)
         ):
             return VerificationResult(
                 status=VerificationStatus.VERIFIED,

@@ -77,9 +77,9 @@ async def test_escape_velocity_derivation_e2e() -> None:
         })
         assert r["success"], r
 
-        # 4. record conservation-of-energy step
+        # 4. record conservation-of-energy step as an identity (r19 F4)
         r = await call(session, "session_record_step", {
-            "expression": "1/2*m*v**2 - G*M*m/R = 0",
+            "expression": "m*v**2/2 - G*M*m/R = m*(v**2/2 - G*M/R)",
             "description": "Conservation of energy: kinetic + potential = 0 at infinity",
         })
         assert r["success"], r

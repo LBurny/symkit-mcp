@@ -30,7 +30,12 @@ def test_solve_restores_factored_zero_root_under_positive_assumption(
     fresh_session_manager,
 ):
     """The ``I = 0`` root of ``I*(beta*S/N - gamma)`` survives a positive
-    assumption on I and the assumption filtering is disclosed."""
+    assumption on I and the assumption filtering is disclosed.
+
+    r19 F22: the restored root is *kept* in ``all_solutions`` and disclosed as
+    restored — it must not simultaneously be reported as filtered, and the
+    headline must be the non-excluded root rather than a Boolean
+    (``Eq(I, 0)`` auto-evaluates to ``False`` when I is positive)."""
     _ = fresh_session_manager
     tools = _tools()
     res = tools["math"](
@@ -42,10 +47,14 @@ def test_solve_restores_factored_zero_root_under_positive_assumption(
     )
     assert res["success"], res
     assert "0" in res["all_solutions"], res
-    assert res["solution"] == "0", res
-    # The positive assumption excluded 0; that must be stated, not silent.
-    assert res.get("filtered_by_assumptions") == ["0"], res
-    assert res.get("warnings"), res
+    # A restored root is not also counted as filtered.
+    assert res.get("filtered_by_assumptions") == [], res
+    assert res["solution"] not in res["filtered_by_assumptions"], res
+    # The headline is a proper Eq, never the Boolean SymPy collapses it to.
+    assert res["expression"].startswith("Eq(I,"), res
+    assert res["expression"] not in ("True", "False"), res
+    # The zero root's exclusion-and-restore is stated, not silent.
+    assert any("restored" in w for w in res["warnings"]), res
 
 
 def test_solve_zero_root_without_assumptions_has_no_filtering(fresh_session_manager):

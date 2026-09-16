@@ -140,6 +140,35 @@ def reverse_integrate(expr: sp.Basic, var: sp.Symbol, order: int) -> sp.Basic | 
     return expr
 
 
+def direct_differentiation_verdict(
+    input_expr: sp.Basic, output_expr: sp.Basic, var: sp.Symbol, order: int
+) -> VerificationResult | None:
+    """VERIFIED when ``output_expr`` is the input's order-``order`` derivative.
+
+    Reverse integration is blind whenever the antiderivative branches: with
+    parameter symbols that carry no assumptions ``integrate`` returns a
+    ``Piecewise`` and the comparison of the antiderivative with the input can
+    conclude nothing, so every correct derivative of such a form was reported
+    INCONCLUSIVE (r19 F37).  Recomputing the derivative directly is mechanical,
+    has no integration constants and never branches.  ``None`` means the direct
+    comparison did not conclude and the caller must fall back.
+    """
+    if not isinstance(input_expr, sp.Expr) or not isinstance(output_expr, sp.Expr):
+        return None
+    try:
+        expected = sp.diff(evaluate_pending(input_expr), var, order)
+        residual = sp.simplify(expected - evaluate_pending(output_expr))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    if not is_numerically_zero(residual):
+        return None
+    return VerificationResult(
+        status=VerificationStatus.VERIFIED,
+        message="Differentiation verified by direct recomputation",
+        reverse_check=True,
+    )
+
+
 def collect_warnings(output_expr: sp.Basic) -> list[str]:
     """Lightweight sanity hints for a verified output expression."""
     warnings: list[str] = []

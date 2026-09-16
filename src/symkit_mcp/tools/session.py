@@ -1,12 +1,4 @@
-"""
-Session Management Tools — Derivation session management
-
-A lightweight session manager supporting:
-- Starting / resuming / suspending / completing sessions
-- Step rollback
-- Status display
-- Human knowledge notes
-"""
+"""Session management tools: start/resume/suspend/complete, rollback, status, notes."""
 
 from __future__ import annotations
 
@@ -24,12 +16,20 @@ from symkit.domain.derivation_session import DerivationSession
 from symkit.domain.expression_parser import parse_user_expression
 from symkit.domain.formula import FormulaSource
 from symkit_mcp.tools import _unit_context
-from symkit_mcp.tools._formula_governance import similar_to
+from symkit_mcp.tools._formula_governance import backfill_loaded_formula_units, similar_to
+from symkit_mcp.tools._headline_override import (
+    apply_final_expression_override,
+    parse_final_expression_override,
+)
+from symkit_mcp.tools._library_gate import session_save_blocked
 from symkit_mcp.tools._session_views import (
     render_empty_session,
     render_session_header,
     save_derivation_formula,
     unknown_pattern_warning,
+)
+from symkit_mcp.tools._session_views import (
+    verification_summary as _verification_summary,
 )
 from symkit_mcp.tools._state import (
     get_context,
@@ -161,32 +161,6 @@ def _detect_risks(session: DerivationSession) -> list[dict[str, str]]:
     return risks
 
 
-def _verification_summary(session: DerivationSession) -> dict[str, Any]:
-    """Return a human-readable verification summary for the session."""
-    summary = _unit_context.summary_with_dimension_disclosure(session)
-    display_lines = [
-        "🔍 Verification Summary:",
-        f"  Verified: {summary['verified']}",
-        f"  ✅ verified: {summary['verified']}",
-        f"  ❌ failed: {summary['failed']}",
-        f"  ⚠️ inconclusive: {summary['inconclusive']}",
-    ]
-    if summary.get("failed_steps"):
-        display_lines.append(
-            f"  Failed steps: {', '.join(str(s) for s in summary['failed_steps'])}"
-        )
-    if summary.get("inconclusive_steps"):
-        display_lines.append(
-            f"  Inconclusive steps: {', '.join(str(s) for s in summary['inconclusive_steps'])}"
-        )
-    if summary.get("assumption_conflicts"):
-        display_lines.append(
-            f"  ⚠️ assumption conflicts: {len(summary['assumption_conflicts'])}"
-        )
-    summary["display_text"] = "\n".join(display_lines)
-    return summary
-
-
 def _suggest_next_steps(session: DerivationSession) -> list[dict[str, Any]]:
     """Suggest next operations based on current state and domain."""
     suggestions = []
@@ -286,6 +260,7 @@ def register_session_tools(mcp: Any) -> None:
         goal: str | None = None,
         author: str = "",
         target_variables: list[str] | str | None = None,
+        target_expression: str | None = None,
     ) -> dict[str, Any]:
         """
         Start a new derivation session
@@ -297,9 +272,10 @@ def register_session_tools(mcp: Any) -> None:
             pattern: Derivation pattern
             goal: Natural-language goal (optional)
             author: Author
-            target_variables: Optional explicit list of target variables (e.g.
-                ["v_t"]).  When provided, it overrides the variables extracted
-                heuristically from the goal text.
+            target_variables: Optional explicit target variables (e.g. ["v_t"]);
+                overrides those extracted from the goal text.
+            target_expression: Optional explicit target expression (e.g.
+                "Omega_res = sqrt(omega0**2 - 2*beta**2)"); overrides the extracted one.
 
         Returns:
             Session information
@@ -318,6 +294,8 @@ def register_session_tools(mcp: Any) -> None:
             parsed_goal = DerivationGoal.from_text(goal, domain=domain)
             if target_variables is not None:
                 parsed_goal.target_variables = _as_str_list(target_variables)
+            if target_expression:
+                parsed_goal.target_expression = target_expression
             session.set_goal(parsed_goal)
         set_session(session)
 
@@ -627,6 +605,7 @@ def register_session_tools(mcp: Any) -> None:
         tags: list[str] | str | None = None,
         auto_save: bool = True,
         require_target_match: bool = False,
+        final_expression: str | None = None,
     ) -> dict[str, Any]:
         """
         Complete the derivation and auto-save
@@ -648,6 +627,11 @@ def register_session_tools(mcp: Any) -> None:
                 completed when the current expression matches the goal target.
                 Default is False for backward compatibility, but a warning is
                 still returned if the target is not reached.
+            final_expression: The operator's declared deliverable. When given it
+                must parse; on failure the session is not completed and an error
+                is returned. When valid it becomes ``final_expression`` /
+                ``final_latex`` and is what ``auto_save`` writes, outranking the
+                heuristic outcome selection.
 
         Returns:
             Complete derivation record
@@ -656,9 +640,19 @@ def register_session_tools(mcp: Any) -> None:
         if session is None:
             return {"success": False, "error": "No active session."}
 
-        result = session.complete(require_target_match=require_target_match)
+        override_expr = None
+        if final_expression:
+            override_expr, override_error = parse_final_expression_override(
+                final_expression
+            )
+            if override_expr is None:
+                return {"success": False, "error": override_error}
+
+        result = session.complete(require_target_match=require_target_match, final_override=override_expr)
         if not result.get("success"):
             return result
+        if override_expr is not None:
+            apply_final_expression_override(session, result, override_expr)
 
         verification_summary = result.get("verification_summary", {})
         warnings = list(result.get("warnings", []))
@@ -678,7 +672,8 @@ def register_session_tools(mcp: Any) -> None:
         verified_at = datetime.now().isoformat() if is_verified else None
 
         saved: dict[str, Any] = {}
-        if auto_save:
+        blocked = auto_save and session_save_blocked(session, result, warnings)
+        if auto_save and not blocked:
             try:
                 saved = save_derivation_formula(
                     session,
@@ -837,6 +832,9 @@ def register_session_tools(mcp: Any) -> None:
             source=formula_source,
             source_detail=source,
         )
+        # The expression-only load loses the library's declared units; restore
+        # them so formulas_used and the dimensional gate see them (r19 F7).
+        backfill_loaded_formula_units(session, result.get("formula_id") or formula_id)
         if unknown_source is not None:
             result.setdefault("warnings", []).append(
                 f"Unknown source '{unknown_source}'; recorded as '{formula_source.value}'."

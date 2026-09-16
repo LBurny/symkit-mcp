@@ -53,7 +53,17 @@ def safe_load_expression(
             pass
 
     try:
-        loaded = _basic_or_none(sp.sympify(expr_str))
+        from symkit.domain.expression_parser import build_reserved_local_dict
+
+        # ``sympify``'s own namespace folds ``E`` → exp(1) and ``I`` → 1j, so a
+        # stored display string re-parsed that way came back as Euler's number:
+        # str ``E`` + latex ``e`` (r19 F20 fingerprint).  The parser protects
+        # ``E``/``I``/``Q``/``O`` as user variables (run-020), so protect the
+        # same names here; only strings that actually use one are affected.
+        protected = build_reserved_local_dict(expr_str)
+        loaded = _basic_or_none(
+            sp.sympify(expr_str, locals=protected) if protected else sp.sympify(expr_str)
+        )
         if loaded is not None:
             return loaded
     except Exception:

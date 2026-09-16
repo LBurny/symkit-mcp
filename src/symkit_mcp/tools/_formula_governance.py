@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from symkit.domain.formula_library import FormulaLibrary
 from symkit.domain.units import parse_unit
+from symkit_mcp.tools import _library_gate
 from symkit_mcp.tools._state import get_catalog
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ UNKNOWN_UNIT = "-"
 
 def validate_add_variables(
     variables: dict[str, dict[str, Any]],
+    sympy_str: str = "",
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Validate per-variable units for ``formula_add``.
 
@@ -32,6 +34,10 @@ def validate_add_variables(
     accepted, while a missing or empty ``unit`` is rejected. Unit strings that
     ``parse_unit`` cannot interpret produce a warning but do not block the
     write (unit strings are display-oriented).
+
+    When ``sympy_str`` is given, the declared units are also run through the
+    dimensional gate (r19 F6): an expression that decisively contradicts its own
+    units is rejected instead of being written as if curated.
     """
     missing = sorted(
         name
@@ -49,7 +55,38 @@ def validate_add_variables(
             },
             [],
         )
+    if sympy_str:
+        dimension_error = _library_gate.formula_dimension_error(sympy_str, variables)
+        if dimension_error is not None:
+            return {"success": False, "error": dimension_error}, []
     return None, _unit_warnings(variables)
+
+
+def backfill_loaded_formula_units(session: Any, formula_id: str | None) -> None:
+    """Restore a library formula's declared units on a loaded session record.
+
+    ``session_load_formula`` only receives the expression string, so
+    ``FormulaParser`` rebuilt the variables with ``unit=None`` even though the
+    library YAML carries units: the completion response's ``formulas_used``
+    then showed ``"unit": null`` for a formula that plainly declares them
+    (r19 F7).  Existing units (the ``formula_get`` path) are never overwritten.
+    """
+    if not formula_id:
+        return
+    formula = session.formulas.get(formula_id)
+    if formula is None:
+        return
+    try:
+        entry = get_catalog().get(formula_id)
+    except Exception:
+        return
+    declared = getattr(entry, "variables", None) or {}
+    for name, variable in formula.variables.items():
+        if getattr(variable, "unit", None):
+            continue
+        unit = str((declared.get(name) or {}).get("unit") or "").strip()
+        if unit and unit != UNKNOWN_UNIT:
+            variable.unit = unit
 
 
 def _unit_warnings(variables: dict[str, dict[str, Any]]) -> list[str]:

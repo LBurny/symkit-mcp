@@ -86,7 +86,8 @@ def dimension_operation(
         unit_map.update({name: unit for name, unit in explicit_units.items() if unit})
     report = check_expression_dimensions(expr, unit_map)
     result_dim = expression_dimension(expr, unit_map)
-    message = _dimension_message(report, bool(unit_map))
+    unreadable = _unreadable_units(unit_map)
+    message = _dimension_message(report, bool(unit_map), unreadable)
     # Only claim a net dimension for an expression the checker did not already
     # call inconsistent: "found inconsistencies ... has net dimension:
     # dimensionless" reads as one sentence contradicting itself.
@@ -95,7 +96,7 @@ def dimension_operation(
             f"{message} {expr_str} has net dimension: "
             f"{describe_dimension(result_dim)}."
         )
-    return {
+    response = {
         "success": True,
         "operation": "dimension",
         "consistent": report.consistent,
@@ -107,16 +108,55 @@ def dimension_operation(
         "units": unit_map,
         "message": message,
     }
+    if unreadable:
+        response["unreadable_units"] = [f"{name}: {raw!r}" for name, raw in unreadable]
+    return response
 
 
-def _dimension_message(report: Any, has_units: bool) -> str:
+def _unreadable_units(unit_map: dict[str, str]) -> list[tuple[str, str]]:
+    """Unit-map entries whose *string* ``parse_unit`` cannot read.
+
+    A bad unit string is a different defect from an unregistered symbol, yet
+    both surfaced only as "unknown units (m)" with the offending spelling
+    hidden in the ``units`` echo. The symbol stays in ``unknown_symbols`` (the
+    compatibility contract) while the string is named separately (F16).
+    """
+    unreadable: list[tuple[str, str]] = []
+    for name, raw in unit_map.items():
+        if not raw or is_dimensionless_marker(raw) or parse_unit(raw) is not None:
+            continue
+        unreadable.append((name, raw))
+    return unreadable
+
+
+def _unreadable_note(unreadable: list[tuple[str, str]]) -> str:
+    """Sentence naming each unreadable unit string, with a spelling hint."""
+    parts: list[str] = []
+    for name, raw in unreadable:
+        stripped = raw.strip()
+        lowered = stripped.lower()
+        hint = ""
+        if lowered != stripped and parse_unit(lowered) is not None:
+            hint = f" (did you mean '{lowered}'?)"
+        parts.append(f"{name}: {raw!r}{hint}")
+    return (
+        " The unit string could not be read for "
+        + "; ".join(parts)
+        + " — the unit spelling is unrecognized, not the symbol."
+    )
+
+
+def _dimension_message(
+    report: Any, has_units: bool, unreadable: list[tuple[str, str]] | None = None
+) -> str:
+    note = _unreadable_note(unreadable) if unreadable else ""
     if not has_units:
         return (
             "No unit information available (pass units=..., load a formula "
             "with units, or register_symbol(unit=...)); nothing to check."
         )
     if report.consistent is False:
-        return "Dimensional analysis found inconsistencies."
+        return "Dimensional analysis found inconsistencies." + note
     if report.consistent is None:
         reasons = getattr(report, "indeterminate_reasons", []) or []
         if "derivative" in reasons:
@@ -133,14 +173,14 @@ def _dimension_message(report: Any, has_units: bool) -> str:
         if report.unknown_symbols:
             return (
                 "Dimensional analysis incomplete: some symbols have unknown units "
-                f"({', '.join(report.unknown_symbols)})."
+                f"({', '.join(report.unknown_symbols)})." + note
             )
         return (
             "Dimensional analysis inconclusive: this expression uses a form the "
             "checker cannot reduce (for example a dimensioned base with a "
             "non-integer exponent)."
         )
-    return "Expression is dimensionally consistent."
+    return "Expression is dimensionally consistent." + note
 
 
 def with_unit_warnings(
@@ -252,6 +292,21 @@ def persist_declaration(session: DerivationSession) -> None:
         session.save()
 
 
+def _dimension_disagreement_steps(session: DerivationSession) -> list[int]:
+    """Steps whose algebraic verdict stands against a dimension failure (F24)."""
+    numbers: list[int] = []
+    for step in session.steps:
+        if not step.verification_result:
+            continue
+        try:
+            details = verification_result_from_json(step.verification_result).details
+        except Exception:
+            continue
+        if details.get("dimension_disagreement"):
+            numbers.append(step.step_number)
+    return numbers
+
+
 def summary_with_dimension_disclosure(session: DerivationSession) -> dict[str, Any]:
     """``session.verify_derivation()`` with the dimensional post-check folded in.
 
@@ -266,12 +321,106 @@ def summary_with_dimension_disclosure(session: DerivationSession) -> dict[str, A
     summary = session.verify_derivation()
     if inconclusive:
         summary["dimension_inconclusive_steps"] = inconclusive
+        # Name the actual cause: a fractional-power dimension the checker cannot
+        # represent is not a missing unit, and saying so sent operators looking
+        # for an undeclared symbol that was in fact declared (r19 F25).
+        causes = dict.fromkeys(
+            _inconclusive_cause(
+                verification_result_from_json(
+                    session.steps[number - 1].verification_result
+                ).details
+            )
+            for number in inconclusive
+        )
         summary.setdefault("warnings", []).append(
             "Dimensional analysis reached no conclusion for steps "
-            f"{inconclusive} (symbol units missing or unreadable); "
+            f"{inconclusive} ({'; '.join(causes)}); "
             "'overall' reflects the algebraic checks only."
         )
+    disagreements = _dimension_disagreement_steps(session)
+    if disagreements:
+        # The step status deliberately keeps the algebraic verdict (F24), so
+        # the summary must disclose the dimensional failure the status no
+        # longer encodes.
+        summary["dimension_failed_steps"] = disagreements
+        summary.setdefault("warnings", []).append(
+            "Dimensional analysis found inconsistencies for steps "
+            f"{disagreements}; the step status reflects the algebraic "
+            "verification — see dimension_issues for the dimensional finding."
+        )
     return summary
+
+
+# A dimension check may only set a step's status when the algebraic verifier
+# reached no definite verdict (r19 F24): an already-verified identity must not
+# silently flip to "Step is dimensionally inconsistent" on a later re-check.
+_DEFINITIVE_ALGEBRAIC = (VerificationStatus.VERIFIED, VerificationStatus.FAILED)
+
+# Raw ``DimensionReport.indeterminate_reasons`` -> the human cause reported on
+# the step.  ``non_integer_exponent`` is representability, not a missing unit
+# (r19 F25).
+_INCONCLUSIVE_REASON_LABELS: dict[str, str] = {
+    "non_integer_exponent": "fractional-power dimension not representable",
+    "unsupported": "unsupported expression form",
+    "derivative": "derivative dimension not reducible",
+}
+_MISSING_UNIT_REASON = "symbol units missing or unreadable"
+
+
+def _inconclusive_cause(details: dict[str, Any]) -> str:
+    """Name the actual cause of an inconclusive dimensional check (r19 F25)."""
+    labels = [
+        _INCONCLUSIVE_REASON_LABELS[reason]
+        for reason in details.get("dimension_indeterminate_reasons", []) or []
+        if reason in _INCONCLUSIVE_REASON_LABELS
+    ]
+    parts = list(dict.fromkeys(labels))
+    if details.get("dimension_unknown_symbols") or not parts:
+        parts.append(_MISSING_UNIT_REASON)
+    return "; ".join(parts)
+
+
+def _fold_dimension_check(
+    record: VerificationResult, input_expr: Any, output_expr: Any,
+    unit_map: dict[str, str],
+) -> VerificationResult:
+    """Dimension post-check that never silently overrides an algebraic verdict.
+
+    The plain :func:`apply_dimension_check` fails the step whenever the units
+    are inconsistent, so a step the verifier had *algebraically verified* came
+    back failed on a later ``session_verify_step`` with no disclosure of the
+    contradiction (r19 F24).  Here the algebraic verdict stays the step status
+    and the dimensional outcome is attached separately; only a step with no
+    prior algebraic conclusion may have its status set by the dimension check.
+    """
+    updated = apply_dimension_check(record, input_expr, output_expr, unit_map)
+    details = dict(updated.details)
+    if updated.dimension_check is None:
+        details["dimension_inconclusive_reason"] = _inconclusive_cause(details)
+    elif updated.dimension_check is False and record.status in _DEFINITIVE_ALGEBRAIC:
+        details["dimension_disagreement"] = (
+            "the algebraic and dimensional checks disagree: the step is "
+            f"algebraically '{record.status.value}' ({record.message}) but "
+            "dimensionally inconsistent"
+        )
+        return VerificationResult(
+            status=record.status,
+            message=record.message,
+            details=details,
+            dimension_check=updated.dimension_check,
+            reverse_check=updated.reverse_check,
+            boundary_check=updated.boundary_check,
+        )
+    if details != updated.details:
+        return VerificationResult(
+            status=updated.status,
+            message=updated.message,
+            details=details,
+            dimension_check=updated.dimension_check,
+            reverse_check=updated.reverse_check,
+            boundary_check=updated.boundary_check,
+        )
+    return updated
 
 
 def _recorded_dimensions(step: Any) -> dict[str, Any]:
@@ -383,5 +532,5 @@ def apply_dimension_to_step(
     if output_expr is None or (input_expr is None and step.operation != OperationType.CUSTOM):
         return None
     record = verification_result_from_json(step.verification_result)
-    updated = apply_dimension_check(record, input_expr, output_expr, unit_map)
+    updated = _fold_dimension_check(record, input_expr, output_expr, unit_map)
     return _commit(session, step, updated)

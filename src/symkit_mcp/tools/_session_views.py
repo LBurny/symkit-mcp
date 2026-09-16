@@ -16,8 +16,41 @@ from symkit.infrastructure.derivation_repository import (
     get_repository,
 )
 from symkit.infrastructure.formula_identity import staging_id
+from symkit_mcp.tools import _unit_context
 from symkit_mcp.tools._formula_governance import build_auto_variables
+from symkit_mcp.tools._headline_override import OVERRIDE_ATTR
 from symkit_mcp.tools._state import get_catalog
+
+
+def verification_summary(session: DerivationSession) -> dict[str, Any]:
+    """Return a human-readable verification summary for the session.
+
+    Moved here from ``session.py`` (bylaw section 5.1) to keep that module
+    within its frozen size while ``session_complete`` gained the explicit
+    ``final_expression`` override.
+    """
+    summary = _unit_context.summary_with_dimension_disclosure(session)
+    display_lines = [
+        "🔍 Verification Summary:",
+        f"  Verified: {summary['verified']}",
+        f"  ✅ verified: {summary['verified']}",
+        f"  ❌ failed: {summary['failed']}",
+        f"  ⚠️ inconclusive: {summary['inconclusive']}",
+    ]
+    if summary.get("failed_steps"):
+        display_lines.append(
+            f"  Failed steps: {', '.join(str(s) for s in summary['failed_steps'])}"
+        )
+    if summary.get("inconclusive_steps"):
+        display_lines.append(
+            f"  Inconclusive steps: {', '.join(str(s) for s in summary['inconclusive_steps'])}"
+        )
+    if summary.get("assumption_conflicts"):
+        display_lines.append(
+            f"  ⚠️ assumption conflicts: {len(summary['assumption_conflicts'])}"
+        )
+    summary["display_text"] = "\n".join(display_lines)
+    return summary
 
 
 def render_session_header(
@@ -71,8 +104,13 @@ def pick_savable_expression(
     formula, and the last symbolic output is typically a verification *probe*
     (a residual the operator wrote to check the formula), so the library write
     is skipped and the operator records the real formula with ``formula_add``.
+
+    An explicit ``final_expression`` override (r19 F2b) is the operator's own
+    declaration and takes precedence over the heuristic outcome.
     """
-    saved = session.representative_expression()
+    saved = getattr(session, OVERRIDE_ATTR, None)
+    if saved is None:
+        saved = session.representative_expression()
     if saved is None:
         saved = session.current_expression
     if isinstance(saved, sp.Basic) and saved.free_symbols:

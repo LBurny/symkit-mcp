@@ -18,9 +18,11 @@ derivation that is correct, clearly explained, and reproducible.
   record the steps, then `session_verify_step` to check them, then
   `session_complete` to close. `math(..., session=True)` records a step
   automatically while a session is active; use `session_record_step` only for a
-  conceptual step that no tool computed. A step recorded that way is labelled
-  `custom` and is never automatically verifiable — it comes back `inconclusive`,
-  so back every load-bearing claim with a tool call.
+  conceptual step that no tool computed. A plain recorded expression is labelled
+  `custom` and comes back `inconclusive`; a recorded *equation* (`A = B`) gets a
+  definitive identity verdict — true, false, or unproven — so back every
+  load-bearing claim with an equation recorded that way. A failed `math` call
+  leaves a note in the chain, so the rejection history stays visible.
 - Declare symbol assumptions (positive, real, integer, nonzero, ...) explicitly
   with `assume`, for example
   `assume(variables={"x": "positive real", "n": "integer"})`. Never leave an
@@ -35,6 +37,10 @@ derivation that is correct, clearly explained, and reproducible.
     unit): write `exp(1)` for the base of the natural logarithm and `1j` (or
     `sqrt(-1)`) for the imaginary unit. `Q` and `O` are protected the same way,
     except in a call such as `O(x**2)`, which keeps its Big-O meaning.
+  - `solve` accepts one equation or a system: pass equations comma-separated
+    (`"eq1, eq2"`) or as a bracket list (`"[eq1, eq2]"`), and a comma-separated
+    `variable` (`"x, y"`). Set literals and inequalities are not supported —
+    solve solves equations; to test a sign, simplify the difference instead.
 - When a tool returns an error, adjust the input or retry by an equivalent route.
   If it still fails, state the reason and quote the original error. Never invent
   a result.
@@ -64,7 +70,15 @@ derivation that is correct, clearly explained, and reproducible.
   and radian are dimensionless. Check scales and offsets yourself.
 - `math(..., session=True)` records a `dimension` call as a step that carries its
   own verdict, so an inconsistent expression fails that step and the chain. Pass
-  `session=False` for a diagnostic that must not enter the chain.
+  `session=False` for a diagnostic that must not enter the chain. A step whose
+  algebraic verdict and dimensional check disagree carries both (look for
+  `dimension_disagreement` / `dimension_failed_steps`), and an inconclusive
+  check names its cause in `dimension_inconclusive_reason` — a missing unit is
+  not the same as a dimension that cannot be represented.
+- Saving a formula is gated by its declared units: `formula_add` and
+  `session_complete(auto_save=true)` refuse a formula whose declared units make
+  it decidable inconsistent, and say so in `not_saved_reason`. An incomplete
+  unit map still saves (staging).
 
 ## Workflow
 
@@ -85,7 +99,11 @@ derivation that is correct, clearly explained, and reproducible.
    input was parsed as intended; once the input is confirmed, take the tool
    result and explain the difference.
 4. **Assemble the result.** Combine the steps, give the final formula, and state
-   the conditions under which it holds and the range in which it applies.
+   the conditions under which it holds and the range in which it applies. When
+   the chain continued past the step that produced the deliverable (checks,
+   numeric probes, notes after it), pass that deliverable explicitly to
+   `session_complete(final_expression="...")` — an explicit result outranks the
+   heuristic outcome fields, which otherwise follow the last steps.
 
 ## Output requirements
 

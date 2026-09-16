@@ -420,7 +420,7 @@ def register_formula_tools(mcp: Any) -> None:
                 "success": False,
                 "error": "variables must be provided ({} is allowed with no free symbols).",
             }
-        unit_error, unit_warnings = gov.validate_add_variables(variables)
+        unit_error, unit_warnings = gov.validate_add_variables(variables, sympy_str)
         if unit_error:
             return unit_error
 

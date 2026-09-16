@@ -33,6 +33,10 @@ def _dimension_check_value(step_dict: dict[str, Any]) -> Any:
 
 
 def test_verify_step_flags_dimension_mismatch(fresh_session_manager: Any) -> None:
+    """The mismatch is reported on the dimension check without silently
+    replacing an algebraic verdict (r19 F24: the simplify identity is verified
+    algebraically, so the step status stays verified and the dimensional
+    finding is attached separately with a disagreement warning)."""
     _ = fresh_session_manager
     mcp = _mcp()
     _start_with_units(mcp)
@@ -41,12 +45,16 @@ def test_verify_step_flags_dimension_mismatch(fresh_session_manager: Any) -> Non
 
     result = mcp.tools["session_verify_step"](1)
     assert result["success"] is True
-    assert result["verification_status"] == "failed"
+    assert result["verification_status"] == "verified"
     assert _dimension_check_value(result["step"]) is False
     assert result["verification"].get("dimension_issues")
+    assert result["verification"].get("dimension_disagreement")
 
 
-def test_verify_session_overall_failed(fresh_session_manager: Any) -> None:
+def test_verify_session_discloses_dimension_failure(fresh_session_manager: Any) -> None:
+    """``overall`` reflects the algebraic checks, so a dimension failure is
+    disclosed separately rather than silently changing the chain verdict
+    (r19 F24)."""
     _ = fresh_session_manager
     mcp = _mcp()
     _start_with_units(mcp)
@@ -55,8 +63,9 @@ def test_verify_session_overall_failed(fresh_session_manager: Any) -> None:
 
     summary = mcp.tools["session_verify_session"]()
     assert summary["success"] is True
-    assert summary["overall"] == "failed"
-    assert summary["failed"] >= 1
+    assert summary["overall"] == "verified"
+    assert summary["dimension_failed_steps"] == [1]
+    assert any("inconsisten" in w.lower() for w in summary.get("warnings", [])), summary
 
 
 def test_verify_without_units_is_unchanged(fresh_session_manager: Any) -> None:
@@ -92,8 +101,9 @@ def test_formula_variable_units_feed_verification(fresh_session_manager: Any) ->
     )
 
     result = mcp.tools["session_verify_step"](1)
-    assert result["verification_status"] == "failed"
+    # The units reach the checker; the algebraic verdict stands (r19 F24).
     assert _dimension_check_value(result["step"]) is False
+    assert result["verification"].get("dimension_issues")
 
 
 def test_invalid_unit_string_warns_instead_of_crashing(

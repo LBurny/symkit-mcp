@@ -41,7 +41,7 @@ class TestSessionAutoVerification:
         session.differentiate("x")
         step = session.steps[1]
         assert step.status == StepStatus.SUCCESS
-        assert "reverse integration" in step.verification_result
+        assert "direct recomputation" in step.verification_result
 
     def test_substitute_step_is_verified(self, session):
         session.load_formula("x + y")

@@ -37,6 +37,17 @@ from symkit.infrastructure.sympy_engine import (
     restore_zero_root,
 )
 from symkit.infrastructure.vector_input import vector_operation
+from symkit_mcp.tools._op_helpers import (
+    antiderivative_warnings,
+    applied_function_solve_error,
+    assemble_solve_response,
+    flat_matrix_equations,
+    inequality_solve_error,
+    integrate_operation,
+    set_literal_solve_error,
+    solve_variable_name_error,
+    symbol_names,
+)
 from symkit_mcp.tools._state import get_context, get_session
 from symkit_mcp.tools._system_solve import solve_system
 from symkit_mcp.tools._unit_context import dimension_operation
@@ -63,20 +74,6 @@ def _engine_failure(operation: str, error: str) -> str:
             "\"A is positive\"), or assume_for_step(), to decide the sign."
         )
     return message
-
-
-def _inline_integral_value(
-    preprocessed: Any, input_obj: Any, variable: Any, lower: Any, upper: Any
-) -> Any:
-    """Inline integral value; ``False`` on failure, ``None`` if not applicable."""
-    if variable is not None or lower is not None or upper is not None:
-        return None
-    if not isinstance(preprocessed, str) or not re.search(
-        r"(?<![A-Za-z0-9_.])(?:integrate|Integral)\s*\(", preprocessed
-    ):
-        return None
-    value = input_obj.doit() if input_obj.has(sp.Integral) else input_obj
-    return value if not value.has(sp.Integral) else False
 
 
 def _effective_context(assumption_context: MathContext | None) -> MathContext:
@@ -232,8 +229,8 @@ def _build_ics_dict(
                 "success": False,
                 "error": (
                     f"Cannot parse initial condition '{key_str}'. Use "
-                    f"'{func}(0)': '<value>' for the value and "
-                    f"'{func}'(0)': '<value>' for a derivative initial value."
+                    f"\"{func}(0)\": \"<value>\" for the value and "
+                    f"\"{func}'(0)\": \"<value>\" for a derivative initial value."
                 ),
             }
         order = match.group(1).count("'")
@@ -256,21 +253,6 @@ def _build_ics_dict(
         )
         parsed_ics[key_obj] = value
     return parsed_ics, None
-
-
-def _prefer_representative_solution(solutions: list[Any]) -> Any:
-    """Choose the most useful representative root for the ``solution`` field.
-
-    ``all_solutions`` keeps the full ordered set; roots provably positive under
-    active assumptions win (run-011/run-012), else one without a minus sign.
-    """
-    for sol in solutions:
-        if getattr(sol, "is_positive", None):
-            return sol
-    for sol in solutions:
-        if not sol.could_extract_minus_sign():
-            return sol
-    return solutions[0]
 
 
 def _parse_ode(
@@ -419,7 +401,7 @@ _PARAM_USE: dict[str, frozenset[str]] = {
     "solve": frozenset({"variable"}),
     "substitute": frozenset({"substitution"}),
     "diff": frozenset({"variable", "order"}),
-    "integrate": frozenset({"variable", "lower", "upper"}),
+    "integrate": frozenset({"variable", "lower", "upper", "method"}),
     "limit": frozenset({"variable", "point", "direction"}),
     "series": frozenset({"variable", "point", "order"}),
     "dsolve": frozenset({"variable", "with_respect_to", "ics"}),
@@ -561,6 +543,7 @@ def _execute_operation_inner(
     input_obj: Any = None
     result: Any = None
     op_warnings: list[str] = []
+    extra: dict[str, Any] = {}
 
     # ── SYNTACTIC OPERATIONS ──
     if operation in _SYNTACTIC_OPS and operation not in ("collect", "apart"):
@@ -592,6 +575,7 @@ def _execute_operation_inner(
         if isinstance(parsed, dict):
             return parsed
         input_obj = result = parsed
+        extra["symbols"] = symbol_names(parsed)
 
     # ── NUMERIC EVALUATION ──
     elif operation == "evalf":
@@ -615,6 +599,12 @@ def _execute_operation_inner(
             if isinstance(parsed, dict):
                 return parsed
             input_obj = parsed
+            # A bracket list parses to a Matrix (run-020); a flat one is an
+            # equation list, not a matrix op. A set literal has no solution
+            # semantics at all (F3/F15).
+            parsed = flat_matrix_equations(parsed)
+            if isinstance(parsed, (set, frozenset)):
+                return set_literal_solve_error()
             # Infer the solve variable when omitted: a single free symbol is
             # unambiguous; otherwise list the candidates instead of the terse
             # "solve requires variable parameter" (run-021).
@@ -641,6 +631,13 @@ def _execute_operation_inner(
             # as a system of equations (run-018).
             if isinstance(parsed, (list, tuple)):
                 return solve_system(parsed, variable, context, input_obj, operation)
+            # Curated refusals for a non-symbol solve variable and for a
+            # relational input (inequalities), before SymPy can leak internals
+            # or answer a misleading "No solution found" (F27).
+            if (name_error := solve_variable_name_error(variable or "")) is not None:
+                return name_error
+            if (ineq_error := inequality_solve_error(parsed)) is not None:
+                return ineq_error
             v = _resolve_variable_symbol(parsed, variable, context)
             eq = parsed
             solutions = list(sp.solve(eq, v))
@@ -648,46 +645,14 @@ def _execute_operation_inner(
             # domain, silently dropping the zero root of a factored equation
             # (r14 task-15: I positive hid I*(beta*S/N - gamma) = 0 at I = 0).
             solutions, filtered, restored = restore_zero_root(eq, v, solutions)
-            if not solutions:
-                return {"success": False, "error": f"No solution found for {variable}"}
-            sol = _prefer_representative_solution(solutions)
-            result = sp.Eq(v, sol)
-            # Warn when float coefficients silently truncate the solution to a
-            # numeric approximation (use exact fractions like 1/2 for exact
-            # symbolic results).
-            float_atoms = sorted(eq.atoms(sp.Float), key=str)
-            warnings: list[str] = []
-            if float_atoms:
-                shown = ", ".join(str(f) for f in float_atoms[:3])
-                warnings.append(
-                    "Input contains float coefficients (" + shown + "); the "
-                    "solution is numerically truncated. Use exact fractions "
-                    "(e.g. 1/2 instead of 0.5) for exact symbolic results."
-                )
-            if filtered:
-                warnings.append(
-                    "Solutions omitted by the active assumptions on "
-                    f"{variable}: {', '.join(filtered)}."
-                )
-            if restored:
-                warnings.append(
-                    f"The trivial root 0 was excluded by the assumptions on "
-                    f"{variable} and has been restored."
-                )
-            return {
-                "success": True,
-                "expression": str(result),
-                "latex": sp.latex(result),
-                "solution": str(sol),
-                "solution_latex": sp.latex(sol),
-                "all_solutions": [str(s) for s in solutions],
-                "filtered_by_assumptions": filtered,
-                "warnings": warnings,
-                "operation": operation,
-                "_input_obj": input_obj,
-                "_result_obj": result,
-            }
+            return assemble_solve_response(
+                eq, v, solutions, filtered, restored,
+                variable or "", operation, input_obj,
+            )
         except Exception as e:
+            curated = applied_function_solve_error(e)
+            if curated is not None:
+                return curated
             return {"success": False, "error": f"Solve failed: {e}"}
 
     # ── SIMPLIFY ──
@@ -750,17 +715,13 @@ def _execute_operation_inner(
         if operation == "diff":
             out = _engine.differentiate(expr_obj, v, order, context)
         elif operation == "integrate":
-            inline = _inline_integral_value(preprocessed, input_obj, variable, lower, upper)
-            if inline is False:
-                return {"success": False, "error": (
-                    "integrate: the nested definite integral did not evaluate in "
-                    "closed form; pass the inner Integral with explicit lower/upper "
-                    "for the outer variable, or add assumptions."
-                )}
-            if inline is not None:
-                result, out = inline, None
-            else:
-                out = _engine.integrate(expr_obj, v, lower, upper, context)
+            outcome = integrate_operation(
+                preprocessed, input_obj, expr_obj, variable, lower, upper,
+                context, method, _engine,
+            )
+            if isinstance(outcome, dict):
+                return outcome
+            result, out = outcome
         elif operation == "limit":
             pt = point or "0"
             out = _engine.limit(expr_obj, v, pt, direction, context)
@@ -902,6 +863,9 @@ def _execute_operation_inner(
                 return {"success": False, "error": _engine_failure(operation, out.error)}
             result = out.sympy_expr
 
+        if operation == "integrate":
+            op_warnings.extend(antiderivative_warnings(result, lower, upper))
+
     else:
         return {
             "success": False,
@@ -916,6 +880,7 @@ def _execute_operation_inner(
         "_input_obj": input_obj,
         "_result_obj": result,
         **({"warnings": op_warnings} if op_warnings else {}),
+        **extra,
     }
 
 

@@ -95,6 +95,22 @@ def _particular_solution(
     return sp.Eq(general.lhs, particular), None
 
 
+def _inconsistent_ics_reason() -> str:
+    """Curated reason for a condition set SymPy's own constant solve cannot meet.
+
+    ``sp.dsolve(..., ics=...)`` raises a bare ``ValueError: Couldn't solve for
+    initial conditions`` when the conditions over-determine or contradict the
+    constants.  That is a statement about the *conditions*, so it is reported
+    through the same refusal channel as the bounded solve instead of leaking the
+    raw exception (F8b).
+    """
+    return (
+        "the initial conditions are inconsistent — no constants satisfy all of "
+        "them (or the conditions are unsolvable in closed form); check the "
+        "conditions for contradictions"
+    )
+
+
 def dsolve_with_ics(
     equation: sp.Basic,
     f: Any,
@@ -115,4 +131,9 @@ def dsolve_with_ics(
     if solution is not None:
         return solution, None
     # Constants do not enter linearly: hand back to sympy's own ICS handling.
-    return sp.dsolve(equation, f(var), ics=ics), None
+    try:
+        return sp.dsolve(equation, f(var), ics=ics), None
+    except Exception:
+        # A contradictory or over-determined condition set (task-16 audit) is
+        # refused with a diagnostic reason, never a raw exception.
+        return general, _inconsistent_ics_reason()

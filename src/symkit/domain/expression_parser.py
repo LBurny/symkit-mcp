@@ -242,6 +242,13 @@ _MATERIAL_DERIVATIVE_HO_RE: re.Pattern[str] = re.compile(
 _WORD_PATTERN_CACHE: dict[str, re.Pattern[str]] = {}
 _FUNC_PATTERN_CACHE: dict[str, re.Pattern[str]] = {}
 
+# HTML-escaped operators are silently dropped by preprocessing, so the parser
+# then sees a bare expression and reports a baffling type error (r19 F27).
+_HTML_ENTITY_RE: re.Pattern[str] = re.compile(r"&(?:gt|lt|amp|ge|le|ne);")
+_HTML_OPERATOR_ERROR = (
+    "HTML-escaped operators (e.g. &gt;) are not supported; write > < = directly."
+)
+
 
 def preprocess_unicode(expr_str: str) -> str:
     """Convert Unicode math characters to SymPy-compatible ASCII.
@@ -601,6 +608,8 @@ def parse_expression_string(
     """
     if not isinstance(expr_str, str) or not expr_str.strip():
         return None, "Empty or non-string expression"
+    if _HTML_ENTITY_RE.search(expr_str):
+        return None, _HTML_OPERATOR_ERROR
 
     processed = preprocess_unicode(expr_str) if preprocess else expr_str
     processed = preprocess_vector_calculus(processed) if preprocess else processed
@@ -669,7 +678,14 @@ def _format_parse_error(exc: Exception) -> str:
     raw ``args`` tuple — e.g. ``('unexpected EOF in multi-line statement',
     (1, 0))`` — which is meaningless to an agent (run-021).  Surface just the
     message.
+
+    A Python ``SyntaxError`` (''cannot assign to function call'') is Python's
+    own diagnosis of prose handed in as math; it is framed as a math-parse
+    failure and the reason kept to its first sentence (r19 F21).
     """
+    if isinstance(exc, SyntaxError):
+        reason = (exc.msg or "invalid syntax").split(".")[0].strip()
+        return f"cannot parse the input as a mathematical expression ({reason})"
     if len(exc.args) >= 2 and isinstance(exc.args[0], str):
         return f"{type(exc).__name__}: {exc.args[0]}"
     return str(exc)

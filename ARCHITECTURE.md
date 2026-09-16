@@ -14,7 +14,7 @@ SymKit is a **general-purpose symbolic derivation engine** that provides AI agen
 ├─────────────────────────────────────────────────────────────────┤
 │                     MCP Protocol Layer                           │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │              symkit_mcp (45 Tools)                          ││
+│  │              symkit_mcp (46 Tools)                          ││
 │  │  ┌───────────┐ ┌───────────┐ ┌───────────────┐ ┌─────────┐ ││
 │  │  │  Session  │ │   Math    │ │ Tool Discovery│ │ Formula │ ││
 │  │  │ 17 tools  │ │  1 tool   │ │  2 tools      │ │ 5 tools │ ││
@@ -52,7 +52,8 @@ Pure business logic with no external dependencies.
 | `assumption_binding.py` | Sole implementation of assumption → Symbol binding (`resolve_assumed_symbol`, `apply_assumptions`); owns the property whitelist and conflict table. Assumptions are applied *after* parsing, onto free symbols only (invariant I1/I3) |
 | `expr_io.py` | srepr-first reconstruction of archived expressions (`safe_load_expression`); verification replays the archived object instead of re-parsing a display string (invariant I2) |
 | `parser_call_sites.py` | 共享解析器的调用位名称处理：小写 `max(`/`min(` 改写为自动求值的 `Max`/`Min`；同名「裸符号 + 函数调用」双用时把调用位改写为 `<name>__call` 并绑定 `Function('<name>')`，裸符号保持 `Symbol`、假设仅作用于符号 |
-| `final_result.py` | 会话收尾的结果选取与判定分级：手工记录等式的同一性判定（`recorded_step_verdict`）、suspect_identity 分级（`classify_suspect_identity` / `numeric_residual_verdict`：数值证伪仅限显式等式断言，跳过含未求值聚合的差式）、`select_headline` 跳过 failed 步选取最终表达式 |
+| `derivation_outcome.py` | 会话收尾的共享推导：交付物选取（`representative_expression` 的零收尾/血脉规则，非零常数与注记步清零 `zero_outcome`）、目标三元态语义（显式目标才有 matches/score，文本挖掘的 target 不授予） |
+| `final_result.py` | 会话收尾的结果选取与判定分级：手工记录等式的同一性判定（`recorded_step_verdict`）、suspect_identity 分级（`classify_suspect_identity` / `numeric_residual_verdict`：数值证伪仅限显式等式断言，跳过含未求值聚合的差式）、`select_headline` 跳过 failed 步选取最终表达式；布尔塌缩等式主张恢复（`asserted_equation_verdict`）、差式咨询的两顶项语义门与 `A - B` 指称措辞 |
 | `expression_form.py` | 表达式的「书写形态」谓词：`is_difference_form` 只在前方存在非负项时才把否定项视为差式 `A - B`（前导负项如 `-x**2 + x*(x+1)` 属普通代数，不触发 suspect 警告）、`recorded_leading_negative` 从记录字符串识别前导一元负号（srepr 会重排项序，只有显示串保留该语法） |
 | `units.py` / `dimensional_analysis.py` | 单位解析与量纲一致性检查（纯领域逻辑，无外部依赖）：量纲向量、四则运算/函数传播规则、问题诊断 |
 | `lean_types.py` | Lean 认证通道的共享契约：`LeanStatement` / `LeanOutcome` 值对象、`LeanChecker` Protocol、`UntranslatableError`；domain 定义接口，infrastructure 实现 |
@@ -94,8 +95,14 @@ MCP protocol interface, independent of the core library.
 | Module | Description |
 |--------|-------------|
 | `server.py` | MCP Server entry point |
-| `tools/` | 45 MCP tool implementations |
+| `tools/` | 46 MCP tool implementations |
 | `tools/_math_dispatch.py` | `math()` internals: operation dispatch, expression parsing, per-operation parameter audit |
+| `tools/_op_helpers.py` | `solve`/`integrate` 的装配与守卫：系统解响应装配（头条非排除根、布尔解丢弃）、特殊函数反导数警示、`method=risch`、幂变量/不等式/集合字面量的 curated 拒绝 |
+| `tools/_math_recording.py` | `math()` 落步与展示：provenance（original/replacement/limit 方向/evalf 代入点）、算子桶映射、失败调用的注记步、会话级假设快照 |
+| `tools/_headline_override.py` | `session_complete(final_expression=...)` 的显式交付物通道：统一解析器校验、结果字段与落库表达式接管 |
+| `tools/_session_views.py` | 会话视图与验证摘要装配 |
+| `tools/_library_gate.py` | 公式落库的量纲门禁：声明单位可判定不一致时拒绝写库（`not_saved_reason`），单位不全照常走 staging |
+| `tools/_assumption_text.py` | 假设子句校验：表达式型假设的 curated 拒绝（防空白切碎） |
 | `tools/_state.py` | Process-global current session/context shared by all tool modules |
 | `tools/_unit_context.py` | MCP 层单位接线：聚合会话单位（公式变量 + 符号注册表）、`dimension` 操作、验证链的量纲后置检查 |
 | `tools/_formula_governance.py` | 公式写入治理：变量单位必填（`"-"` 为显式无量纲哨兵）、`similar_to` 近重复提示（结构指纹优先、FTS 兜底）、单位回填 |
@@ -104,7 +111,7 @@ MCP protocol interface, independent of the core library.
 
 ---
 
-## Tool Categories (45 Tools)
+## Tool Categories (46 Tools)
 
 | Category | Count | Description |
 |----------|-------|-------------|
