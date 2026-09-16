@@ -133,6 +133,12 @@ class _DimensionChecker:
                 return {}
             self.indeterminate = True
             return None
+        if not isinstance(expr, sp.Basic):
+            # A non-``Basic`` container (a legacy comma/dict archive — r20 D1) has
+            # no ``free_symbols``; answer "unsupported" instead of crashing.
+            self.indeterminate = True
+            self._note_reason("unsupported")
+            return None
         if isinstance(expr, sp.Equality):
             return self._dimension_of_equation(expr)
         if isinstance(expr, sp.Derivative):

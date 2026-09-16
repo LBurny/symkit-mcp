@@ -10,7 +10,7 @@ from typing import Any
 
 import sympy as sp
 
-from symkit.domain.derivation_session import DerivationSession
+from symkit.domain.derivation_session import DerivationSession, OperationType
 from symkit.domain.step_verifier import verification_result_from_json
 from symkit.infrastructure.derivation_repository import (
     DerivationResult,
@@ -33,6 +33,11 @@ def verification_summary(session: DerivationSession) -> dict[str, Any]:
     SymPy counts alone cannot read as a kernel certification (2026-09-16).
     """
     summary = _unit_context.summary_with_dimension_disclosure(session)
+    if _all_failed_are_recorded_assertions(session, summary):
+        summary.setdefault("warnings", []).append(
+            "failed steps are recorded assertions judged false — a successful "
+            "refutation/audit reads as overall 'failed'"
+        )
     display_lines = [
         "🔍 Verification Summary:",
         f"  Verified: {summary['verified']}",
@@ -60,6 +65,23 @@ def verification_summary(session: DerivationSession) -> dict[str, Any]:
         )
     summary["display_text"] = "\n".join(display_lines)
     return summary
+
+
+def _all_failed_are_recorded_assertions(
+    session: DerivationSession, summary: dict[str, Any]
+) -> bool:
+    """Whether every failed step is a hand-recorded (CUSTOM) assertion.
+
+    An audit or refutation records the false claim it disproves, so a chain whose
+    only failures are those records is a *success* that reads as ``failed``. The
+    verdict itself is never rewritten — only disclosed (r20 D3).
+    """
+    failed = summary.get("failed_steps") or []
+    steps = {step.step_number: step for step in session.steps}
+    return bool(failed) and all(
+        number in steps and steps[number].operation == OperationType.CUSTOM
+        for number in failed
+    )
 
 
 def _kernel_counts(session: DerivationSession) -> dict[str, int] | None:

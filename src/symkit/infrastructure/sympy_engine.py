@@ -34,8 +34,8 @@ def coupled_undefined_functions(
 ) -> list[str]:
     """Undefined functions sharing an additive term with the dependent one.
 
-    A forcing term alone stays solvable; one multiplied with the dependent
-    variable or derivative couples in a second equation (r14 task-15).
+    A forcing term alone stays solvable; one times the dependent variable or
+    derivative couples in a second equation (r14 task-15).
     """
     extra_set = set(extra)
     lhs = (
@@ -54,14 +54,10 @@ def coupled_undefined_functions(
 def nonpolynomial_ode_reason(ode_expr: sp.Basic, dependent: str) -> str | None:
     """A reason string when ``dsolve`` is likely to hang without bound.
 
-    ``sympy.dsolve`` has no internal time limit, and an unsolvable nonlinear ODE
-    does not raise — it spins. Because the MCP server shares one process, that
-    blocks every other tool for as long as it runs (round-complex: the nonlinear
-    pendulum spun a core for 30+ minutes and stalled the whole server).
-
-    The reliably-detected class is a dependent function under a transcendental
-    (``sin(theta(t))``, ``exp(y(t))``): those integral forms have no closed form
-    and no solver cap. The guard is deliberately narrow — a true bound needs the
+    ``sympy.dsolve`` has no time limit and does not raise on an unsolvable
+    nonlinear ODE — it spins, wedging the single-process server (round-complex:
+    a pendulum stalled every tool for 30+ minutes).  Detected class: a dependent
+    function under a transcendental (``sin(theta(t))``); a true bound needs the
     engine in its own process, which this module does not do.
     """
     if not isinstance(ode_expr, sp.Equality):
@@ -91,8 +87,8 @@ def restore_zero_root(
     """Re-add the trivial root 0 that symbol assumptions filtered out.
 
     ``solve`` cancels a factor nonzero under the solve variable's assumptions
-    (``I`` positive implies ``I != 0``) and silently drops the zero root of a
-    factored equation (r14 task-15). Returns ``(solutions, filtered, restored)``.
+    and drops the zero root of a factored equation (r14 task-15). Returns
+    ``(solutions, filtered, restored)``.
     """
     plain_v = sp.Symbol(str(v))
 
@@ -125,11 +121,9 @@ def restore_zero_root(
 def _coord_sub_symbol(expr: Any, name: str, coord: Any) -> Any:
     """Substitute the coordinate symbol ``name`` into *expr* by NAME.
 
-    Parsed expressions may carry assumption-bearing symbols
-    (``Symbol('x', positive=True)``); a bare ``sp.Symbol(name)`` subs key
-    would not match and the substitution would silently no-op, leaving the
-    expression dependent on plain symbols instead of the basis — gradient
-    then returned a zero vector and divergence/curl 0 (run-017)."""
+    A bare ``sp.Symbol(name)`` subs key would not match an assumption-bearing
+    ``Symbol('x', positive=True)``, so the substitution silently no-opped and
+    gradient returned a zero vector (run-017)."""
     target = next(
         (s for s in getattr(expr, "free_symbols", ()) if str(s) == name), None
     )
@@ -142,11 +136,7 @@ def _build_vector_field(expr: Any, coords: list[str], N: Any) -> Any:
 
 
 class SymPyEngine(SymbolicEngine):
-    """
-    SymPy-based implementation of the symbolic computation engine.
-
-    This is the primary symbolic engine used by SymKit.
-    """
+    """SymPy-based implementation of the symbolic computation engine."""
 
     # Parser transformations for flexible input (mirrors the shared parser)
     TRANSFORMATIONS = TRANSFORMATIONS
@@ -154,15 +144,13 @@ class SymPyEngine(SymbolicEngine):
     def parse(self, expr_str: str, context: MathContext | None = None) -> Expression:
         """Parse a string into an Expression using SymPy.
 
-        Parsing is pure syntax.  Assumptions are applied afterwards, onto the
-        free symbols of the parsed tree (invariant I1): injecting them into the
-        parser instead let implicit multiplication rewrite ``k(x)`` into
-        ``k*x`` (run-024).
+        Parsing is pure syntax; assumptions are applied afterwards, onto the
+        free symbols (invariant I1).  Injecting them into the parser let
+        implicit multiplication rewrite ``k(x)`` into ``k*x`` (run-024).
         """
         try:
-            # Parse through the shared parser: Unicode, Leibniz derivatives,
-            # equation conversion and reserved-name protection are handled
-            # consistently across all MCP entry points.
+            # The shared parser handles Unicode, Leibniz derivatives, equation
+            # conversion and reserved-name protection for every entry point.
             sympy_expr, error = parse_expression_string(
                 expr_str,
                 convert_equation=True,
@@ -174,7 +162,6 @@ class SymPyEngine(SymbolicEngine):
                 sympy_expr, context.assumptions if context else None
             )
 
-            # Determine expression type
             expr_type = self._classify_expression(sympy_expr)
 
             return Expression(
@@ -261,9 +248,8 @@ class SymPyEngine(SymbolicEngine):
         if lower is not None and upper is not None:
             result = sp.integrate(sym, (var, self._to_sympy(lower), self._to_sympy(upper)))
         elif isinstance(sym, sp.Integral) and str(var) in {str(lim[0]) for lim in sym.limits}:
-            # Already a definite integral over ``var``: evaluate it. Integrating
-            # again treated it as a constant and fabricated a factor ``var``
-            # (r15 task-07: nested 2D integral -> pi*R**4*sigma*x/4).
+            # Evaluating it is required: integrating again treated the integral
+            # as a constant and fabricated a factor ``var`` (r15 task-07).
             result = sym.doit()
             if result.has(sp.Integral, sp.Derivative):
                 return _failed(
@@ -293,7 +279,6 @@ class SymPyEngine(SymbolicEngine):
 
         var = resolve_assumed_symbol(variable, self._get_assumptions(variable, context))
 
-        # Handle both equations and expressions (expr = 0)
         if isinstance(equation.sympy_expr, sp.Equality):
             solutions = sp.solve(equation.sympy_expr, var)
         else:
@@ -319,7 +304,6 @@ class SymPyEngine(SymbolicEngine):
         if not expr.is_valid:
             return expr
 
-        # Convert substitutions to SymPy format
         subs_dict = {}
         for var_name, value in substitutions.items():
             var = resolve_assumed_symbol(var_name, self._get_assumptions(var_name, context))
@@ -344,12 +328,11 @@ class SymPyEngine(SymbolicEngine):
         if not expr1.is_valid or not expr2.is_valid:
             return False
 
-        # Try simplifying the difference
         diff = sp.simplify(expr1.sympy_expr - expr2.sympy_expr)
         if diff == 0:
             return True
 
-        # Try expanding and simplifying
+        # Expanding first catches equalities plain simplify misses.
         diff_expanded = sp.simplify(sp.expand(expr1.sympy_expr - expr2.sympy_expr))
         return bool(diff_expanded == 0)
 
@@ -357,25 +340,33 @@ class SymPyEngine(SymbolicEngine):
 
     def gradient(self, expr: Expression, coords: list[str],
                  context: MathContext | None = None) -> Expression:
-        """Compute gradient of a scalar field using sympy.vector."""
+        """Gradient of a scalar field.
+
+        ``{x, y, z}`` coordinates keep the sympy.vector basis form (r13); any
+        other symbol name gives plain partials — a ``Tuple`` for several, one
+        derivative for a single one — and a missing coordinate fails by name.
+        """
         if not expr.is_valid:
             return expr
         try:
+            named = {str(s): s for s in expr.sympy_expr.free_symbols}
+            if not all(name in {"x", "y", "z"} for name in coords):
+                if missing := [n for n in coords if n not in named]:
+                    return _failed(
+                        f"gradient: coordinate(s) {', '.join(missing)} are not "
+                        f"in the expression; free symbols are {sorted(named)}."
+                    )
+                partials = [sp.diff(expr.sympy_expr, named[n]) for n in coords]
+                result = partials[0] if len(partials) == 1 else sp.Tuple(*partials)
+                return Expression(raw=str(result), latex=sp.latex(result),
+                                sympy_expr=result, expr_type=ExpressionType.CALCULUS)
             from sympy.vector import CoordSys3D, gradient
             N = CoordSys3D("N")
-            # Map coordinate symbols to vector components, matching by NAME —
-            # parsed symbols may carry assumptions (run-017).
             basis = [N.x, N.y, N.z]
-            subs_map: dict[Any, Any] = {}
-            for name in coords[:3]:
-                target = next(
-                    (s for s in expr.sympy_expr.free_symbols if str(s) == name),
-                    None,
-                )
-                if target is not None:
-                    subs_map[target] = basis[coords.index(name)]
-            scalar = expr.sympy_expr.xreplace(subs_map)
-            result = gradient(scalar, N)
+            # Match by NAME: parsed symbols may carry assumptions (run-017).
+            subs_map = {named[n]: basis[coords.index(n)]
+                        for n in coords[:3] if n in named}
+            result = gradient(expr.sympy_expr.xreplace(subs_map), N)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
         except Exception as e:
@@ -385,8 +376,7 @@ class SymPyEngine(SymbolicEngine):
                    context: MathContext | None = None) -> Expression:
         """Compute divergence of a vector field.
 
-        For comma-separated vector components like "x*y, z*x, y*z",
-        builds the vector field automatically.
+        Comma-separated components like "x*y, z*x, y*z" build the field.
         """
         if not expr.is_valid:
             return expr
@@ -406,8 +396,7 @@ class SymPyEngine(SymbolicEngine):
              context: MathContext | None = None) -> Expression:
         """Compute curl of a vector field.
 
-        For comma-separated vector components like "x*y, z*x, y*z",
-        builds the vector field automatically.
+        Comma-separated components like "x*y, z*x, y*z" build the field.
         """
         if not expr.is_valid:
             return expr
@@ -440,8 +429,7 @@ class SymPyEngine(SymbolicEngine):
                     coord_map[c] = coord_var
             s = scalar
             for c, cv in coord_map.items():
-                # Match by name: assumption-bearing symbols (``Symbol('x',
-                # positive=True)``) do not match a bare ``Symbol('x')`` key.
+                # Match by name: ``Symbol('x', positive=True)`` != Symbol('x').
                 s = _coord_sub_symbol(s, c, cv)
             grad_field = gradient(s, N)  # returns VectorAdd
             result = divergence(grad_field, N)
@@ -576,10 +564,9 @@ class SymPyEngine(SymbolicEngine):
             elif p in (sp.oo, -sp.oo):
                 result = sp.limit(target, v, p)
             else:
-                # "+-" must be a genuine bidirectional limit.  SymPy's
-                # no-dir default is silently right-handed, so ``1/x`` at 0
-                # used to "succeed" with oo (run-020).  Compute both sides
-                # and fail loud when they disagree.
+                # "+-" must be a genuine bidirectional limit: SymPy's no-dir
+                # default is silently right-handed (``1/x`` at 0 "succeeded"
+                # with oo, run-020), so compute both sides.
                 right = sp.limit(target, v, p, dir="+")
                 left = sp.limit(target, v, p, dir="-")
                 same = right == left
@@ -626,11 +613,17 @@ class SymPyEngine(SymbolicEngine):
             return expr
         try:
             # The transform variable must be the *same* symbol object as in the
-            # parsed expression: an assumption-bearing ``Symbol('t',
-            # positive=True)`` does not match a plain ``Symbol('t')``, and the
-            # transform silently treats the integrand as constant in t.
+            # parsed expression (an assumption-bearing ``Symbol('t',
+            # positive=True)`` does not match a plain ``Symbol('t')``), and it
+            # must actually be the time-domain symbol.
             t = resolve_assumed_symbol(time_var, self._get_assumptions(time_var, context))
             s = resolve_assumed_symbol(freq_var, self._get_assumptions(freq_var, context))
+            free = {str(v) for v in getattr(expr.sympy_expr, "free_symbols", ())}
+            if free and time_var not in free:
+                return _failed(
+                    f"laplace: the expression does not contain '{time_var}'; "
+                    "the variable is the time-domain symbol (typically t)"
+                )
             result = sp.laplace_transform(expr.sympy_expr, t, s, noconds=True)
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.CALCULUS)
@@ -645,6 +638,14 @@ class SymPyEngine(SymbolicEngine):
         try:
             s = resolve_assumed_symbol(freq_var, self._get_assumptions(freq_var, context))
             t = resolve_assumed_symbol(time_var, self._get_assumptions(time_var, context))
+            free = {str(v) for v in getattr(expr.sympy_expr, "free_symbols", ())}
+            if free and freq_var not in free:
+                # The wrong symbol made SymPy transform *in* it and return a
+                # Dirac-delta garbage value under ``success: true`` (r20).
+                return _failed(
+                    f"ilaplace: the expression does not contain '{freq_var}'; "
+                    "the variable is the frequency-domain symbol (typically s)"
+                )
             result = sp.inverse_laplace_transform(expr.sympy_expr, s, t)
             if result.atoms(sp.nan, sp.zoo):
                 # A singular transform must not come back as success carrying
@@ -680,10 +681,9 @@ class SymPyEngine(SymbolicEngine):
             return expr
         try:
             k = resolve_assumed_symbol(freq_var, self._get_assumptions(freq_var, context))
-            # ``math()`` defaults ifourier's output variable to ``k``, so it can
-            # collide with the input variable.  Inverting in ``k`` and returning
-            # ``k`` is degenerate and produced branch-cut constants (task-03);
-            # fall back to the conventional dual variable.
+            # ``math()`` defaults ifourier's output variable to ``k``, which can
+            # collide with the input variable; inverting in ``k`` and returning
+            # ``k`` is degenerate and produced branch-cut constants (task-03).
             out_name = space_var if space_var != freq_var else (
                 "k" if freq_var == "x" else "x"
             )

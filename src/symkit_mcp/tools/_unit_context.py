@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+import sympy as sp
+
 from symkit.domain.derivation_session import OperationType, StepStatus
 from symkit.domain.dimensional_analysis import (
     apply_dimension_check,
@@ -529,7 +531,13 @@ def apply_dimension_to_step(
     output_expr = session.verifier._parse_archived(
         step.output_expression, step.output_srepr, assumptions
     )
-    if output_expr is None or (input_expr is None and step.operation != OperationType.CUSTOM):
+    # A dict/tuple archive (a multi-variable solve; r20 D1) is not an expression:
+    # skip the dimensional post-check for this step rather than crash the summary.
+    # Concrete matrices count as expressions (SymPy keeps them non-Basic).
+    if not isinstance(output_expr, (sp.Basic, sp.MatrixBase)) or (
+        step.operation != OperationType.CUSTOM
+        and not isinstance(input_expr, (sp.Basic, sp.MatrixBase))
+    ):
         return None
     record = verification_result_from_json(step.verification_result)
     updated = _fold_dimension_check(record, input_expr, output_expr, unit_map)

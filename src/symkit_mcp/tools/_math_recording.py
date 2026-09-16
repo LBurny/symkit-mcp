@@ -13,11 +13,50 @@ from typing import Any
 import sympy as sp
 
 from symkit.domain.assumption_engine import AssumptionLevel
-from symkit.domain.derivation_session import DerivationStep, OperationType
+from symkit.domain.derivation_session import DerivationStep, OperationType, StepStatus
+from symkit.domain.step_verifier import verification_result_to_json
+from symkit.domain.value_objects import VerificationResult, VerificationStatus
+from symkit_mcp.tools._unit_context import _DIMENSION_STEP_MESSAGES
 
 #: Marker stored in ``input_expressions`` of every note-type step.  The domain's
 #: ``is_note_step`` uses it to keep notes out of verification statistics.
 NOTE_MARKER = "note_type"
+
+
+def attach_dimension_verdict(sess: Any, step: Any, result: dict[str, Any]) -> None:
+    """Attach a recorded ``dimension`` step's own verdict at record time (r20 W2).
+
+    ``_add_step`` auto-verifies every CUSTOM step as "no automatic verification
+    available", so until a later verify pass backfilled it the chain showed a
+    custom/inconclusive step even though the tool had just returned a verdict —
+    and ``session_get_steps`` in that window reported the step as unexamined.
+    The message text is the shared ``_unit_context`` one, and the tri-state
+    (``consistent=None``) stays inconclusive rather than becoming dimensionally
+    "fine".
+    """
+    consistent = result.get("consistent")
+    consistent = consistent if isinstance(consistent, bool) else None
+    verdict = {
+        True: VerificationStatus.VERIFIED,
+        False: VerificationStatus.FAILED,
+        None: VerificationStatus.INCONCLUSIVE,
+    }[consistent]
+    dimensions = result.get("dimensions") or {}
+    step.verification_result = verification_result_to_json(
+        VerificationResult(
+            status=verdict,
+            message=_DIMENSION_STEP_MESSAGES[consistent],
+            details={"dimensions": dimensions} if dimensions else {},
+            dimension_check=consistent,
+        )
+    )
+    step.status = {
+        VerificationStatus.VERIFIED: StepStatus.SUCCESS,
+        VerificationStatus.FAILED: StepStatus.FAILED,
+        VerificationStatus.INCONCLUSIVE: StepStatus.PENDING_VERIFICATION,
+    }[verdict]
+    if sess._persist_path:  # noqa: SLF001 - mirrors _add_step's own save
+        sess.save()
 
 
 def matrix_input_srepr(input_obj: Any) -> str:
@@ -103,7 +142,8 @@ def record_failed_operation_note(
     The failed call used to leave no trace, so the chain showed a gap where the
     operator had actually tried something.  The step is marked as a note (the
     ``note_type`` provenance key) and therefore stays out of the verification
-    statistics while remaining visible in ``session_get_steps``.
+    statistics while remaining visible in ``session_get_steps``.  Its status is
+    ``FAILED``: a recorded failure must not read as a success (r20 W2).
     """
     if sess is None:
         return
@@ -119,6 +159,7 @@ def record_failed_operation_note(
             output_srepr="",
             input_srepr="",
             sympy_command="# failed operation (no computation)",
+            status=StepStatus.FAILED,
         )
         sess.steps.append(step)
         sess._update_timestamp()

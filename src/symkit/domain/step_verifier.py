@@ -101,9 +101,7 @@ class StepVerifier:
             result = VerificationResult.success("Formula loaded successfully")
         elif op in (OperationType.SIMPLIFY, OperationType.EXPAND, OperationType.FACTOR):
             # srepr loading flattens -(A - B); inspect the archive directly (task-11).
-            diff_form = recorded_difference_form(
-                input_expr, step.input_expressions, step.input_srepr
-            )
+            diff_form = recorded_difference_form(input_expr, step.input_expressions, step.input_srepr)
             claim = self._equation_claim(step, assumptions)
             result = self._verify_equality(input_expr, output_expr, op.value, diff_form, claim)
         elif op == OperationType.DIFFERENTIATE:
@@ -185,7 +183,8 @@ class StepVerifier:
                 convert_equation=True,
                 local_dict=local_dict,
             )
-            return expr
+            # Reject a legacy comma/dict container; matrices stay legitimate (r20 D1).
+            return expr if isinstance(expr, (sp.Basic, sp.MatrixBase)) else None
         except Exception:
             return None
 
@@ -302,18 +301,20 @@ class StepVerifier:
         difference_input: bool = False,
         claim: sp.Equality | None = None,
     ) -> VerificationResult:
-        """Verify that simplify/expand/factor preserves the expression value."""
+        """Verify that simplify/expand/factor preserves the expression value.
+
+        An explicit equation the operator was given is a *claim* judged on its
+        own difference (r20 D2), even when the operator left it uncollapsed.
+        """
+        if claim is not None:
+            return self._equation_claim_verdict(operation, claim)
         out_bool = self._boolean_value(output_expr)
         if out_bool is not None:
-            # simplify may collapse an equation to a plain True/False when the caller's
-            # assumptions decide it; the verifier cannot see those, so an unconfirmable
-            # boolean claim is INCONCLUSIVE (run-008).
+            # An unconfirmable boolean claim is INCONCLUSIVE (run-008).
             if isinstance(input_expr, sp.Equality):
                 status, message, identity = boolean_equation_verdict(operation, input_expr)
                 return VerificationResult(status=status, message=message, details=identity)
             in_bool = self._boolean_value(input_expr)
-            if in_bool is not None and claim is not None:
-                return self._equation_claim_verdict(operation, claim)
             if in_bool is not None:
                 # Under session assumptions the parser may collapse an Eq to a
                 # boolean before recording (run-016): a flip is a bug.
@@ -336,8 +337,8 @@ class StepVerifier:
                 evaluate_pending(input_expr), evaluate_pending(output_expr)
             )
         )
-        # Operator fidelity is what this certifies.  A difference input whose output
-        # stays nonzero may be a false identity; factorisation answers, not claims (task-01).
+        # Operator fidelity is what this certifies; factorisation answers, not
+        # claims (task-01).
         details: dict[str, Any] = {}
         message = f"{operation.capitalize()} verified: output matches the recomputed operator result"
         if (difference_input and operation != "factor" and not
@@ -366,13 +367,12 @@ class StepVerifier:
 
         ``Eq(0, 5)`` evaluates to ``False`` at parse time, so the archived input
         is a boolean while ``input_expressions["original"]`` still holds the
-        claim.  Without recovering it the step reported "boolean value preserved"
-        and a DISPROVEN equation read green in the chain (r19 F9).  The sides
-        parse through the same assumption-aware, protected-name parser as every
-        other step input, so an identity decided by a session assumption (e.g.
-        ``x`` positive) is judged under that assumption.
+        claim — only that key is read, since ``"equation"`` carries solve operands
+        (r20 D2).  The sides parse through the same assumption-aware, protected-
+        name parser as every step input, so an assumption-decided identity (r19
+        F9) is judged under that assumption.
         """
-        for key in ("original", "equation"):
+        for key in ("original",):
             sides = equation_claim_sides(step.input_expressions.get(key, ""))
             if sides is None:
                 continue

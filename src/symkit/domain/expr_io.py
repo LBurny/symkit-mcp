@@ -72,9 +72,12 @@ def safe_load_expression(
     try:
         from symkit.domain.expression_parser import parse_user_expression
 
-        expr, _ = parse_user_expression(expr_str)
-        if expr is not None and isinstance(expr, sp.Basic):
-            return expr
+        # The unified parser returns a non-Basic container for legacy comma /
+        # dict forms (``{a: 6}`` -> a Python ``dict``); guard the exit like the
+        # two above so this function's contract holds on every path.
+        loaded = _basic_or_none(parse_user_expression(expr_str)[0])
+        if loaded is not None:
+            return loaded
     except Exception:
         pass
 

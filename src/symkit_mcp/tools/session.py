@@ -12,7 +12,7 @@ from symkit.domain.derivation_pattern import (
     DerivationPattern,
     get_pattern_template,
 )
-from symkit.domain.derivation_session import DerivationSession
+from symkit.domain.derivation_session import DerivationSession, StepStatus
 from symkit.domain.expression_parser import parse_user_expression
 from symkit.domain.formula import FormulaSource
 from symkit_mcp.tools import _unit_context
@@ -22,6 +22,7 @@ from symkit_mcp.tools._headline_override import (
     parse_final_expression_override,
 )
 from symkit_mcp.tools._library_gate import session_save_blocked
+from symkit_mcp.tools._math_recording import session_assumption_strings
 from symkit_mcp.tools._session_views import (
     render_empty_session,
     render_session_header,
@@ -229,17 +230,11 @@ def _suggest_next_steps(session: DerivationSession) -> list[dict[str, Any]]:
             "example": 'math("simplify", "<expression>")',
         })
 
-    suggestions.append({
-        "tool": "session_explain",
-        "reason": "Get a natural-language summary of the derivation so far",
-        "example": "session_explain()",
-    })
-
-    suggestions.append({
-        "tool": "session_complete",
-        "reason": "Finalize and save the derivation when satisfied",
-        "example": "session_complete(description=\"...\", assumptions=[\"...\"])",
-    })
+    suggestions.append({"tool": "session_explain", "example": "session_explain()",
+                        "reason": "Get a natural-language summary of the derivation so far"})
+    suggestions.append({"tool": "session_complete",
+                        "example": 'session_complete(description="...", assumptions=["..."])',
+                        "reason": "Finalize and save the derivation when satisfied"})
 
     return suggestions
 
@@ -757,8 +752,8 @@ def register_session_tools(mcp: Any) -> None:
 
         Args:
             note: Note content
-            note_type: "assumption", "limitation", "observation",
-                       "correction", "interpretation", "application", "reference"
+            note_type: "assumption", "limitation", "observation", "correction",
+                       "interpretation", "application", "reference", "failure"
             related_variables: Related variables
 
         Returns:
@@ -767,12 +762,15 @@ def register_session_tools(mcp: Any) -> None:
         session = get_session()
         if session is None:
             return {"success": False, "error": "No active session."}
-        return session.insert_note_after_step(
-            after_step=len(session.steps),
-            note=note,
-            note_type=note_type,
+        result = session.insert_note_after_step(
+            after_step=len(session.steps), note=note, note_type=note_type,
             related_variables=_as_str_list(related_variables),
         )
+        if note_type == "failure" and session.steps:  # a failure is not a success
+            session.steps[-1].status = StepStatus.FAILED
+            if session._persist_path:  # noqa: SLF001 - the saved record must agree
+                session.save()
+        return result
 
     @mcp.tool(meta={"category": "Session Management"})
     def session_list() -> dict[str, Any]:
@@ -965,29 +963,26 @@ def register_session_tools(mcp: Any) -> None:
                 "success": False,
                 "error": f"Cannot parse expression '{expression}': {error}",
             }
+        # A folded claim's python bool does not round-trip; normalize it first.
+        new_expr = sp.sympify(new_expr) if isinstance(new_expr, bool) else new_expr
         if not isinstance(new_expr, sp.Basic):
-            # A comma-separated string parses to a python tuple; storing it as
-            # the current expression bricked session_show and progress
-            # computations ('tuple' object has no attribute 'free_symbols',
-            # run-017). Fail loud at the boundary instead.
+            # Matrices and comma-separated tuples cannot become an expression.
             return {
                 "success": False,
                 "error": (
-                    "Cannot record a comma-separated list. Record a single "
-                    "expression per step, or use session_add_note for notes."
+                    "Cannot record this input as a derivation step: matrices, "
+                    "lists and comma-separated input are not supported here; "
+                    "record a single expression per step, or use session_add_note."
                 ),
             }
 
         from symkit.domain.derivation_session import OperationType
 
-        # Manually recorded steps have unknown provenance, so they must not be
-        # disguised as automatically verifiable canonical operations (e.g.,
-        # simplify/differentiate), otherwise the verification results would appear
-        # successful without any mathematical check having been performed. Therefore,
-        # they are uniformly marked as CUSTOM.
+        # Manual steps have unknown provenance, so they must not be disguised as
+        # automatically verifiable canonical operations (e.g. simplify/differentiate):
+        # the verification result would read green with no check performed.
         op_type = OperationType.CUSTOM
 
-        prior = session.current_expression
         session.current_expression = new_expr
         step = session._add_step(
             operation=op_type,
@@ -996,9 +991,11 @@ def register_session_tools(mcp: Any) -> None:
             output_expr=new_expr,
             sympy_command="manual_record",  # Non-executable descriptor to avoid being run as SymPy code
             notes=notes,
-            assumptions=_as_str_list(assumptions),
+            assumptions=_as_str_list(assumptions) or session_assumption_strings(session),
             limitations=_as_str_list(limitations),
-            prior_expr=prior,
+            # A manual step's input is the claim it submits (r20 W2).
+            prior_expr=new_expr,
+            input_srepr=sp.srepr(new_expr),
         )
         return {
             "success": True,

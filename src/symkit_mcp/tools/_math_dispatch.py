@@ -111,7 +111,35 @@ def _effective_context(assumption_context: MathContext | None) -> MathContext:
 
 def _preprocess(expr_str: Any) -> Any:
     """Convert Unicode math chars to SymPy-compatible ASCII."""
-    return preprocess_unicode(expr_str) if isinstance(expr_str, str) else expr_str
+    if not isinstance(expr_str, str):
+        return expr_str
+    return rename_lambda_word(preprocess_unicode(expr_str))
+
+
+#: A bare ``lambda`` word cannot be parsed: it is a Python keyword, and
+#: ``preprocess_unicode`` maps "λ" straight into it.  The rename runs after that
+#: Unicode pass, in the dispatcher, because the parser applies it again on the
+#: way in; ``lambda_`` is what ``symkit.domain.formula`` maps "λ" to.  A LaTeX
+#: ``\lambda`` is left to the LaTeX parser, which reads ``Symbol('lambda')``.
+_LAMBDA_WORD = re.compile(r"(?<![\w.\\])lambda(?!\w)")
+
+
+def rename_lambda_word(expr_str: str) -> str:
+    """Rename a bare ``lambda`` word to ``lambda_`` (r20 W2)."""
+    return _LAMBDA_WORD.sub("lambda_", expr_str)
+
+
+def lambda_symbol_warning(expr_str: Any) -> str | None:
+    """A client-facing note when a bare ``lambda`` word had to be renamed."""
+    if not isinstance(expr_str, str):
+        return None
+    preprocessed = preprocess_unicode(expr_str)
+    if rename_lambda_word(preprocessed) == preprocessed:
+        return None
+    return (
+        "'lambda' is a Python keyword and cannot be a SymPy symbol, so it was "
+        "read as 'lambda_'; use another name (e.g. 'lam') to avoid the rename."
+    )
 
 
 def _apply_context_assumptions(

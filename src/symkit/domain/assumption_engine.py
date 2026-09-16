@@ -3,16 +3,40 @@
 Manages symbol assumptions at different levels (global / domain / session / step)
 during derivation, supporting priority-based merging, conflict detection, and
 dynamic application.
+
+An assumption that cannot be honored is refused, never stored silently:
+:func:`validate_assumption_clause` is the shared gate (a non-symbol key such as
+``"V - n*b"`` and a pseudo-property token such as ``less`` both used to land in
+the layers and never take effect — r20 wave-3).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from keyword import iskeyword
 from typing import Any
 
+from symkit.domain.assumption_binding import ASSUMPTION_KEYWORDS
 from symkit.domain.assumption_binding import CONFLICT_PAIRS as _CONFLICT_PAIRS
 from symkit.domain.math_domain import DOMAIN_ASSUMPTION_HINTS, MathDomain
+
+
+def validate_assumption_clause(key: str, props: list[str]) -> str | None:
+    """Return an error message when key is not a plain symbol name or any
+    property token is outside the supported vocabulary; None when valid."""
+    if not isinstance(key, str) or not key.isidentifier() or iskeyword(key):
+        return (
+            f"assumptions can only be set on plain symbols; '{key}' is not a symbol"
+        )
+    unknown = [prop for prop in props if prop not in ASSUMPTION_KEYWORDS]
+    if unknown:
+        supported = ", ".join(sorted(ASSUMPTION_KEYWORDS))
+        return (
+            f"unknown assumption properties for '{key}': "
+            f"{', '.join(unknown)}; supported: {supported}"
+        )
+    return None
 
 
 class AssumptionLevel(str, Enum):
@@ -75,13 +99,23 @@ class AssumptionEngine:
         name: str,
         *properties: str,
         level: AssumptionLevel = AssumptionLevel.SESSION,
-    ) -> None:
-        """Add an assumption at the given level."""
+    ) -> str | None:
+        """Add an assumption at the given level.
+
+        Returns an error message and stores nothing when the clause cannot be
+        honored; callers that surface a receipt (``assume``/``assume_for_step``)
+        should turn it into ``{"success": False, "error": error}``.  ``None``
+        means the assumption was applied.
+        """
+        error = validate_assumption_clause(name, list(properties))
+        if error is not None:
+            return error
         layer = self._layers[level]
         if name not in layer.assumptions:
             layer.assumptions[name] = {}
         for prop in properties:
             layer.assumptions[name][prop] = True
+        return None
 
     def unassume(
         self,

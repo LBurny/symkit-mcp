@@ -12,6 +12,7 @@ size limit) and out of the domain whitelist module.
 from __future__ import annotations
 
 from symkit.domain.assumption_binding import ASSUMPTION_KEYWORDS
+from symkit.domain.assumption_engine import validate_assumption_clause
 
 # Characters that can only appear in an expression, not in a symbol name or a
 # property keyword; their presence marks the clause as expression-valued.
@@ -43,4 +44,20 @@ def expression_valued_assumption(clause: str) -> str | None:
         return None
     if any(ch in _EXPRESSION_CHARS for ch in text):
         return f"expression-valued assumption {text!r} is not supported; {_HINT}"
+    return None
+
+
+def invalid_clause_message(variables: dict[str, str]) -> str | None:
+    """First clause the shared validator rejects, or ``None`` when all are valid.
+
+    ``assume`` takes a mapping, so the whole call is validated *before* anything
+    is stored: a pseudo-property (``"theta": "less than pi"``) or an
+    expression-valued key (``"V - n*b": "positive"``) describes an assumption
+    that can never take effect, and applying it reports success for a no-op
+    (r20 W2).  The verdict is the domain's, never re-implemented here.
+    """
+    for key, props in variables.items():
+        invalid = validate_assumption_clause(key, props.strip().split())
+        if invalid is not None:
+            return invalid
     return None

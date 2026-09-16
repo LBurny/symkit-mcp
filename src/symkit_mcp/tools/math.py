@@ -20,15 +20,17 @@ from symkit.domain.assumption_binding import ASSUMPTION_KEYWORDS
 from symkit.domain.assumption_engine import AssumptionLevel
 from symkit.domain.derivation_session import OperationType
 from symkit.domain.value_objects import MathContext
-from symkit_mcp.tools._assumption_text import expression_valued_assumption
+from symkit_mcp.tools._assumption_text import expression_valued_assumption, invalid_clause_message
 from symkit_mcp.tools._math_dispatch import (
     _OP_TYPE_MAP,
     _execute_operation,
     _preprocess,
+    lambda_symbol_warning,
 )
 from symkit_mcp.tools._math_recording import (
     _render_dimension_display,
     _sympy_command,
+    attach_dimension_verdict,
     matrix_input_srepr,
     record_failed_operation_note,
     session_assumption_strings,
@@ -188,7 +190,7 @@ def _record_math_step(
             if operation in ("parse", "cancel")
             else _OP_TYPE_MAP.get(operation, OperationType.CUSTOM)
         )
-        desc = description or f"{operation}: {expression[:50]}"
+        desc = description or f"{operation}: {expression}"
         sess._add_step(
             operation=op_type,
             description=desc,
@@ -235,9 +237,9 @@ def _record_dimension_step(
     expr, _error = parse_user_expression(expression, convert_equation=True)
     if expr is None:
         return
-    sess._add_step(
+    step = sess._add_step(
         operation=OperationType.CUSTOM,
-        description=description or f"dimension: {expression[:50]}",
+        description=description or f"dimension: {expression}",
         input_expressions={
             "operation": "dimension",
             "original": expression,
@@ -251,6 +253,9 @@ def _record_dimension_step(
         notes=notes or str(result.get("message") or ""),
         prior_expr=expr,
     )
+    # The verdict the tool just returned belongs on the step now, not after the
+    # next verify pass (r20 W2).
+    attach_dimension_verdict(sess, step, result)
     result["step"] = sess.step_count
     result["session_id"] = sess.session_id
 
@@ -408,6 +413,7 @@ def register_math_tools(mcp: Any) -> None:
                  ics={"y(0)": "y_0"})
         """
         preprocessed = _preprocess(expression)
+        lambda_warning = lambda_symbol_warning(expression)
 
         # Per-call assumption scoping (see _apply_call_assumptions).
         (
@@ -453,6 +459,8 @@ def register_math_tools(mcp: Any) -> None:
         if assumption_warnings:
             result["assumption_warnings"] = list(assumption_warnings)
             result.setdefault("warnings", []).extend(assumption_warnings)
+        if lambda_warning:
+            result.setdefault("warnings", []).append(lambda_warning)
 
         # Build display text
         if result["success"]:
@@ -512,12 +520,14 @@ def register_math_tools(mcp: Any) -> None:
             assume(["x is positive"])
             # Afterwards, math("simplify", "sqrt(x**2)") returns x instead of Abs(x)
         """
-        from symkit.domain.assumption_engine import AssumptionLevel
-
         try:
             variables = _normalize_assume_input(variables)
         except ValueError as e:
             return {"success": False, "error": str(e)}
+        # An assumption that can never take effect (a pseudo-property, or a key
+        # that is an expression rather than a symbol) must not be applied (r20 W2).
+        if (invalid := invalid_clause_message(variables)) is not None:
+            return {"success": False, "error": invalid}
         ctx = get_context()
         for var, props_str in variables.items():
             props = {}
