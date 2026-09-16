@@ -20,15 +20,39 @@ from __future__ import annotations
 from typing import Any
 
 import sympy as sp
+from sympy.integrals.risch import NonElementaryIntegral
+
+
+def _plain_integrals(expr: sp.Basic) -> sp.Basic:
+    """Replace ``NonElementaryIntegral`` nodes with plain ``Integral`` nodes.
+
+    sympy returns ``NonElementaryIntegral`` for an integrand with no elementary
+    antiderivative (e.g. ``x**x``).  Its limits are stored as a bare ``Tuple``,
+    so ``sp.diff`` recurses into that Tuple and dies with ``AttributeError:
+    'Tuple' object has no attribute 'diff'`` — the verifier's reverse check
+    crashed and the recording layer swallowed the step (r21 G6).  A plain
+    ``Integral`` with the same function and limits is mathematically identical
+    and differentiates correctly.
+    """
+    if not expr.has(NonElementaryIntegral):
+        return expr
+    return expr.replace(
+        lambda node: isinstance(node, NonElementaryIntegral),
+        lambda node: sp.Integral(node.function, *node.limits),
+    )
 
 
 def _basic_or_none(candidate: Any) -> sp.Basic | None:
-    """Return ``candidate`` when it is a SymPy Basic, else ``None``.
+    """Return ``candidate`` as a normalized SymPy Basic, else ``None``.
 
     ``sympify`` can return non-Basic containers (e.g. ``(1, 2)`` from legacy
-    comma parses); callers must never receive an atom-less container.
+    comma parses); callers must never receive an atom-less container.  A loaded
+    expression is also normalized so every ``NonElementaryIntegral`` becomes a
+    plain ``Integral`` — see :func:`_plain_integrals`.
     """
-    return candidate if isinstance(candidate, sp.Basic) else None
+    if not isinstance(candidate, sp.Basic):
+        return None
+    return _plain_integrals(candidate)
 
 
 def safe_load_expression(
@@ -46,7 +70,16 @@ def safe_load_expression(
     """
     if srepr_str:
         try:
-            loaded = _basic_or_none(sp.sympify(srepr_str))
+            # ``sympify`` does not know ``NonElementaryIntegral`` and would
+            # silently rebuild the node as an undefined function whose second
+            # argument is a ``Tuple`` — the object ``sp.diff`` crashes on (r21
+            # G6).  Teach it the class; ``_basic_or_none`` then normalizes it.
+            loaded = _basic_or_none(
+                sp.sympify(
+                    srepr_str,
+                    locals={"NonElementaryIntegral": NonElementaryIntegral},
+                )
+            )
             if loaded is not None:
                 return loaded
         except Exception:

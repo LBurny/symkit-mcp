@@ -1,14 +1,14 @@
 """Unified math operation dispatcher.
 
-Internal machinery behind the ``math()`` MCP tool (see ``math.py``). Kept
-separate so the thin MCP wrapper only handles parameter plumbing, display
-text, and session recording, while this module owns operation semantics.
+Internal machinery behind the ``math()`` MCP tool (see ``math.py``); keeps
+the thin MCP wrapper to parameter plumbing, display text and session
+recording while this module owns operation semantics.
 
 Contract: successful result dicts carry two internal keys — ``_input_obj``
 and ``_result_obj`` — holding the *live* SymPy objects for the operation's
-input and output. The wrapper pops them before responding to the client and
-uses them for session recording, so the session archive is built from the
-same object the client received (never re-parsed from its string form).
+input and output. The wrapper pops them before responding and uses them for
+session recording, so the archive is built from the object the client
+received (never re-parsed from its string form).
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from symkit.domain.expression_parser import (
     parse_user_expression,
     preprocess_unicode,
 )
+from symkit.domain.final_result import evaluate_pending
 from symkit.domain.value_objects import MathContext
 from symkit.infrastructure.matrix_exp import matrix_exp_guard
 from symkit.infrastructure.numeric_eval import numeric_evalf
@@ -54,13 +55,13 @@ from symkit_mcp.tools._unit_context import dimension_operation
 
 _engine = SymPyEngine()
 
-# Call-site names SymPy's namespace silently collapses to a symbol: ``S(t)``
+# Call-site names SymPy silently collapses to a symbol: ``S(t)``
 # (SingletonRegistry) and ``N(t)`` (evalf) both evaluate to ``t`` (r14 task-15).
 _DEGENERATE_CALL_NAMES = ("S", "N")
 
 
 def _engine_failure(operation: str, error: str) -> str:
-    """Render an engine failure with an actionable hint where one applies.
+    """Render an engine failure, adding the fix for a sign-dependent result.
 
     SymPy's "Result depends on the sign of ..." names the symbols but not the
     remedy, so an agent could not tell that the fix is to state the signs (P5).
@@ -79,16 +80,12 @@ def _engine_failure(operation: str, error: str) -> str:
 def _effective_context(assumption_context: MathContext | None) -> MathContext:
     """Resolve the assumption set a math call actually runs under.
 
-    The session's ``AssumptionEngine`` is the source of truth for step- and
-    domain-level assumptions (invariant I3); before this merge they were
-    silently ignored by ``math()``, which read only ``MathContext``.
-
-    Precedence, weakest to strongest: the engine's merged view (domain defaults
-    < global < session < step), then the explicit context. A stronger layer
+    The session's ``AssumptionEngine`` is the source of truth (invariant I3);
+    precedence weakest to strongest is the engine's merged view (domain
+    defaults < global < session < step), then the explicit context, which
     *replaces* a symbol's property set rather than unioning with it — unioning
     made a per-call ``x is negative`` conflict with a step-level ``x positive``
-    and silently dropped both (invariant I3). The global context is never
-    mutated; the merged view is local to the call.
+    and silently dropped both. The global context is never mutated.
     """
     context = (
         assumption_context if assumption_context is not None else get_context()
@@ -116,11 +113,10 @@ def _preprocess(expr_str: Any) -> Any:
     return rename_lambda_word(preprocess_unicode(expr_str))
 
 
-#: A bare ``lambda`` word cannot be parsed: it is a Python keyword, and
-#: ``preprocess_unicode`` maps "λ" straight into it.  The rename runs after that
-#: Unicode pass, in the dispatcher, because the parser applies it again on the
-#: way in; ``lambda_`` is what ``symkit.domain.formula`` maps "λ" to.  A LaTeX
-#: ``\lambda`` is left to the LaTeX parser, which reads ``Symbol('lambda')``.
+#: A bare ``lambda`` word cannot be parsed (Python keyword), and
+#: ``preprocess_unicode`` maps "λ" straight into it; the dispatcher renames it
+#: to ``lambda_`` after that pass.  A LaTeX ``\lambda`` is left to the LaTeX
+#: parser, which reads ``Symbol('lambda')``.
 _LAMBDA_WORD = re.compile(r"(?<![\w.\\])lambda(?!\w)")
 
 
@@ -142,17 +138,58 @@ def lambda_symbol_warning(expr_str: Any) -> str | None:
     )
 
 
+# Operations whose ``variable``/``with_respect_to`` is a single name: a comma
+# list is not a variable, and ``diff`` silently differentiated wrt a
+# nonexistent Symbol and returned 0 (task-01 G4).  Vector operations take
+# coordinate lists; ``solve`` takes a system variable list — both are exempt.
+_SINGLE_VAR_OPS = frozenset({
+    "collect", "apart", "diff", "integrate", "limit", "series",
+    "dsolve", "laplace", "ilaplace", "fourier", "ifourier",
+})
+
+
+def _normalize_param(value: str | None) -> tuple[str | None, str | None]:
+    """Unicode/lambda-preprocess a ``variable``/``with_respect_to`` (task-01 G5).
+
+    The expression side is preprocessed but the parameter was not, so
+    ``diff(a*sin(b*λ), variable="λ")`` differentiated wrt a nonexistent symbol
+    and returned a verified-looking 0.
+    """
+    if not isinstance(value, str):
+        return value, None
+    return _preprocess(value), lambda_symbol_warning(value)
+
+
+def _comma_param_error(
+    operation: str, variable: str | None, with_respect_to: str | None
+) -> dict[str, Any] | None:
+    """Reject a comma-separated parameter for a single-variable operation (G4)."""
+    if operation not in _SINGLE_VAR_OPS:
+        return None
+    for name, value in (("variable", variable), ("with_respect_to", with_respect_to)):
+        if value and "," in value:
+            return {
+                "success": False,
+                "error": (
+                    f"Operation '{operation}' takes a single '{name}', not the "
+                    f"comma-separated list '{value}'. Pass one name — for a "
+                    "mixed partial call diff once per variable, or write "
+                    "Derivative(f, x, y) and simplify."
+                ),
+            }
+    return None
+
+
 def _apply_context_assumptions(
     expr: sp.Basic, context: MathContext | None
 ) -> sp.Basic:
     """Bind the context's assumptions onto the free symbols of ``expr``.
 
-    This lets ``assume({"x": "positive"})`` followed by ``math("simplify", ...)``
-    produce assumption-aware results such as ``sqrt(x**2) -> x``.  Delegates to
-    :func:`symkit.domain.assumption_binding.apply_assumptions`, the single
-    implementation shared with the engine, the verifier and session replay
-    (invariant I3).  Non-Basic inputs (python tuples/lists from comma parses)
-    pass through unchanged — running ``.has`` on them would crash (run-018).
+    Lets ``assume({"x": "positive"})`` + ``math("simplify", ...)`` produce
+    ``sqrt(x**2) -> x``; delegates to
+    :func:`symkit.domain.assumption_binding.apply_assumptions`, shared with the
+    engine, verifier and replay (invariant I3). Non-Basic inputs (python
+    tuples from comma parses) pass through: ``.has`` would crash (run-018).
     """
     if context is None:
         return expr
@@ -166,11 +203,9 @@ def _resolve_variable_symbol(
 ) -> sp.Symbol:
     """Return the symbol object for *variable* as it appears in *expr*.
 
-    After applying context assumptions, the symbols in *expr* may carry those
-    assumptions.  A newly created bare symbol will not match them, so SymPy
-    operations such as ``solve`` and ``diff`` would silently return no results.
-    This helper prefers the symbol already present in the expression and falls
-    back to creating a symbol with the assumptions recorded in *context*.
+    Symbols in *expr* may carry context assumptions, which a newly created
+    bare symbol does not match, so ``solve``/``diff`` silently returned no
+    results; prefer the symbol already present, else one built with *context*.
     """
     for sym in expr.free_symbols:
         if sym.name == variable:
@@ -216,8 +251,8 @@ def _rekey_subs_to_expression(
 ) -> dict[sp.Basic, Any]:
     """Rebind substitution keys to the symbols actually present in *expr*.
 
-    Assumption-bearing symbols (``Symbol('c', positive=True)``) do not match the
-    plain keys, so ``subs`` would silently no-op; rebind each key by name (run-008).
+    Assumption-bearing symbols (``Symbol('c', positive=True)``) do not match
+    the plain keys, so ``subs`` silently no-opped; rebind by name (run-008).
     """
     rebound: dict[sp.Basic, Any] = {}
     for key, val in subs.items():
@@ -241,8 +276,7 @@ def _build_ics_dict(
     """Parse an initial-condition mapping into SymPy form for ``dsolve``.
 
     Accepts ``{"V(0)": "V_0"}`` and ``{"x'(0)": "v_0"}`` (one prime per
-    derivative order, run-018), parsing keys into ``f(point)`` /
-    ``Derivative(...).subs(...)`` as ``sympy.dsolve`` expects.
+    derivative order, run-018), parsed as ``sympy.dsolve`` expects.
     """
     f = sp.Function(func)
     v = sp.Symbol(var)
@@ -289,8 +323,8 @@ def _parse_ode(
     """Parse an ODE expression such as ``diff(C, t) + k*C`` into SymPy form.
 
     Supports ``diff(C, t)`` / ``diff(C(t), t)`` with optional order and Leibniz
-    ``dC/dt`` / ``d^2C/dt^2``; the dependent variable is a SymPy ``Function``
-    so ``C(t)`` is not rewritten as ``C*t``. Input without any derivative of
+    ``dC/dt`` / ``d^2C/dt^2``; the dependent variable is a ``Function`` so
+    ``C(t)`` is not rewritten as ``C*t``. Input without a derivative of
     ``func`` is rejected loudly (run-012: ``R*C*dV/dt + V`` returned an
     algebraic rearrangement disguised as an ODE solution).
     """
@@ -301,11 +335,10 @@ def _parse_ode(
 
     result_str = preprocess_unicode(expr_str)
 
-    # Leibniz notation, any order (higher orders before first order):
-    # d^2C/dt^2, d^4w/dx^4, dC/dt.  Mismatched numerator/denominator orders
-    # are left untouched so the parser fails loudly instead of guessing
-    # (run-020: the hardcoded order-2 regex made d^4 input report "order not
-    # supported" even though dsolve handles it fine).
+    # Leibniz notation, any order (higher orders first): d^2C/dt^2, dC/dt.
+    # Mismatched numerator/denominator orders stay untouched so the parser
+    # fails loudly instead of guessing (run-020: the hardcoded order-2 regex
+    # made d^4 input report "order not supported" though dsolve handles it).
     def _leibniz_ho_repl(m: re.Match[str]) -> str:
         n_num = m.group(1) or m.group(2)
         n_den = m.group(3) or m.group(4)
@@ -340,12 +373,9 @@ def _parse_ode(
     # Replace any remaining bare dependent variable with the function call form.
     result_str = re.sub(rf"\b{func}\b(?!\s*\()", f"{func}({var})", result_str)
 
-    # Delegate to the shared parser instead of rebuilding its local_dict stack
-    # here. ``parse_expression_string`` already protects reserved names, binds
-    # other call sites (e.g. a forcing term ``f(t)``) to undefined functions,
-    # splits ``=`` into ``Eq``, and folds unevaluated divisions; the only extra
-    # binding this operation needs is ``func`` itself as a Function, plus the
-    # reserved call names SymPy would otherwise evaluate away.
+    # Delegate to the shared parser (reserved names, undefined call sites,
+    # ``=`` -> ``Eq``, division folding); the only extra binding needed is
+    # ``func`` itself plus the reserved call names SymPy evaluates away.
     local_dict = {func: sp.Function(func)}
     for name in _DEGENERATE_CALL_NAMES:
         if name != func and re.search(rf"(?<![A-Za-z0-9_.]){name}\s*\(", result_str):
@@ -392,23 +422,13 @@ ALL_OPS = sorted(_SYNTACTIC_OPS | _ENGINE_OPS |
 
 
 # ── Parameter-consumption audit ─────────────────────────────────────────
-#
-# Fail-loud discipline: a caller-supplied parameter must either be consumed
-# by the requested operation or the call is rejected. Defaults that the
-# caller did not deviate from never reject.
+# Fail-loud: a caller-supplied parameter must be consumed by the operation or
+# the call is rejected; defaults the caller did not deviate from never reject.
 
 _KNOB_DEFAULTS: dict[str, Any] = {
-    "variable": None,
-    "with_respect_to": None,
-    "substitution": None,
-    "point": None,
-    "direction": "+-",
-    "order": 1,
-    "lower": None,
-    "upper": None,
-    "method": "auto",
-    "ics": None,
-    "units": None,
+    "variable": None, "with_respect_to": None, "substitution": None,
+    "point": None, "direction": "+-", "order": 1, "lower": None,
+    "upper": None, "method": "auto", "ics": None, "units": None,
 }
 
 _PARAM_USE: dict[str, frozenset[str]] = {
@@ -480,29 +500,24 @@ def _execute_operation(
     units: dict[str, str] | None = None,
     assumption_context: MathContext | None = None,
 ) -> dict[str, Any]:
-    """Execute a single math operation and return its result dict.
-    Inapplicable parameters produce ``warnings`` entries (fail-loud);
-    ``assumption_context`` scopes assumptions to this call.
-    """
+    """Execute a single operation; unconsumed parameters reject the call."""
+    variable, var_note = _normalize_param(variable)
+    with_respect_to, wrt_note = _normalize_param(with_respect_to)
     provided = {
-        "variable": variable,
-        "with_respect_to": with_respect_to,
-        "substitution": substitution,
-        "point": point,
-        "direction": direction,
-        "order": order,
-        "lower": lower,
-        "upper": upper,
-        "method": method,
-        "ics": ics,
-        "units": units,
+        "variable": variable, "with_respect_to": with_respect_to,
+        "substitution": substitution, "point": point, "direction": direction,
+        "order": order, "lower": lower, "upper": upper, "method": method,
+        "ics": ics, "units": units,
     }
     # Unknown ops reach the dispatcher's own message (r17 task-17: 'sum' reported a
     # parameter error for an operation that does not exist).
     rejected = _unconsumed_params(operation, provided) if operation in ALL_OPS else []
     if rejected:
         return {"success": False, "error": "; ".join(rejected)}
-    return _execute_operation_inner(
+    comma_error = _comma_param_error(operation, variable, with_respect_to)
+    if comma_error is not None:
+        return comma_error
+    result = _execute_operation_inner(
         operation,
         expr_str,
         variable=variable,
@@ -518,6 +533,10 @@ def _execute_operation(
         units=units,
         assumption_context=assumption_context,
     )
+    for note in (var_note, wrt_note):
+        if note:
+            result.setdefault("warnings", []).append(note)
+    return result
 
 
 def _execute_operation_inner(
@@ -689,6 +708,9 @@ def _execute_operation_inner(
         if isinstance(parsed, dict):
             return parsed
         input_obj = parsed
+        # Fold pending Derivative/Integral nodes first: sp.simplify cannot
+        # flatten the undistributed doit() form, so X - X stayed (task-05 G11).
+        parsed = evaluate_pending(parsed)
         if method == "trig":
             result = sp.trigsimp(parsed)
         elif method == "radical":
@@ -915,35 +937,21 @@ def _execute_operation_inner(
 # Map operation names to OperationType
 _OP_TYPE_MAP = {
     "parse": OperationType.LOAD_FORMULA,
-    "simplify": OperationType.SIMPLIFY,
-    "expand": OperationType.EXPAND,
-    "factor": OperationType.FACTOR,
-    "solve": OperationType.SOLVE,
-    "substitute": OperationType.SUBSTITUTE,
-    "diff": OperationType.DIFFERENTIATE,
-    "integrate": OperationType.INTEGRATE,
-    "limit": OperationType.LIMIT,
-    "series": OperationType.SERIES,
-    "dsolve": OperationType.DSOLVE,
-    "gradient": OperationType.VECTOR_OP,
-    "divergence": OperationType.VECTOR_OP,
-    "curl": OperationType.VECTOR_OP,
-    "laplacian": OperationType.VECTOR_OP,
-    "det": OperationType.MATRIX_OP,
-    "inv": OperationType.MATRIX_OP,
-    "eigenvals": OperationType.MATRIX_OP,
-    "eigenvects": OperationType.MATRIX_OP,
-    "laplace": OperationType.TRANSFORM,
-    "ilaplace": OperationType.TRANSFORM,
-    "fourier": OperationType.TRANSFORM,
-    "ifourier": OperationType.TRANSFORM,
+    "simplify": OperationType.SIMPLIFY, "expand": OperationType.EXPAND,
+    "factor": OperationType.FACTOR, "solve": OperationType.SOLVE,
+    "substitute": OperationType.SUBSTITUTE, "diff": OperationType.DIFFERENTIATE,
+    "integrate": OperationType.INTEGRATE, "limit": OperationType.LIMIT,
+    "series": OperationType.SERIES, "dsolve": OperationType.DSOLVE,
+    "gradient": OperationType.VECTOR_OP, "divergence": OperationType.VECTOR_OP,
+    "curl": OperationType.VECTOR_OP, "laplacian": OperationType.VECTOR_OP,
+    "det": OperationType.MATRIX_OP, "inv": OperationType.MATRIX_OP,
+    "eigenvals": OperationType.MATRIX_OP, "eigenvects": OperationType.MATRIX_OP,
+    "laplace": OperationType.TRANSFORM, "ilaplace": OperationType.TRANSFORM,
+    "fourier": OperationType.TRANSFORM, "ifourier": OperationType.TRANSFORM,
     "collect": OperationType.EXPAND,  # Approximation
-    "cancel": OperationType.SIMPLIFY,
-    "apart": OperationType.EXPAND,
-    "together": OperationType.SIMPLIFY,
-    "trigsimp": OperationType.SIMPLIFY,
-    "powsimp": OperationType.SIMPLIFY,
-    "radsimp": OperationType.SIMPLIFY,
+    "cancel": OperationType.SIMPLIFY, "apart": OperationType.EXPAND,
+    "together": OperationType.SIMPLIFY, "trigsimp": OperationType.SIMPLIFY,
+    "powsimp": OperationType.SIMPLIFY, "radsimp": OperationType.SIMPLIFY,
     "combsimp": OperationType.SIMPLIFY,
     "evalf": OperationType.EVALF,
 }

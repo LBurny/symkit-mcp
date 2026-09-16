@@ -1,14 +1,9 @@
-"""Unified Math Tool — SymKit's core computation tool
+"""Unified Math Tool — SymKit's core computation tool.
 
-A single `math()` tool supports 33 mathematical operations,
-similar to Mathematica's function-call style.
-
-Design: math() is the primary tool LLMs use; session=True records a fully
-traceable derivation step, session=False is a stateless quick calculation.
-
-The operation dispatcher lives in ``_math_dispatch.py``; this module is the
-thin MCP wrapper: parameter plumbing, per-call assumptions, display text, and
-session recording from the live SymPy objects the dispatcher returns.
+``math()`` is the primary tool LLMs use (33 operations); ``session=True``
+records a traceable derivation step while ``session=False`` is stateless. The
+dispatcher lives in ``_math_dispatch.py``; this module is the thin wrapper
+(parameter plumbing, per-call assumptions, display, session recording).
 """
 
 from __future__ import annotations
@@ -23,6 +18,7 @@ from symkit.domain.value_objects import MathContext
 from symkit_mcp.tools._assumption_text import expression_valued_assumption, invalid_clause_message
 from symkit_mcp.tools._math_dispatch import (
     _OP_TYPE_MAP,
+    _effective_context,
     _execute_operation,
     _preprocess,
     lambda_symbol_warning,
@@ -41,10 +37,9 @@ from symkit_mcp.tools._state import get_context, get_session, set_context
 def _parse_assumption_clause(a: str) -> tuple[str, dict[str, bool]] | None:
     """Parse an assumption clause into ``(variable, {prop: True, ...})``.
 
-    Accepts both ``"x is positive real"`` and ``"x positive real"`` forms.
-    Returns ``None`` when the clause is not a recognizable symbol-plus-
-    properties clause (caller warns) — an expression-valued entry such as
-    ``"Omega**2*b**2 + ... is positive"`` must not be split on whitespace and
+    Accepts ``"x is positive real"`` and ``"x positive real"``; returns
+    ``None`` when the clause is not a symbol-plus-properties clause (caller
+    warns) — an expression-valued entry must not be split on whitespace and
     applied as garbage properties (r19 F23).
     """
     parts = a.strip().split()
@@ -61,11 +56,9 @@ def _parse_assumption_clause(a: str) -> tuple[str, dict[str, bool]] | None:
 def _normalize_assume_input(
     variables: dict[str, str] | list[str],
 ) -> dict[str, str]:
-    """Accept both ``{"x": "positive"}`` and ``["x is positive"]``.
+    """Accept ``{"x": "positive"}`` and ``["x is positive"]`` clause lists.
 
-    The assumption tools disagreed about input shape (``assume`` took a dict,
-    ``math``/``assume_for_step`` took clause lists); the list form normalizes
-    through the same clause parser ``math`` uses, all-or-nothing.
+    The list form normalizes through the same clause parser ``math`` uses.
     """
     if isinstance(variables, dict):
         return variables
@@ -84,11 +77,9 @@ def _normalize_assume_input(
 def _apply_call_assumptions(
     assumptions: list[str] | None, session: bool
 ) -> tuple[MathContext | None, dict[str, dict[str, bool]], list[str]]:
-    """Scope per-call assumptions; persist them when ``session=True``.
+    """Scope per-call assumptions; ``session=True`` persists them (run-013).
 
-    With session=true they persist into the shared context AND the session's
-    assumption engine (so the step verifier sees them); with session=false they
-    apply to THIS call only, keeping stateless calls side-effect free (run-013).
+    Session scope reaches the step verifier; session=false is call-local only.
     """
     warnings: list[str] = []
     applied: dict[str, dict[str, bool]] = {}
@@ -227,11 +218,8 @@ def _record_dimension_step(
     description: str,
     notes: str,
 ) -> None:
-    """Record a ``dimension`` check, which has no SymPy result object.
-
-    The checked expression becomes the step output; verdict and per-symbol
-    dimensions go into the provenance metadata (r16 task-03/16).
-    """
+    """Record a ``dimension`` check: output is the checked expression, and the
+    verdict plus per-symbol dimensions go into provenance metadata (r16)."""
     from symkit.domain.expression_parser import parse_user_expression
 
     expr, _error = parse_user_expression(expression, convert_equation=True)
@@ -459,6 +447,17 @@ def register_math_tools(mcp: Any) -> None:
         if assumption_warnings:
             result["assumption_warnings"] = list(assumption_warnings)
             result.setdefault("warnings", []).extend(assumption_warnings)
+        # G10: disclose the assumption set the call actually ran under. Session
+        # assumptions persist and silently shape later results, so the merged
+        # view is reported and names not passed this call are marked.
+        effective = _effective_context(call_context).assumptions
+        if effective:
+            result["assumptions_effective"] = {
+                name: sorted(p for p, on in props.items() if on)
+                for name, props in effective.items()
+            }
+            if (names := sorted(set(effective) - set(applied_assumptions))):
+                result["assumptions_from_session"] = names
         if lambda_warning:
             result.setdefault("warnings", []).append(lambda_warning)
 
@@ -569,8 +568,8 @@ def register_math_tools(mcp: Any) -> None:
         """
         Show the symbolic assumptions in the shared math context.
 
-        Covers assumptions set via assume() or math(..., assumptions=[...]).
-        Session-level assumptions are not included; use list_assumptions().
+        Covers assume() and math(..., assumptions=[...]); session-level
+        assumptions are not included (use list_assumptions()).
 
         Returns:
             Assumptions in the current MathContext

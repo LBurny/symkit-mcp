@@ -17,17 +17,48 @@ from enum import Enum
 from keyword import iskeyword
 from typing import Any
 
-from symkit.domain.assumption_binding import ASSUMPTION_KEYWORDS
-from symkit.domain.assumption_binding import CONFLICT_PAIRS as _CONFLICT_PAIRS
+from symkit.domain.assumption_binding import (
+    ASSUMPTION_KEYWORDS,
+)
+from symkit.domain.assumption_binding import (
+    CONFLICT_PAIRS as _CONFLICT_PAIRS,
+)
 from symkit.domain.math_domain import DOMAIN_ASSUMPTION_HINTS, MathDomain
+
+_INEQUALITY_HINT = (
+    "declare supported properties (positive, real, ...) with assume and record "
+    "the constraint in the session notes/limitations instead"
+)
+
+
+def _inequality_clause(props: list[str]) -> str | None:
+    """The clause text when it uses relational/function-call syntax, else ``None``.
+
+    SymPy's assumption system stores boolean properties only, so ``abs(v) < c``
+    (split into ``abs(v)``, ``<``, ``c``) can never take effect; accepting it
+    silently made the operator believe the constraint was in force (r21 G13).
+    """
+    if any(any(ch in prop for ch in "<>()") for prop in props):
+        return " ".join(props).strip()
+    return None
 
 
 def validate_assumption_clause(key: str, props: list[str]) -> str | None:
     """Return an error message when key is not a plain symbol name or any
-    property token is outside the supported vocabulary; None when valid."""
+    property token is outside the supported vocabulary; None when valid.
+
+    A clause carrying relational/function-call syntax is refused with the
+    inequality limitation named explicitly (r21 G13).
+    """
     if not isinstance(key, str) or not key.isidentifier() or iskeyword(key):
         return (
             f"assumptions can only be set on plain symbols; '{key}' is not a symbol"
+        )
+    constraint = _inequality_clause(props)
+    if constraint is not None:
+        return (
+            "sympy assumptions cannot express inequality constraints like "
+            f"'{constraint}'; {_INEQUALITY_HINT}"
         )
     unknown = [prop for prop in props if prop not in ASSUMPTION_KEYWORDS]
     if unknown:

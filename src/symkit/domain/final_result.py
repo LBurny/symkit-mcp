@@ -1,17 +1,9 @@
-"""Interpretation of a derivation's headline result and manually recorded equations.
+"""Interpretation of a derivation's headline result and recorded equations.
 
 Pure domain helpers shared by :mod:`symkit.domain.derivation_session` and
-:mod:`symkit.domain.step_verifier`:
-
-* :func:`select_headline` picks the outcome a completed session should report
-  when trailing steps failed verification;
-* :func:`recorded_step_verdict` content-checks a hand-recorded ``Eq(a, b)``;
-* :func:`equation_identity` reports whether an operation's equation input is an
-  identity (auxiliary information only);
-* :func:`is_numerically_zero` (re-exported from
-  :mod:`symkit.domain.numeric_evidence`) / :func:`evaluate_pending` are the
-  shared symbolic-residual predicates, and :func:`symbol_names` /
-  :func:`candidate_names` name the symbols an outcome selection compares.
+:mod:`symkit.domain.step_verifier`: headline selection, content-checking of a
+hand-recorded ``Eq(a, b)``, identity reporting, numeric-residual predicates and
+definite-integral verdicts.
 """
 
 from __future__ import annotations
@@ -39,12 +31,9 @@ if TYPE_CHECKING:
 def evaluate_pending(expr: sp.Basic) -> sp.Basic:
     """Evaluate unevaluated operations (``Derivative``/``Integral``/``Sum``).
 
-    ``doit()`` first: a ``simplify`` step over an unevaluated derivative only
-    reduces to zero once the derivative is evaluated (task-15 step 12).  A
-    ``Subs`` node is exempt — ``doit()`` drops its binding and fabricates a
-    phantom difference between identical expressions (task-08 steps 8/9) — so
-    surviving ``Subs`` forms are canonicalised with
-    :func:`canonicalize_dummies`.
+    ``doit()`` runs first (task-15 step 12).  A ``Subs`` node is exempt —
+    ``doit()`` drops its binding and fabricates a phantom difference (task-08) —
+    so surviving ``Subs`` forms are canonicalised with :func:`canonicalize_dummies`.
     """
     if expr.has(sp.Subs):
         return canonicalize_dummies(expr)
@@ -58,9 +47,8 @@ def evaluate_pending(expr: sp.Basic) -> sp.Basic:
 def canonicalize_dummies(expr: sp.Basic) -> sp.Basic:
     """Give every ``Dummy`` a name-derived, deterministic ``dummy_index``.
 
-    Two identical ``Subs`` bindings produced independently carry different
-    anonymous dummies that SymPy 1.14 does not cancel in a difference; a
-    shared index makes the forms compare equal without changing the math.
+    Independently built identical ``Subs`` bindings carry different anonymous
+    dummies that SymPy 1.14 does not cancel; a shared index compares equal.
     """
     mapping = {
         dummy: sp.Dummy(dummy.name, dummy_index=_dummy_index_for(dummy.name))
@@ -77,10 +65,9 @@ def _dummy_index_for(name: str) -> int:
 def equations_equivalent(left_diff: sp.Basic, right_diff: sp.Basic) -> bool:
     """Whether two equations differ only by a nonzero constant factor.
 
-    ``sympy.simplify`` normalizes an equation by moving everything to one side
-    and dividing by the leading coefficient: ``Eq(2*x, 3*x)`` comes back as
-    ``Eq(x, 0)`` with the difference flipped in sign. Comparing the differences
-    for exact equality called the tool's own output a failed step (r17 audit5).
+    ``sympy.simplify`` normalizes an equation by dividing by its leading
+    coefficient (``Eq(2*x, 3*x)`` -> ``Eq(x, 0)``, sign flipped); exact
+    comparison called the tool's own output a failed step (r17 audit5).
     """
     if right_diff == 0 or left_diff == 0:
         return bool(sp.simplify(left_diff) == 0 and sp.simplify(right_diff) == 0)
@@ -91,12 +78,10 @@ def equations_equivalent(left_diff: sp.Basic, right_diff: sp.Basic) -> bool:
 def equation_identity(expr: sp.Equality) -> dict[str, Any]:
     """Whether an operation's equation input is an identity, with its difference.
 
-    Three-state: ``True`` only when the reduced difference is *exactly* zero,
-    ``False`` when rational substitution confirms it is nonzero, ``None``
-    (``UNKNOWN``) when it neither reduces nor is falsified — unproven, not false
-    (task-17).  Sampling never certifies an identity (r18): a difference that
-    merely agrees with zero at sampled points stays ``UNKNOWN`` and reports that
-    agreement as evidence, because branch-cut identities such as
+    Three-state: ``True`` on an *exact* reduced zero, ``False`` when rational
+    substitution confirms nonzero, ``None`` (``UNKNOWN``) otherwise — unproven,
+    not false (task-17).  Sampling never certifies an identity (r18): agreement
+    at sample points stays ``UNKNOWN``, because branch-cut identities such as
     ``sqrt(a*b) == sqrt(a)*sqrt(b)`` hold on the positive reals yet fail for
     complex ``a``, ``b``.
     """
@@ -123,11 +108,10 @@ def equation_identity(expr: sp.Equality) -> dict[str, Any]:
 def _reduce_identity_difference(diff: sp.Basic) -> sp.Basic:
     """Reduce an identity residual, adding trig expansions plain ``simplify`` misses.
 
-    ``simplify(cos(6*x) - (32*cos(x)**6 - ...))`` does not expand ``cos(6*x)``,
-    so a true identity looked nonzero (task-17 step 15).  ``expand(..., trig=True)``
-    and ``trigsimp`` are tried once each; the first that reaches an *exact* zero
-    is returned.  Only an exact zero certifies an identity (r18) — a candidate
-    that merely samples to zero cannot promote the residual.
+    ``simplify`` does not expand ``cos(6*x)``, so a true identity looked nonzero
+    (task-17 step 15).  ``expand(..., trig=True)``/``trigsimp`` are tried once
+    each; only an *exact* zero is returned — a candidate that merely samples to
+    zero cannot promote the residual (r18).
     """
     for candidate in (sp.expand(diff, trig=True), sp.trigsimp(diff)):
         reduced = sp.simplify(candidate)
@@ -139,29 +123,47 @@ def _reduce_identity_difference(diff: sp.Basic) -> sp.Basic:
 _DERIVATIVE_VACUOUS_MESSAGE = (
     "Recorded equation is not verified: its derivative terms evaluate to zero on plain symbols"
     " (no functional dependence declared), so both sides collapse to 0 and the identity check"
-    " is vacuous — unverified, not verified. Declare fields as functions of their variables"
-    " (e.g. u_t_i(t, x_i)) or record the equation's meaning in notes."
+    " is vacuous — unverified, not verified. Declare fields as functions of their variables (e.g."
+    " u_t_i(t, x_i)) or record the equation's meaning in notes."
 )
 
 _DEFINITION_NOT_IDENTITY_MESSAGE = (
-    "Recorded equation is not verified: the left side is a name that does not occur on the"
-    " right, so this reads as a definition or naming convention, which is not checkable as an"
-    " identity. The sides nevertheless differ by {diff} at tested points. Record a definition"
-    " as its right-hand expression or in notes; a derived identity needs sides that share"
-    " symbols."
+    "Recorded equation is not verified: {shape}, so this reads as a definition or naming"
+    " convention, which is not checkable as an identity. The sides nevertheless differ by"
+    " {diff} at tested points. Record a definition as its right-hand expression or in"
+    " notes; a derived identity needs sides that share symbols."
+)
+
+_UNEVALUATED_DIFFERENCE_MESSAGE = (
+    "Recorded equation is not verified: the difference contains an unevaluated function"
+    " application or operation ({terms}) — boundary conditions and model data are not"
+    " checkable as identities; record them as notes or leave the function undefined."
 )
 
 
-def _is_definition_shape(expr: sp.Equality) -> bool:
-    """A bare-name LHS absent from the RHS — a naming convention, not an identity claim.
+def _definition_shape(expr: sp.Equality) -> str | None:
+    """Definitional-closure wording, or ``None`` for an identity claim.
 
-    ``E_t == e_t + u_t_i**2/2 + k_t`` names a quantity; an identity check would only
-    measure the name against its own expansion (field report 26e9028b).
+    A definitional closure names a new quantity the left side lacks: the
+    bare-name case ``E_t == e_t + ...`` or the compound case
+    ``rho_b*u_t_i == rho_b*u_b_i + m_i`` (task-07), where the RHS introduces
+    unknowns the LHS does not carry.
     """
-    return bool(
-        isinstance(expr.lhs, sp.Symbol)
-        and str(expr.lhs) not in {str(s) for s in expr.rhs.free_symbols}
-    )
+    lhs_symbols = {str(s) for s in expr.lhs.free_symbols}
+    introduced = sorted(str(s) for s in expr.rhs.free_symbols if str(s) not in lhs_symbols)
+    if introduced:
+        return f"the right side introduces {', '.join(introduced)}, absent from the left"
+    if isinstance(expr.lhs, sp.Symbol) and str(expr.lhs) not in lhs_symbols:
+        return "the left side is a name absent from the right"
+    return None
+
+
+def _unevaluated_terms(diff: sp.Basic) -> str:
+    """Unevaluated applications/operations in a zero-free-symbol difference; ``""`` is a constant."""
+    from sympy.core.function import AppliedUndef
+
+    terms = diff.atoms(AppliedUndef) | diff.atoms(sp.Integral, sp.Derivative, sp.Sum)
+    return ", ".join(sorted(str(term) for term in terms))
 
 
 def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, str]:
@@ -169,13 +171,11 @@ def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, st
 
     A recorded ``Eq(a, b)`` is content-checked on ``a - b``: an *exact* zero
     verifies, rational-substitution-nonzero fails (disproven), anything else
-    stays inconclusive — unproven, not disproven.  Sampling must not certify a
-    recorded identity (r18); a trig-aware reduction runs first (task-17).  Two
-    shapes are exempt from the falsification branches because there the check
-    cannot mean anything: a definition (bare-name LHS absent from the RHS) is
-    true by fiat, and an equation whose derivatives all collapse to zero on
-    plain symbols verifies nothing (every such equation would "pass").
-    Non-equation outputs keep their truth-value or "no verification" verdict.
+    stays inconclusive — unproven, not disproven.  Sampling never certifies a
+    recorded identity (r18).  Exempt from the falsification branches, because
+    there the check cannot mean anything: a definitional closure (the RHS names
+    a symbol the LHS lacks), a derivative equation whose terms collapse to zero,
+    and a zero-free-symbol difference that is an unevaluated application.
     """
     if isinstance(expr, sp.Equality):
         lhs_eval = evaluate_pending(expr.lhs)
@@ -190,11 +190,18 @@ def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, st
         if diff == 0:
             return VerificationStatus.VERIFIED, "Identity verified: both sides are equal"
         if not diff.free_symbols:
+            terms = _unevaluated_terms(diff)
+            if terms:
+                return (
+                    VerificationStatus.INCONCLUSIVE,
+                    _UNEVALUATED_DIFFERENCE_MESSAGE.format(terms=terms),
+                )
             return VerificationStatus.FAILED, f"Equation is false: the sides differ by {diff}"
-        if _is_definition_shape(expr):
+        shape = _definition_shape(expr)
+        if shape is not None:
             return (
                 VerificationStatus.INCONCLUSIVE,
-                _DEFINITION_NOT_IDENTITY_MESSAGE.format(diff=diff),
+                _DEFINITION_NOT_IDENTITY_MESSAGE.format(shape=shape, diff=diff),
             )
         if numeric_residual_verdict(diff) is True:
             return (
@@ -252,10 +259,9 @@ def extract_order_from_command(command: str) -> int:
 def matching_variable(name: str, *expressions: sp.Basic) -> sp.Symbol:
     """The symbol named ``name`` as it occurs in ``expressions``.
 
-    Verification must differentiate/integrate with respect to the *same* symbol
-    object the archived expression carries.  A bare ``sp.Symbol(name)`` is a
-    different object once assumptions apply, so the derivative silently becomes
-    zero (task-09: ``d/dV log(V)`` reported as ``0``).
+    Verification must use the *same* symbol object the archive carries: a bare
+    ``sp.Symbol(name)`` differs once assumptions apply, silently zeroing the
+    derivative (task-09: ``d/dV log(V)`` reported as ``0``).
     """
     for expression in expressions:
         for symbol in expression.free_symbols:
@@ -269,12 +275,10 @@ def reverse_integration_operands(
 ) -> tuple[sp.Symbol, sp.Basic] | None:
     """Resolve ``(variable, expected integrand)`` for reverse differentiation.
 
-    An inert indefinite ``Integral(f, x)`` input (the engine evaluated it into
-    the antiderivative) is checked against its integrand ``f``, not the wrapper.
-    An omitted command variable (``integrate(expr, None)``) falls back to the
-    engine's default, inferred from the expression when unambiguous (r16
-    task-06 step 33: a correct erfi antiderivative was FAILED against its own
-    ``Integral`` wrapper).  ``None`` means the variable could not be resolved.
+    An inert indefinite ``Integral(f, x)`` input is checked against its
+    integrand ``f``, not the wrapper.  An omitted command variable
+    (``integrate(expr, None)``) falls back to the engine's default when
+    unambiguous (r16 task-06 step 33).  ``None`` means unresolvable.
     """
     if (
         isinstance(input_expr, sp.Integral)
@@ -304,11 +308,9 @@ def _unreduced_phrase(residual: sp.Basic) -> str:
     """Honest wording for a nonzero residual in a non-asserted operator step.
 
     The referent is named explicitly — *the input's* form ``A - B`` — because the
-    old text said only "the difference", which the operator could read as a
-    residual the tool invented (r19 F1).  A constant residual was decided by
-    exact arithmetic, not by sampling: it is reported as its exact value.  Saying
-    "numerically nonzero at tested points" of a constant (r18 audit5) invented
-    sampling evidence that never existed.
+    old text said only "the difference", which could read as a tool-invented
+    residual (r19 F1).  A constant residual was decided by exact arithmetic and
+    is reported by value; claiming sampling for it invented evidence (r18 audit5).
     """
     if residual.free_symbols:
         return (
@@ -330,11 +332,10 @@ def classify_suspect_identity(
 ) -> tuple[str, str]:
     """Grade a nonzero identity residual: numerically false vs merely unproven.
 
-    Returns ``(kind, phrase)``.  A plain operator step over a difference form
-    (``A - B``) never *asserts* an identity — the user may simply be asking for
-    a simplification — so it is never graded ``"numeric"``/FALSE, only
-    ``"unreduced"``.  Only an explicit equation assertion (``asserted=True``)
-    may be confirmed false by rational substitution, and its wording says so.
+    Returns ``(kind, phrase)``.  A plain operator step over ``A - B`` never
+    *asserts* an identity, so it is never graded ``"numeric"``/FALSE, only
+    ``"unreduced"``.  Only an explicit assertion (``asserted=True``) may be
+    confirmed false by rational substitution, and its wording says so.
     """
     numeric = numeric_residual_verdict(residual)
     if asserted and numeric is True:
@@ -359,11 +360,10 @@ def boolean_equation_verdict(
     """Verdict for an operator that collapsed an asserted equation to a boolean.
 
     An *exact* symbolic zero verifies the identity; sampling cannot certify it
-    (r18 — see :func:`equation_identity`).  A residual that rational
-    substitution confirms nonzero is an *asserted* identity that does not hold,
-    so the step FAILS and carries ``suspect_identity: "numeric"`` — status and
-    wording agree (task-17).  Anything else stays INCONCLUSIVE, since the
-    verifier cannot see the assumptions that made the operator return ``True``.
+    (r18).  A residual that rational substitution confirms nonzero is an
+    *asserted* identity that does not hold, so the step FAILS and carries
+    ``suspect_identity: "numeric"`` (task-17).  Anything else is INCONCLUSIVE,
+    since the verifier cannot see the assumptions behind a ``True`` return.
     """
     diff = sp.simplify(expr.lhs - expr.rhs)
     if diff == 0:
@@ -391,12 +391,10 @@ _CLAIM_EQ = re.compile(r"^\s*Eq\s*\((.*)\)\s*$", re.DOTALL)
 
 
 def equation_claim_sides(text: str) -> tuple[str, str] | None:
-    """Split a recorded explicit equation claim into its two side strings.
+    """Split a recorded ``Eq(lhs, rhs)`` / ``lhs = rhs`` claim into its sides.
 
-    Recognises the ``Eq(lhs, rhs)`` and ``lhs = rhs`` recorded forms and returns
-    ``None`` for an ordinary expression.  The sides are returned as written,
-    never re-parsed here, so the caller binds their symbols with its own
-    assumption-aware parser (r19 F9).
+    Returns ``None`` for an ordinary expression.  Sides are returned as written,
+    never re-parsed, so the caller binds symbols with its assumption-aware parser.
     """
     stripped = text.strip()
     match = _CLAIM_EQ.match(stripped)
@@ -432,11 +430,9 @@ def asserted_equation_verdict(
     """Verdict for a boolean-collapsed step that archived an explicit equation.
 
     An operator that collapsed an asserted ``A = B`` to a boolean must be judged
-    on the claim, not on the boolean it happened to preserve: a DISPROVEN
-    equation otherwise read as a green "boolean value preserved" step (r19 F9).
-    Runs the :func:`boolean_equation_verdict` semantics on the recovered claim —
-    a true claim verifies, a claim rational substitution confirms false FAILS
-    with ``suspect_identity: "numeric"``, anything else stays INCONCLUSIVE.
+    on the claim, not on the boolean it preserved — a DISPROVEN equation
+    otherwise read as a green "boolean value preserved" step (r19 F9).  Runs
+    :func:`boolean_equation_verdict` on the recovered claim.
     """
     status, message, details = boolean_equation_verdict(
         operation, sp.Eq(lhs, rhs, evaluate=False)
@@ -471,10 +467,10 @@ def residual_verdict(residual: sp.Basic) -> VerificationStatus:
 def definite_integral_variables(expr: sp.Basic) -> set[sp.Symbol]:
     """Bound variables of ``Integral`` nodes that carry explicit limits.
 
-    An indefinite integral has a single-element limit tuple ``(x,)``; a
-    definite one has ``(x, lo, hi)``.  Only the latter need the numeric path in
+    An indefinite integral has ``(x,)``; a definite one ``(x, lo, hi)``.  Only
+    the latter need the numeric path in
     :meth:`StepVerifier._verify_integration`: reverse differentiation is invalid
-    there because a definite integral does not depend on its bound variable.
+    because a definite integral does not depend on its bound variable.
     """
     variables: set[sp.Symbol] = set()
     for integral in expr.atoms(sp.Integral):
@@ -490,8 +486,8 @@ def numeric_integral_verdict(input_expr: sp.Basic, output_expr: sp.Basic) -> tup
     """Recompute a definite integral and compare numerically with the stated value.
 
     A disagreement stays INCONCLUSIVE, never FAILED (quadrature probes can
-    mislead).  The recomputation evaluates unevaluated ``Integral`` nodes first,
-    because ``sp.N`` leaves a nested symbolic-bound integral inert (task-06).
+    mislead).  Unevaluated ``Integral`` nodes are evaluated first, because
+    ``sp.N`` leaves a nested symbolic-bound integral inert (task-06).
     """
     try:
         expected = complex(sp.N(evaluate_pending(input_expr), 20))
@@ -505,7 +501,8 @@ def numeric_integral_verdict(input_expr: sp.Basic, output_expr: sp.Basic) -> tup
         return VerificationStatus.VERIFIED, "Definite integral verified by numeric quadrature"
     return (
         VerificationStatus.INCONCLUSIVE,
-        "Numeric quadrature disagrees with the stated definite-integral result",
+        "Numeric quadrature could not confirm the stated result; oscillatory or "
+        "slowly convergent integrands can mislead quadrature",
     )
 
 
@@ -554,9 +551,8 @@ def _step_failed(step: DerivationStep) -> bool:
 def select_headline(steps: Sequence[DerivationStep]) -> tuple[str | None, bool]:
     """Last non-failed step output, and whether failed steps were skipped.
 
-    Walks backwards past failed steps and empty steps; a symbolic output is
-    preferred over a trailing numeric probe, the most recent non-failed output
-    is the fallback.  Returns ``(None, ...)`` when every step failed.
+    Walks backwards past failed and empty steps, preferring a symbolic output
+    over a trailing numeric probe.  ``(None, ...)`` when every step failed.
     """
     skipped_failed = False
     fallback: str | None = None
@@ -583,8 +579,8 @@ def headline_fallback(
 ) -> tuple[sp.Basic | None, dict[str, Any]]:
     """Outcome after skipping failed steps, plus the response fields to report.
 
-    Returns ``(current, {})`` unchanged when no failed step was skipped, so a
-    session without a failed step keeps its historical response exactly.
+    ``(current, {})`` unchanged when no failed step was skipped, so a session
+    without a failed step keeps its historical response exactly.
     """
     headline, skipped = select_headline(steps)
     if not skipped or headline is None:

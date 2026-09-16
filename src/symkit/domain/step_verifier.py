@@ -66,10 +66,8 @@ class StepVerifier:
     ) -> VerificationResult:
         """Verify a single derivation step.
 
-        Args:
-            step: The step to verify.
-            prior_expr: The step's input expression (preferred); otherwise parsed from step.input_expressions.
-            assumption_engine: The session's assumption engine, for assumption-awareness and conflict detection.
+        ``prior_expr`` is preferred over re-parsing ``step.input_expressions``;
+        ``assumption_engine`` supplies assumptions and conflict detection.
         """
         from symkit.domain.derivation_session import OperationType
 
@@ -196,9 +194,8 @@ class StepVerifier:
     ) -> sp.Basic | None:
         """Rebuild an archived expression, preferring the machine-readable srepr.
 
-        Display strings do not always round-trip (``str(E)``/``str(I)`` parse
-        back to protected Symbols), so re-parsing produced false FAILED verdicts
-        (invariant I2). Legacy records fall back to the string parse.
+        Display strings do not round-trip (``str(E)``/``str(I)`` parse back to
+        protected Symbols), so re-parsing produced false FAILED verdicts (I2).
         """
         if srepr_str:
             from symkit.domain.expr_io import safe_load_expression
@@ -215,8 +212,7 @@ class StepVerifier:
     ) -> sp.Basic:
         """Bind assumptions onto the free symbols of an srepr-loaded object.
 
-        Archived symbols may predate the session's assumptions; only free
-        symbols are rebound, so constants are never touched.
+        Archived symbols may predate the assumptions; constants are untouched.
         """
         return apply_assumptions(expr, assumptions)
 
@@ -265,12 +261,7 @@ class StepVerifier:
         expression: str,
         assumptions: dict[str, dict[str, bool]],
     ) -> dict[str, sp.Symbol]:
-        """Symbol table for parsing ``expression`` under ``assumptions``.
-
-        Only free symbol names are bound, via the shared
-        :func:`resolve_assumed_symbol` constructor (invariant I3).
-        """
-        # First pass: parse without assumptions, only to collect symbol names
+        """Symbol table for ``expression``: free names bound under the assumptions."""
         try:
             first_pass, _ = parse_expression_string(
                 expression,
@@ -288,10 +279,11 @@ class StepVerifier:
     def _assumed_symbol(
         self, name: str, assumptions: dict[str, dict[str, bool]]
     ) -> sp.Symbol:
-        """Build ``name`` as a Symbol carrying the same assumptions used to
-        parse the step input, so ``subs`` actually matches the input symbols
-        (a bare ``sp.Symbol(name)`` is a different object when assumptions
-        apply and the substitution silently becomes a no-op)."""
+        """A Symbol carrying the assumptions used to parse the step input.
+
+        A bare ``sp.Symbol(name)`` is a different object when assumptions apply,
+        so ``subs`` silently becomes a no-op.
+        """
         return resolve_assumed_symbol(name, assumptions.get(name, {}))
 
     def _verify_equality(
@@ -486,6 +478,17 @@ class StepVerifier:
             )
 
         var_sym, expected = operands
+        # An unevaluated ``Integral(f, x)`` output is the request itself back; ``sp.diff`` is trivial.
+        if isinstance(output_expr, sp.Integral) and output_expr == sp.Integral(
+            expected, var_sym
+        ):
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message=(
+                    "integral could not be evaluated in closed form; the result is left unevaluated,"
+                    " so the reverse check is trivially true — no verification"
+                ),
+            )
         return self._reverse_differentiation_verdict(
             sp.diff(output_expr, var_sym), expected
         )
@@ -529,10 +532,7 @@ class StepVerifier:
         output_expr: sp.Basic,
         assumptions: dict[str, dict[str, bool]],
     ) -> VerificationResult:
-        """Verify a definite integral by numeric quadrature with valued parameters.
-
-        Disagreement yields INCONCLUSIVE, never FAILED (run-011).
-        """
+        """Verify a definite integral by numeric quadrature; disagreement stays INCONCLUSIVE (run-011)."""
         if input_expr == output_expr:
             # An inert Integral returned unchanged: quadrature would compare the
             # expression with itself and certify nothing (task-02).
@@ -737,8 +737,7 @@ class StepVerifier:
     ) -> VerificationResult:
         """Verify a limit by numeric spot-checks near the point.
 
-        A disagreeing probe yields INCONCLUSIVE, never FAILED: probing can
-        mislead for slowly-converging limits.
+        A disagreeing probe yields INCONCLUSIVE, never FAILED (probes mislead).
         """
         match = re.search(r"limit\(expr,\s*(\w+),\s*([^)]+)\)", step.sympy_command)
         if not match:

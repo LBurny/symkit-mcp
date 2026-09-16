@@ -15,11 +15,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import sympy as sp
+
 from symkit.domain.derivation_session import (
     DerivationSession,
     DerivationStep,
     OperationType,
 )
+from symkit.domain.final_result import recorded_step_verdict
+from symkit.domain.value_objects import VerificationStatus
 
 
 def _record(session: DerivationSession, text: str, description: str = "hand") -> DerivationStep:
@@ -146,6 +150,61 @@ class TestDefinitionShapedEquations:
         step = _record(session, "x - y = 0")
         payload = _payload(step)
         assert payload["status"] == "failed"
+
+    def test_compound_lhs_definition_is_inconclusive(self) -> None:
+        # task-07: rho_b*u_t_i == rho_b*u_b_i + m_i is a Favre decomposition
+        # introducing the new unknown m_i.  A compound LHS is still a
+        # definitional closure when the RHS names symbols absent from the LHS.
+        session = _session()
+        step = _record(session, "rho_b*u_t_i == rho_b*u_b_i + m_i")
+        payload = _payload(step)
+        assert payload["status"] == "inconclusive"
+        assert "definition" in payload["message"]
+        assert "disproven" not in payload["message"]
+
+    def test_compound_lhs_message_names_introduced_symbols(self) -> None:
+        session = _session()
+        step = _record(session, "rho_b*u_t_i == rho_b*u_b_i + m_i")
+        message = _payload(step)["message"]
+        assert "m_i" in message
+        assert "u_b_i" in message
+        assert "share" in message and "symbols" in message
+        assert "u_t_i" in message  # difference still disclosed
+
+    def test_rhs_introducing_nothing_new_stays_disproven(self) -> None:
+        # guard: both sides describe the same symbols, so the check is real.
+        session = _session()
+        step = _record(session, "(a+b)**2 = a**2 + b**2")
+        assert _payload(step)["status"] == "failed"
+
+
+class TestUnevaluatedApplications:
+    """An unevaluated application has no free symbols but is not a constant.
+
+    Recording the boundary condition ``f(0) == 0`` was judged FAILED ("the
+    sides differ by f(0)"): ``f(0)`` carries no free symbols, so the constant
+    branch treated it as a numeric value.  An unevaluated function application,
+    integral, derivative or sum is not a checkable constant.
+    """
+
+    def test_boundary_condition_is_inconclusive(self) -> None:
+        session = _session()
+        step = _record(session, "f(0) == 0")
+        payload = _payload(step)
+        assert payload["status"] == "inconclusive"
+        assert "unevaluated" in payload["message"]
+        assert "f(0)" in payload["message"]
+
+    def test_boundary_condition_against_constant_is_inconclusive(self) -> None:
+        session = _session()
+        step = _record(session, "g(0) == 1")
+        assert _payload(step)["status"] == "inconclusive"
+
+    def test_constant_contradiction_stays_failed(self) -> None:
+        # guard: a genuinely constant difference keeps the numeric-FAILED branch.
+        status, message = recorded_step_verdict(sp.Eq(5, 7, evaluate=False))
+        assert status == VerificationStatus.FAILED
+        assert "false" in message.lower()
 
 
 class TestDerivativeEquationVacuity:

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from symkit.domain.assumption_engine import AssumptionLevel
+from symkit.domain.assumption_engine import AssumptionLevel, validate_assumption_clause
 from symkit.domain.value_objects import MathContext
 from symkit_mcp.tools._state import get_context, get_session, set_context
 
@@ -63,6 +63,14 @@ def register_assumption_tools(mcp: Any) -> None:
                 "error": "Arguments must be alternating symbol and property "
                 "strings, e.g. \"x positive y real\".",
             }
+
+        # All-or-nothing: an assumption SymPy cannot express (e.g. an inequality
+        # like "abs(v) < c") is refused up front, never dropped while the call
+        # reports success (r21 G13).
+        for i in range(0, len(tokens), 2):
+            error = validate_assumption_clause(tokens[i], tokens[i + 1].split())
+            if error is not None:
+                return {"success": False, "error": error}
 
         for i in range(0, len(tokens), 2):
             symbol = tokens[i]

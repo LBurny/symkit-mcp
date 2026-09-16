@@ -69,10 +69,8 @@ _UNICODE_REPLACEMENTS: dict[str, str] = {
     "≈": "~", "≡": "==", "√": "sqrt", "'": "_prime", "^": "**",
 }
 
-_SUPERSCRIPTS: dict[str, str] = {
-    "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
-    "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
-}
+_SUPERSCRIPT_RE: re.Pattern[str] = re.compile("[⁰¹²³⁴⁵⁶⁷⁸⁹]+")
+_SUPERSCRIPT_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 
 _SUBSCRIPTS: dict[str, str] = {
     "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
@@ -189,6 +187,12 @@ _CONSTANT_NAMES: frozenset[str] = frozenset({
     "TribonacciConstant",
 })
 
+# Reserved names whose *call site* must not keep native SymPy semantics:
+# ``S`` is the SingletonRegistry and ``N`` the evalf shortcut, both of which
+# return their argument (``S(x)`` -> ``Symbol('x')``, task-01 G7). Bare use
+# still binds a Symbol via ``_RESERVED_NAMES``.
+_SINGLETON_CALL_NAMES: tuple[str, ...] = ("S", "N")
+
 # Vector calculus operators that should be treated as user-defined symbolic
 # functions rather than native SymPy names. For example, ``div`` is polynomial
 # division in SymPy, and ``curl`` / ``laplacian`` only exist in ``sympy.vector``.
@@ -249,20 +253,33 @@ _HTML_OPERATOR_ERROR = (
     "HTML-escaped operators (e.g. &gt;) are not supported; write > < = directly."
 )
 
+# SymPy's ``auto_number`` expands a complex literal ``1j`` to the *name* ``I``,
+# which the reserved-name protection binds to ``Symbol('I')`` — so
+# ``1j - I`` folded to ``0`` (task-01 G8). Rewrite it to a private placeholder
+# name bound to the imaginary unit (``ImaginaryUnit`` is not importable as a
+# bare name), which no reserved or native binding can capture.
+_COMPLEX_UNIT_NAME = "_symkit_I"
+_COMPLEX_LITERAL_RE: re.Pattern[str] = re.compile(
+    r"(?<![A-Za-z0-9_.])(\d[\d_]*(?:\.\d*)?(?:[eE][+-]?\d+)?|\.\d+)[jJ](?![A-Za-z0-9_])"
+)
+
 
 def preprocess_unicode(expr_str: str) -> str:
     """Convert Unicode math characters to SymPy-compatible ASCII.
 
-    Handles Greek letters, superscripts/subscripts, and common math symbols.
+    Superscripts become powers ("x²" -> "x**2", multi-digit groups too);
+    subscripts stay name characters ("x₁" -> "x1"); "√" gets parenthesized.
     """
-    result = expr_str
-    for src, dst in _SUPERSCRIPTS.items():
-        result = result.replace(src, dst)
+    result = _SUPERSCRIPT_RE.sub(
+        lambda m: "**" + m.group(0).translate(_SUPERSCRIPT_DIGITS), expr_str
+    )
+    result = re.sub(r"√\s*\(([^()]*)\)", r"sqrt(\1)", result)
+    result = re.sub(r"√\s*([A-Za-z0-9_.]+)", r"sqrt(\1)", result)
     for src, dst in _SUBSCRIPTS.items():
         result = result.replace(src, dst)
     for src, dst in _UNICODE_REPLACEMENTS.items():
         result = result.replace(src, dst)
-    return result
+    return _COMPLEX_LITERAL_RE.sub(r"\1*" + _COMPLEX_UNIT_NAME, result)
 
 
 def preprocess_vector_calculus(expr_str: str) -> str:
@@ -288,10 +305,9 @@ def preprocess_vector_calculus(expr_str: str) -> str:
 def preprocess_diff_to_derivative(expr_str: str) -> str:
     """Convert ``diff(X, Y)`` calls into ``Derivative(X, Y)``.
 
-    SymPy's ``diff(Symbol, t)`` returns ``0``, which is surprising when users
-    write PDEs such as ``diff(u, t) + div(rho*u) = 0``. By rewriting to the
-    unevaluated ``Derivative`` form, the differential term is preserved for
-    symbolic derivation and display.
+    SymPy's ``diff(Symbol, t)`` returns ``0``, which is surprising for PDEs
+    such as ``diff(u, t) + div(rho*u) = 0``; the unevaluated ``Derivative``
+    form preserves the differential term for derivation and display.
     """
     return re.sub(r"\bdiff\s*\(", "Derivative(", expr_str)
 
@@ -429,28 +445,28 @@ def _merge_caller_local_dict(
 def _build_local_dict(expr: str) -> dict[str, Any]:
     """Build a ``local_dict`` that protects reserved names used as variables."""
     local_dict: dict[str, Any] = {}
+    if _COMPLEX_UNIT_NAME in expr:
+        local_dict[_COMPLEX_UNIT_NAME] = sp.I
     for name in _RESERVED_NAMES:
         if _name_used_as_variable(expr, name):
             local_dict[name] = sp.Symbol(name)
+        elif name in _SINGLETON_CALL_NAMES and _func_pattern(name).search(expr):
+            # ``S`` (SingletonRegistry) / ``N`` (evalf) evaluate a call site to
+            # its argument, collapsing ``S(x)`` to Symbol('x') (task-01 G7).
+            local_dict[name] = sp.Function(name)
     return local_dict
 
 
 def build_reserved_local_dict(expr: str) -> dict[str, Any]:
-    """Public alias for building a reserved-name ``local_dict``.
-
-    Exposed so other parsers (e.g. ``FormulaParser``) can reuse the same
-    reserved-name protection list without duplicating it.
-    """
+    """Public alias for a reserved-name ``local_dict`` (e.g. ``FormulaParser``)."""
     return _build_local_dict(expr)
 
 
 def _build_vector_calculus_local_dict(expr: str) -> dict[str, Any]:
-    """Build a ``local_dict`` that protects vector-calculus names.
+    """``local_dict`` protecting vector-calculus names.
 
-    Names used as function calls (e.g. ``div(rho*u)``) become SymPy
-    ``Function`` objects so they are not hijacked by native SymPy semantics
-    such as polynomial division. Bare names (e.g. ``nabla`` used as a scalar
-    multiplier) become Symbols.
+    Call sites (``div(rho*u)``) become ``Function``s the native semantics
+    (polynomial division) must not hijack; bare names (``nabla``) Symbols.
     """
     local_dict: dict[str, Any] = {}
     for name in _VECTOR_CALCULUS_NAMES:
@@ -471,10 +487,8 @@ _UNDEFINED_FUNC_EXCLUDES: frozenset[str] = (
 def _convert_equals_to_eq(expr_str: str) -> str:
     """Convert a single ``A = B`` into ``Eq(A, B)``.
 
-    Leaves alone:
-    - ``==``, ``<=``, ``>=``, ``!=``
-    - Already wrapped calls like ``Eq(...)``, ``Ne(...)``, etc.
-    - Multiple ``=`` signs (let the parser surface the error)
+    Leaves ``==``/``<=``/``>=``/``!=`` alone, an already-wrapped ``Eq(...)``
+    call, and multiple ``=`` signs (the parser surfaces the error).
     """
     stripped = expr_str.strip()
     if stripped.startswith((
@@ -518,14 +532,13 @@ def _split_eq_args(expr_str: str) -> tuple[str, str] | None:
 
 
 def _parse_unevaluated(expr: str, local_dict: dict[str, Any]) -> Any:
-    """Parse with ``evaluate=False``, tolerating SymPy's attribute-chain bug.
+    """Parse with ``evaluate=False``, tolerating the attribute-chain bug.
 
-    SymPy's ``EvaluateFalseTransformer.flatten`` assumes every operand of a
-    binary operation is a ``Name``/``Call`` and reads ``arg.id``; an attribute
-    method chain such as ``Matrix(...).inv() - Matrix(...).inv()`` therefore
-    raises ``AttributeError: 'Attribute' object has no attribute 'id'``.
-    Attribute chains have no unevaluated form, so fall back to normal
-    evaluation for the whole expression, or a flat sum too deep to transform.
+    SymPy's ``EvaluateFalseTransformer.flatten`` reads ``arg.id`` on every
+    binary operand, so an attribute chain such as
+    ``Matrix(...).inv() - Matrix(...).inv()`` raises ``AttributeError:
+    'Attribute' object has no attribute 'id'``; those chains have no
+    unevaluated form, so evaluation falls back to the normal path.
     """
     try:
         return parse_expr(
@@ -543,13 +556,10 @@ def _parse_unevaluated(expr: str, local_dict: dict[str, Any]) -> Any:
 def _evaluate_matrix_powers(expr: sp.Basic) -> sp.Basic:
     """Fold ``Matrix(...)**n`` powers the parser left as unevaluated ``Pow``.
 
-    ``parse_expr(evaluate=False)`` keeps a matrix power as a bare ``Pow`` whose
-    base is a ``MatrixBase``.  SymPy's assumption machinery then calls
-    ``base - 1`` while probing ``is_zero`` (e.g. for
-    ``Matrix**-1 - Matrix**-1``) and dies with ``unsupported operand type(s)
-    for +: 'ImmutableDenseMatrix' and 'int'``.  Evaluate integer powers here so
-    downstream operations always see a real matrix; unsupported powers fail
-    loud instead of crashing later.
+    A bare ``Pow`` over a ``MatrixBase`` makes SymPy's assumption probing call
+    ``base - 1`` and die (``unsupported operand type(s) for +:
+    'ImmutableDenseMatrix' and 'int'``); integer powers are evaluated here so
+    downstream operations see a real matrix, unsupported ones fail loud.
     """
     if not isinstance(expr, sp.Basic):
         return expr
@@ -680,14 +690,9 @@ def parse_expression_string(
 def _format_parse_error(exc: Exception) -> str:
     """Render a parse failure without leaking raw exception arg tuples.
 
-    ``tokenize.TokenError`` (not a SyntaxError subclass) stringifies to its
-    raw ``args`` tuple — e.g. ``('unexpected EOF in multi-line statement',
-    (1, 0))`` — which is meaningless to an agent (run-021).  Surface just the
-    message.
-
-    A Python ``SyntaxError`` (''cannot assign to function call'') is Python's
-    own diagnosis of prose handed in as math; it is framed as a math-parse
-    failure and the reason kept to its first sentence (r19 F21).
+    ``tokenize.TokenError`` stringifies to its raw ``args`` tuple (meaningless
+    to an agent, run-021); a Python ``SyntaxError`` is prose handed in as math
+    and is framed as a math-parse failure, reason kept to its first sentence.
     """
     if isinstance(exc, SyntaxError):
         reason = (exc.msg or "invalid syntax").split(".")[0].strip()
@@ -700,16 +705,12 @@ def _format_parse_error(exc: Exception) -> str:
 def _rationalize_unevaluated_divisions(expr: sp.Basic) -> sp.Basic:
     """Fold unevaluated numeric divisions into ``Rational`` factors.
 
-    ``parse_expr(..., evaluate=False)`` keeps Python divisions unevaluated, so
-    a fractional exponent like ``x**(1/6)`` carries an unevaluated
-    ``Mul(1, 1/6)`` exponent, and a coefficient like ``1/2*rho*...`` keeps
-    ``Integer(1) * Pow(Integer(2), -1)`` as separate Mul factors instead of
-    ``Rational(1, 2)``. Both forms block numeric evaluation and round-trip
-    identity (the ``Eq(...)`` fast path evaluates its sides and produces
-    ``Rational``). Numeric divisions are canonically ``Rational``; folding the
-    ``Integer * Integer**-1`` factor pair inside any Mul is value-preserving
-    and does not disturb deferred constructs such as unevaluated
-    ``Derivative`` nodes.
+    ``parse_expr(..., evaluate=False)`` keeps ``x**(1/6)`` as an unevaluated
+    ``Mul(1, 1/6)`` exponent and ``1/2*rho`` as ``Integer(1) * Pow(2, -1)``
+    factors; both block numeric evaluation and round-trip identity against
+    the evaluated ``Eq(...)`` fast path. Folding the ``Integer *
+    Integer**-1`` pair inside any Mul is value-preserving and leaves deferred
+    constructs (unevaluated ``Derivative``) alone.
     """
 
     def _pair(node: sp.Mul) -> tuple[sp.Integer, sp.Pow] | None:

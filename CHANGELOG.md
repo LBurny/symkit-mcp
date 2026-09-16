@@ -7,7 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+An operator-applicability round against a purpose-built lab
+(`symkit-mcp-test-r21`): a 92-assertion master battery across the whole
+`math()` operator surface plus 16 operator cards, and long derivations in six
+domains (compressible RANS/Favre, quantum harmonic oscillator, Maxwell wave
+equation, thermodynamic Maxwell relations, Kepler, Blasius, DC motor,
+Black-Scholes, Lotka-Volterra, relativity). All derivation lanes finished
+SUCCESS with clean discipline and zero crashes; 13 defect clusters were
+confirmed with reproduction probes and fixed.
+
 ### Fixed
+
+- Unicode superscripts and the radical sign no longer glue into identifiers.
+  `x²` parsed as the new symbol `x2` and `√2` as `sqrt2` (silently wrong,
+  success with no warning); a multi-character superscript such as `x¹⁰`
+  even cascaded into `x**1**0`. Superscripts now become grouped powers
+  (`x²` → `x**2`, `x¹⁰` → `x**10`) and `√` gets parenthesized (`√2` →
+  `sqrt(2)`, `√(x+1)` → `sqrt(x+1)`); subscripts keep naming symbols.
+- A definitional closure recorded with a compound left side
+  (`rho_b*u_t_i == rho_b*u_b_i + m_i`) no longer reads as "disproven". The
+  1.11.0 definition exemption covered only a bare-symbol LHS; an equation
+  whose right side introduces symbols absent from the left now reads as a
+  definition or naming convention and is judged inconclusive with the
+  difference still disclosed. Genuine wrong identities (`(a+b)**2 = a**2+b**2`,
+  `x - y = 0`, `1 = 2`) keep the full falsification check.
+- A boundary condition recorded as an equation (`f(0) == 0`) no longer reads
+  as "Equation is false: the sides differ by f(0)". An unevaluated function
+  application in the difference is not a checkable constant; the verdict is
+  inconclusive with that named.
+- An integral that could not be evaluated no longer gets a vacuous green.
+  `integrate(exp(sin(x)), x)` returned the unevaluated `Integral`, whose
+  derivative is trivially the integrand, so the step read as "Integration
+  verified by differentiation"; it now reports that the result is left
+  unevaluated and nothing was verified. `integrate(x**x, x)` also no longer
+  swallows an internal AttributeError: sympy cannot differentiate its
+  `NonElementaryIntegral` (the limits tuple), which silently dropped the
+  recorded step; the loader now normalizes it to a plain `Integral`.
+- The simplify operation evaluates pending derivatives before simplifying.
+  sympy 1.14's `Derivative(Add).doit()` yields an undistributed
+  `Mul(-1, Add(...))` that `simplify` does not flatten, so an exactly-zero
+  ODE residual (`diff(C1*sin(x)+C2*cos(x),x,2) + C1*sin(x)+C2*cos(x)`)
+  reproducibly stayed uncollapsed while the equation-identity channel proved
+  it zero.
+- A comma-separated `variable` is rejected with an actionable error instead
+  of silently returning 0 (`diff(x*y, variable="x, y")` used to answer `0`
+  because the list parsed as one symbol matching nothing). Vector operators
+  and solve keep their legitimate comma lists.
+- λ and other Unicode names are now normalized in the `variable` and
+  `with_respect_to` parameters, matching the expression side:
+  `diff(a*sin(b*λ), variable="λ")` returns the correct derivative instead of
+  0, with the same rename warning.
+- `S(x)` and `N(x)` parse as undefined functions applied to their arguments
+  instead of collapsing through sympy's singleton registry (`S(x)` used to
+  become plain `x`). `beta(x)`, `gamma(x)` and other real sympy functions
+  keep their native semantics; `O(x**2)` keeps Big-O.
+- `simplify("1j - I")` no longer returns `0`: sympy 1.14 expands the complex
+  literal `1j` into the name `1*I`, which captured the reserved-symbol
+  binding for `I`. Numeric complex literals are now bound to the imaginary
+  unit consistently with the documented `1j` convention.
+- Per-call assumptions that persist into the session are now disclosed: the
+  response carries `assumptions_effective` (the merged view actually applied)
+  and `assumptions_from_session` (names contributed by earlier calls), so a
+  conditional and an unconditional result are distinguishable on the wire.
+- Inequality-form assumptions (`abs(v) < c`) are rejected loudly instead of
+  being silently dropped with success:true; sympy assumptions cannot express
+  them, and the error names the notes/limitations alternative.
+- A recorded equation judged on numeric quadrature no longer says it
+  "disagrees" when the tool's own quadrature is what fails: oscillatory or
+  slowly convergent integrands (e.g. ∫₀^∞ sin(x)/x dx = π/2) now read
+  "quadrature could not confirm the stated result".
 
 - Parenthesized Leibniz derivatives no longer mis-parse into a silent garbage
   fraction. `∂` is normalized to `d` and the bare-symbol pattern only matched

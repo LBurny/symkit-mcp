@@ -26,6 +26,40 @@ class TestUnicodePreprocessing:
         assert error is None
         assert "Derivative(u, t)" in str(expr)
 
+    def test_superscript_after_symbol_is_a_power(self):
+        # r21: "x²" glued into the identifier "x2" — silently wrong. A
+        # superscript is a power, not a name character. (simplify-based
+        # equality: the parser preserves written arg order, so structural ==
+        # against a canonical Add is unreliable.)
+        expr, error = parse_expression_string("x² + 1")
+        assert error is None
+        assert sp.simplify(expr - (sp.Symbol("x")**2 + 1)) == 0
+
+    def test_superscript_after_number(self):
+        expr, error = parse_expression_string("10⁶")
+        assert error is None
+        assert sp.simplify(expr - 10**6) == 0
+
+    def test_sqrt_unicode_is_parenthesized(self):
+        # r21: "√2" glued into the identifier "sqrt2".
+        expr, error = parse_expression_string("√2")
+        assert error is None and sp.simplify(expr - sp.sqrt(2)) == 0
+
+    def test_sqrt_unicode_with_expression_argument(self):
+        expr, error = parse_expression_string("√(x + 1)")
+        assert error is None and sp.simplify(expr - sp.sqrt(sp.Symbol("x") + 1)) == 0
+
+    def test_sqrt_unicode_binds_tighter_than_multiplication(self):
+        expr, error = parse_expression_string("√a*b")
+        assert error is None
+        assert sp.simplify(expr - sp.sqrt(sp.Symbol("a"))*sp.Symbol("b")) == 0
+
+    def test_subscript_still_names_a_symbol(self):
+        # Subscripts name new variables (x₁ -> x1); only superscripts are powers.
+        expr, error = parse_expression_string("x₁**2 + y₂")
+        assert error is None
+        assert {str(s) for s in expr.free_symbols} == {"x1", "y2"}
+
 
 class TestLeibnizDerivatives:
     """Leibniz notation dX/dY is converted to Derivative(...)."""
@@ -54,13 +88,7 @@ class TestLeibnizDerivatives:
 
 
 class TestLeibnizParenthesizedNumerators:
-    """Parenthesized numerators ``d(expr)/dY`` must become Derivative (B13).
-
-    The bare-symbol regex left every ``d(...)`` numerator unmatched, so
-    ``∂(p*u1**2)/∂x1`` silently degraded to ``Function('d')(...)/Symbol('dx1')``
-    — a garbage fraction whose LaTeX rendering mimics a real derivative
-    (field report, compressible RANS derivation).
-    """
+    """Parenthesized ``d(expr)/dY`` numerators must become Derivative (B13)."""
 
     def test_bare_identifier_in_parens(self):
         assert preprocess_leibniz_derivatives("d(u1)/dx1") == "Derivative(u1, x1)"
@@ -69,10 +97,8 @@ class TestLeibnizParenthesizedNumerators:
         assert preprocess_leibniz_derivatives("d(p*u1**2)/dx1") == "Derivative(p*u1**2, x1)"
 
     def test_numerator_with_function_notation(self):
-        assert (
-            preprocess_leibniz_derivatives("d(p*u1(x1)**2)/dx1")
-            == "Derivative(p*u1(x1)**2, x1)"
-        )
+        out = preprocess_leibniz_derivatives("d(p*u1(x1)**2)/dx1")
+        assert out == "Derivative(p*u1(x1)**2, x1)"
 
     def test_higher_order_parenthesized(self):
         assert preprocess_leibniz_derivatives("d^2(u1)/dx1^2") == "Derivative(u1, (x1, 2))"

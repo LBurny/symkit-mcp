@@ -1,8 +1,4 @@
-"""
-SymPy Engine Implementation
-
-Concrete implementation of the SymbolicEngine interface using SymPy.
-"""
+"""SymPy implementation of the SymbolicEngine interface."""
 
 from typing import Any
 
@@ -16,6 +12,7 @@ from symkit.domain.expression_parser import (
     TRANSFORMATIONS,
     parse_expression_string,
 )
+from symkit.domain.final_result import evaluate_pending
 from symkit.domain.services import SymbolicEngine
 from symkit.domain.value_objects import MathContext, SimplificationLevel
 from symkit.infrastructure.vector_input import build_vector_field
@@ -24,8 +21,7 @@ from symkit.infrastructure.vector_input import build_vector_field
 def _failed(error: str) -> Expression:
     """Invalid Expression carrying an engine failure (one shared error shape)."""
     return Expression(
-        raw="", latex="", sympy_expr=None,
-        expr_type=ExpressionType.UNKNOWN, error=error,
+        raw="", latex="", sympy_expr=None, expr_type=ExpressionType.UNKNOWN, error=error,
     )
 
 
@@ -38,11 +34,7 @@ def coupled_undefined_functions(
     derivative couples in a second equation (r14 task-15).
     """
     extra_set = set(extra)
-    lhs = (
-        ode_expr.lhs - ode_expr.rhs
-        if isinstance(ode_expr, sp.Equality)
-        else ode_expr
-    )
+    lhs = ode_expr.lhs - ode_expr.rhs if isinstance(ode_expr, sp.Equality) else ode_expr
     coupled: set[str] = set()
     for term in sp.Add.make_args(sp.expand(lhs)):
         names = {a.func.__name__ for a in term.atoms(AppliedUndef)}
@@ -55,10 +47,10 @@ def nonpolynomial_ode_reason(ode_expr: sp.Basic, dependent: str) -> str | None:
     """A reason string when ``dsolve`` is likely to hang without bound.
 
     ``sympy.dsolve`` has no time limit and does not raise on an unsolvable
-    nonlinear ODE — it spins, wedging the single-process server (round-complex:
-    a pendulum stalled every tool for 30+ minutes).  Detected class: a dependent
-    function under a transcendental (``sin(theta(t))``); a true bound needs the
-    engine in its own process, which this module does not do.
+    nonlinear ODE — it spins, wedging the single-process server (a pendulum
+    stalled every tool for 30+ minutes). Detected class: a dependent function
+    under a transcendental, e.g. ``sin(theta(t))``; a true bound needs a
+    separate process, which this module does not do.
     """
     if not isinstance(ode_expr, sp.Equality):
         return None
@@ -123,7 +115,8 @@ def _coord_sub_symbol(expr: Any, name: str, coord: Any) -> Any:
 
     A bare ``sp.Symbol(name)`` subs key would not match an assumption-bearing
     ``Symbol('x', positive=True)``, so the substitution silently no-opped and
-    gradient returned a zero vector (run-017)."""
+    gradient returned a zero vector (run-017).
+    """
     target = next(
         (s for s in getattr(expr, "free_symbols", ()) if str(s) == name), None
     )
@@ -145,7 +138,7 @@ class SymPyEngine(SymbolicEngine):
         """Parse a string into an Expression using SymPy.
 
         Parsing is pure syntax; assumptions are applied afterwards, onto the
-        free symbols (invariant I1).  Injecting them into the parser let
+        free symbols (invariant I1) — injecting them into the parser let
         implicit multiplication rewrite ``k(x)`` into ``k*x`` (run-024).
         """
         try:
@@ -182,25 +175,32 @@ class SymPyEngine(SymbolicEngine):
             )
 
     def simplify(self, expr: Expression, context: MathContext | None = None) -> Expression:
-        """Simplify an expression using SymPy."""
+        """Simplify using SymPy; pending operation nodes are evaluated first.
+
+        The parser keeps ``Derivative(Add(...), (x, 2))`` unevaluated and
+        ``sp.simplify`` cannot flatten its undistributed ``doit()`` form, so an
+        exactly-zero residual came back as ``X - X`` (task-05 G11).  A no-op
+        for undefined functions.
+        """
         if not expr.is_valid:
             return expr
 
         level = context.simplify_level if context else SimplificationLevel.BASIC
+        sym = evaluate_pending(expr.sympy_expr)
 
         match level:
             case SimplificationLevel.NONE:
                 result = expr.sympy_expr
             case SimplificationLevel.BASIC:
-                result = sp.simplify(expr.sympy_expr)
+                result = sp.simplify(sym)
             case SimplificationLevel.FULL:
-                result = sp.simplify(sp.expand(expr.sympy_expr))
+                result = sp.simplify(sp.expand(sym))
             case SimplificationLevel.TRIGONOMETRIC:
-                result = sp.trigsimp(expr.sympy_expr)
+                result = sp.trigsimp(sym)
             case SimplificationLevel.RADICAL:
-                result = sp.radsimp(expr.sympy_expr)
+                result = sp.radsimp(sym)
             case _:
-                result = sp.simplify(expr.sympy_expr)
+                result = sp.simplify(sym)
 
         return Expression(
             raw=str(result),
@@ -248,7 +248,7 @@ class SymPyEngine(SymbolicEngine):
         if lower is not None and upper is not None:
             result = sp.integrate(sym, (var, self._to_sympy(lower), self._to_sympy(upper)))
         elif isinstance(sym, sp.Integral) and str(var) in {str(lim[0]) for lim in sym.limits}:
-            # Evaluating it is required: integrating again treated the integral
+            # Evaluating is required: integrating again treated the integral
             # as a constant and fabricated a factor ``var`` (r15 task-07).
             result = sym.doit()
             if result.has(sp.Integral, sp.Derivative):
@@ -640,7 +640,7 @@ class SymPyEngine(SymbolicEngine):
             t = resolve_assumed_symbol(time_var, self._get_assumptions(time_var, context))
             free = {str(v) for v in getattr(expr.sympy_expr, "free_symbols", ())}
             if free and freq_var not in free:
-                # The wrong symbol made SymPy transform *in* it and return a
+                # The wrong symbol made SymPy transform in it and return a
                 # Dirac-delta garbage value under ``success: true`` (r20).
                 return _failed(
                     f"ilaplace: the expression does not contain '{freq_var}'; "
