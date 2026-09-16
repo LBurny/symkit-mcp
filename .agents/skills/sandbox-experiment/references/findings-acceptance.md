@@ -46,7 +46,7 @@ RUN_PREFIX=rNN bash run_suite.sh data/<lane> <n> <n>
 .venv/Scripts/python.exe analyze.py rNN
 ```
 
-- **重跑验收卡用新 run-id**（如 `rNNb-task-05b`），旧 findings 整目录备份到 `findings_rNNa/`——新旧产物可比对，不许覆盖。
+- **重跑验收卡用新 run-id**（旧 findings 整目录备份到 `findings_rNNa/`）——**新前缀必须避开本轮所有 lane 前缀**：lane 划分常用 `rNNa/rNNb/rNNc`，而"重跑用 rNNb"的示例恰好会与 lane B 撞名（r20 实际事故：`runs/r20b-task-10/stream.jsonl` 原始产物被重跑覆盖，仅 findings 备份幸免）。用不冲突的词（如 `rNNv` / `rNNacc`）。新旧产物可比对，不许覆盖。
 - 验收报告写 `runs/_analysis/ACCEPTANCE.md`：探针结果、重跑卡结果、对操作员指控的独立复核结论（哪些坐实、哪些驳回）、遗留 reported-not-fixed 清单及优先级。
 - 白盒佐证（支撑 CHANGELOG 量化断言的 sweep 脚本与基线指纹）移到 `runs/_analysis/whitebox/` 留存——一次性 scratch 删掉，可复现的 harness 留下。
 

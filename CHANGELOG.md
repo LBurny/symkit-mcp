@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.11.0] - 2026-09-16
 
 Operator-feedback hardening after a 29-step compressible-RANS derivation
 session (Favre-averaged momentum equations, Lean kernel certification).
@@ -37,6 +37,71 @@ session (Favre-averaged momentum equations, Lean kernel certification).
   and retry guidance on timeout) as an explicit step instead. The full
   asynchronous-job design (per-call deadline for long certifications) remains
   open.
+
+The r20 high-difficulty sandbox round (`symkit-mcp-test-r20`: 15 operator
+cards over three lanes — variational calculus, perturbation theory, control,
+statistical mechanics, adversarial cards with planted errors, and a Lean
+certification card; all SUCCESS, zero crashes). Probes confirmed twelve
+defects that are fixed here.
+
+### Fixed
+
+- `session_verify_session` crashed with `AttributeError: 'dict' object has no
+  attribute 'free_symbols'` on a session that combined a multi-variable
+  `solve` step (whose archived output is a dict) with any recorded `dimension`
+  step, because the dimensional post-check then walks every step and fed the
+  dict into the dimension checker. Non-Basic archived expressions (dicts,
+  tuples) are now rejected at every reconstruction path and the checker treats
+  them as unsupported instead of raising; a recorded dimension step no longer
+  forces the walk over expressionless steps.
+- `math` with an explicitly written equation input to `simplify`/`expand`/
+  `factor` is now judged on the claim, not on operator fidelity. A false
+  equation that SymPy leaves uncollapsed (`simplify("legendre(3, u) = 3*u**2/
+  2 - 1/2")`) used to archive `verified` with the FALSE verdict buried in
+  `details.equation_identity`; it now fails with the asserted-equation wording
+  and `suspect_identity: "numeric"`, while a true claim keeps the "asserted
+  equation holds" verdict. `verified` and a FALSE equation identity can no
+  longer coexist on one step.
+- Manually recorded steps no longer archive the *previous* step's expression
+  as their `input_srepr` (nine cards hit this in one round). The archived
+  input is now the submitted claim itself, and a boolean claim archives the
+  SymPy boolean rather than a value that does not round-trip. A manual step
+  also snapshots the session's assumptions the way `math` steps do.
+- A recorded `dimension` step carries its verdict at record time ("Recorded
+  dimension check: ... consistent/inconsistent", `dimension_check` set, step
+  status matching), instead of sitting as an unverifiable custom step until a
+  later verification pass attached the verdict.
+- `gradient` no longer rewrites arbitrary symbols onto a default coordinate
+  frame. Non-spatial coordinates (`gradient("u**2", variable="u")`,
+  `gradient("-beta*S*I/N", variable="S,I")`) return plain partial derivatives
+  instead of `2*N.x*N.i`-style output, a declared coordinate missing from the
+  expression fails with the missing names, and the `x, y, z` spatial vector
+  behavior is unchanged.
+- `laplace`/`ilaplace` validate their transform variable: `ilaplace` requires
+  the frequency-domain symbol to occur in the expression (and `laplace` the
+  time-domain one), so `ilaplace(expr, variable="t")` on an `s`-domain
+  expression fails with a pointed message instead of silently returning a
+  meaningless `0`/`DiracDelta` value.
+- `assume` validates its input. A clause keyed by an expression
+  (`{"V - n*b": "positive"}`) was registered, echoed as applied, and silently
+  had no effect; property tokens outside the supported vocabulary
+  (`"theta": "less than pi"` became the bogus properties `less`, `than`, `pi`)
+  were accepted verbatim. Both now reject the whole clause with an error that
+  names the key/properties and lists the supported vocabulary; nothing is
+  stored on rejection.
+- The bare word `lambda` (and its Greek form) parses as the symbol `lambda_`
+  instead of dying on the Python keyword; the rename is announced in a
+  warning, LaTeX `\lambda` input is untouched, and this matches the formula
+  library's existing mapping.
+- Failure records no longer read as success: `session_add_note(note_type=
+  "failure")` and failed-call traces carry `status: "failed"` (they stay
+  excluded from verification counts).
+- Step descriptions are no longer cut mid-assertion (the auto-generated
+  `... = ` truncation), and `session_record_step`'s guard message now names
+  matrices/lists/comma input instead of calling everything a comma list.
+- A session whose failed steps are all recorded assertions judged false
+  discloses that reading in the summary warnings ("a successful refutation/
+  audit reads as overall 'failed'") — the verdicts themselves stay untouched.
 
 ## [1.10.0] - 2026-09-16
 
