@@ -393,3 +393,45 @@ class TestF20EReservedName:
         expected = sp.Symbol("E") - sp.Symbol("m") * sp.Symbol("v") ** 3
         assert result["final_expression"] == str(expected)
         assert result["final_latex"] == sp.latex(expected)
+
+
+class TestF32StartTargetExpression:
+    """F32 (wave 3): ``session_start`` must accept an explicit ``target_expression``.
+
+    It had no such parameter, so an explicit target was swallowed by the tool
+    schema and the goal recorded ``null`` (r19x-task-08).
+    """
+
+    def test_target_expression_is_recorded_verbatim(self, fresh_session_manager) -> None:
+        _ = fresh_session_manager
+        tools = _tools()
+        target = "Omega_res = sqrt(omega0**2 - 2*beta**2)"
+        res = tools["session_start"](
+            "wave3-target",
+            goal="derive the resonance frequency of the driven oscillator",
+            target_expression=target,
+        )
+        assert res["success"], res
+        assert res["goal"]["target_expression"] == target, res["goal"]
+
+    def test_target_expression_drives_progress_match(self, fresh_session_manager) -> None:
+        _ = fresh_session_manager
+        tools = _tools()
+        tools["session_start"](
+            "wave3-target-progress",
+            goal="derive the resonance frequency condition",
+            target_expression="sqrt(omega0**2 - 2*beta**2)",
+        )
+        res = tools["math"]("simplify", "sqrt(omega0**2 - 2*beta**2)", session=True)
+        assert res["success"], res
+        progress = tools["session_show"]()["progress"]
+        assert progress["matches_target"] is True, progress
+
+    def test_passing_neither_keeps_tri_state_null(self, fresh_session_manager) -> None:
+        _ = fresh_session_manager
+        tools = _tools()
+        tools["session_start"]("wave3-target-null", goal="derive the terminal velocity")
+        res = tools["math"]("simplify", "x + x", session=True)
+        assert res["success"], res
+        progress = tools["session_show"]()["progress"]
+        assert progress["matches_target"] is None, progress

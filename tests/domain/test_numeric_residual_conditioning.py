@@ -1,4 +1,6 @@
-"""r18 honesty regression: numeric-residual conditioning and wording.
+"""r18 honesty regression: numeric-residual conditioning, sampling, wording.
+
+Merged from two files on the numeric-evidence predicates:
 
 Defect B1b (orchestrator round 18): ``math("simplify", "sec(x)**2 - tan(x)**2")``
 returns ``1``; the step difference ``sec(x)**2 - tan(x)**2 - 1`` reduces to ``0``
@@ -16,6 +18,12 @@ than as sampling evidence.
 
 Doctrine preserved: one clearly nonzero sample refutes, at least two samples are
 needed to certify "consistent with zero", and ``Sum``/``Integral`` stay ``None``.
+
+Sampling tolerance (2026-09-14 turbine round): ``is_numerically_zero`` must
+absorb float-path noise on symbol-bearing residuals — the verifier recomputed a
+substitution along a different float path than the archived output, the combined
+power exponent differed by one ULP, and the no-tolerance branch flipped a
+correct step to FAILED.
 """
 
 from __future__ import annotations
@@ -23,7 +31,11 @@ from __future__ import annotations
 import sympy as sp
 
 from symkit.domain.derivation_session import DerivationStep, OperationType
-from symkit.domain.final_result import classify_suspect_identity, numeric_residual_verdict
+from symkit.domain.final_result import (
+    classify_suspect_identity,
+    is_numerically_zero,
+    numeric_residual_verdict,
+)
 from symkit.domain.step_verifier import StepVerifier
 from symkit.domain.value_objects import VerificationStatus
 
@@ -118,3 +130,36 @@ class TestSuspectMessageHonesty:
         result = StepVerifier().verify_step(step)
         assert result.details.get("suspect_identity") == "unreduced"
         assert "numerically nonzero at tested points" in result.message
+
+
+# Float-path noise absorption (2026-09-14 turbine round).
+def test_float_ulp_symbolic_residual_is_zero():
+    a = sp.Symbol("a", positive=True)
+    diff = a**sp.Float("0.99999999999999989") - a**sp.Float("1.0")
+    assert is_numerically_zero(diff)
+
+
+def test_genuinely_different_power_stays_nonzero():
+    a = sp.Symbol("a", positive=True)
+    assert not is_numerically_zero(a - a**sp.Rational(1, 2))
+    assert not is_numerically_zero(a - 2 * a)
+
+
+def test_abs_difference_respects_sign_assumptions():
+    apos = sp.Symbol("a", positive=True)
+    areal = sp.Symbol("b", real=True)
+    assert is_numerically_zero(apos - sp.Abs(apos))
+    assert not is_numerically_zero(areal - sp.Abs(areal))
+
+
+def test_unsamplable_expression_conservatively_false():
+    x = sp.Symbol("x")
+    assert not is_numerically_zero(sp.Derivative(sp.Function("f")(x), x))
+
+
+def test_two_symbol_residual_needs_asymmetric_samples():
+    x, y = sp.symbols("x y", positive=True)
+    assert is_numerically_zero(x * y - y * x)
+    # ``x - y`` vanishes only at symmetric sample points; joint sampling must
+    # still catch the asymmetric ones.
+    assert not is_numerically_zero(x - y)

@@ -233,3 +233,36 @@ class TestLoaderFields:
         p = tmp_path / "noid.yaml"
         p.write_text(yaml.dump({"name": "no id"}), encoding="utf-8")
         assert load_indexed(p, "staging") is None
+
+
+# Lifecycle of the shared catalog in `symkit_mcp.tools._state`.
+@pytest.fixture
+def injected_catalog(tmp_path):
+    store = SqliteFormulaIndexStore(tmp_path / "index.db")
+    store.open()
+    catalog = FormulaCatalog(
+        store=store,
+        file_source=YamlFormulaFileSource(),
+        seed_dir=tmp_path / "seed",
+        staging_dir=tmp_path / "staging",
+        curated_dir=tmp_path / "curated",
+    )
+    from symkit_mcp.tools import _state
+
+    previous = _state._catalog
+    _state.set_catalog(catalog)
+    yield store
+    _state.set_catalog(previous)
+
+
+def test_reset_catalog_closes_the_store(injected_catalog):
+    """An open SQLite connection holds file locks on Windows; dropping the
+    catalog without closing it leaks them."""
+    from symkit_mcp.tools import _state
+
+    store = injected_catalog
+
+    _state.reset_catalog()
+
+    with pytest.raises(RuntimeError, match="store is not open"):
+        store.all()

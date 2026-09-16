@@ -267,3 +267,30 @@ def test_prose_error_is_curated_at_the_math_surface(
     assert res["success"] is False, res
     assert "SyntaxError" not in res["error"], res["error"]
     assert "cannot parse the input as a mathematical expression" in res["error"]
+
+
+class TestF35SolveAppliedFunctionLeak:
+    """F35 (wave 3): solve must curate the raw operand TypeError."""
+
+    _SYSTEM = (
+        "[A*(omega0**2 - Omega**2) + 2*B*Omega*beta - f(t), "
+        "B*(omega0**2 - Omega**2) - 2*A*Omega*beta]"
+    )
+
+    def test_bracket_system_with_applied_function_is_curated(
+        self, fresh_session_manager
+    ) -> None:
+        _ = fresh_session_manager
+        res = _math()("solve", self._SYSTEM, variable="A,B", session=False)
+        assert res["success"] is False, res
+        assert "FunctionClass" not in res["error"], res["error"]
+        assert "unsupported operand" not in res["error"], res["error"]
+        assert "Solve failed" not in res["error"], res["error"]
+        assert "applied function" in res["error"], res["error"]
+        assert "dsolve" in res["error"], res["error"]
+
+    def test_genuine_no_solution_stays_no_solution(self, fresh_session_manager) -> None:
+        _ = fresh_session_manager
+        res = _math()("solve", "[x+y-1, x+y-2]", variable="x,y", session=False)
+        assert res["success"] is False, res
+        assert "No solution found" in res["error"], res["error"]

@@ -1,19 +1,31 @@
-"""Guards on the ``session_complete`` library write.
+"""Guards on the ``session_complete`` library write and its report fields.
 
-2026-09-14 SST round: a 16-step derivation whose trailing steps were residual
-self-checks auto-saved ``expression: '0'`` with ``verified: true`` into the
-formula library — searchable as a formula whose content is literally ``0`` —
-and a chain carrying unreduced differences (``suspect_identity``) received the
-same ``verified: true`` label.
+Merged from two micro files on the same completion exit:
 
-Second 2026-09-14 turbine round: preferring "the last symbolic derivation
-output" saved verification *probes* (residuals, mid-substitution forms) as the
-formula in two out of two sessions. The library write now skips entirely when
-the outcome is a bare constant; the operator records the real formula with
-``formula_add``.
+- 2026-09-14 SST round: a 16-step derivation whose trailing steps were residual
+  self-checks auto-saved ``expression: '0'`` with ``verified: true`` into the
+  formula library — searchable as a formula whose content is literally ``0`` —
+  and a chain carrying unreduced differences (``suspect_identity``) received the
+  same ``verified: true`` label.
+- Second 2026-09-14 turbine round: preferring "the last symbolic derivation
+  output" saved verification *probes* (residuals, mid-substitution forms) as the
+  formula in two out of two sessions. The library write now skips entirely when
+  the outcome is a bare constant; the operator records the real formula with
+  ``formula_add``.
 
 Display semantics are unchanged: a trailing zero self-check stays the
 ``final_expression`` headline (r14 task-08). Only the library artifact changes.
+
+Also covers the two other ``session_complete`` report contracts:
+
+- r18 C2: the unreduced-difference warning must not claim an unwritten save —
+  with ``auto_save=false`` nothing is written, yet the response once said
+  "the formula is saved with verified=false"; only the save claim follows the
+  flag, the suspect half is true and stays.
+- ``session_show`` and ``session_complete`` must agree on what the derivation
+  produced (2026-09-12 pure-formula round: ``complete()`` reported the outcome
+  while ``session_show`` kept the raw current expression — different answers to
+  the same question in 4 of 5 cards).
 """
 
 from __future__ import annotations
@@ -165,3 +177,95 @@ class TestTargetWarningScoping:
             "does not match the derivation target" in w
             for w in result.get("warnings", [])
         ), result.get("warnings")
+
+
+# r18 C2: the save claim in the suspect warning follows the auto_save flag.
+def _suspect_session(tools: dict, name: str) -> None:
+    tools["session_start"](name)
+    # A genuine two-sided difference whose value is nonzero (2xy), so the step
+    # carries details.suspect_identity="unreduced".
+    tools["math"](operation="expand", expression="(x + y)**2 - (x**2 + y**2)", session=True)
+
+
+def _suspect_warning(result: dict) -> str:
+    matches = [w for w in result.get("warnings", []) if "unreduced difference" in w]
+    assert matches, result.get("warnings")
+    return matches[0]
+
+
+def test_auto_save_false_warning_does_not_claim_a_save(fresh_session_manager: Any) -> None:
+    _ = fresh_session_manager
+    tools = _tools()
+    _suspect_session(tools, "c2-no-save")
+
+    result = tools["session_complete"](auto_save=False)
+
+    warning = _suspect_warning(result)
+    assert "suspect_identity" in warning  # the true half is preserved
+    assert "auto_save=false" in warning
+    assert "nothing was saved" in warning
+    assert "the formula is saved" not in warning
+    assert "saved_to" not in result
+
+
+def test_auto_save_true_warning_still_reports_the_save(fresh_session_manager: Any) -> None:
+    _ = fresh_session_manager
+    tools = _tools()
+    _suspect_session(tools, "c2-save")
+
+    result = tools["session_complete"](auto_save=True)
+
+    warning = _suspect_warning(result)
+    assert warning == (
+        "1 step(s) recorded an unreduced difference (suspect_identity); "
+        "the formula is saved with verified=false"
+    )
+
+
+class TestOutcomeReporting:
+    def test_show_agrees_with_complete(self, fresh_session_manager):
+        _ = fresh_session_manager
+        tools = _tools()
+        tools["session_start"](name="outcome-agreement")
+        tools["session_load_formula"](expression="a+b", formula_id="f1")
+        tools["math"](operation="expand", expression="(a+b)**2", session=True)
+        tools["math"](operation="evalf", expression="1/3", session=True)
+
+        show = tools["session_show"]()
+        complete = tools["session_complete"](
+            auto_save=False, require_target_match=False
+        )
+
+        assert show["result_expression"] == complete["final_expression"]
+        assert show["result_latex"] == complete["final_latex"]
+        # The raw current expression stays visible, but under its own name.
+        assert show["latex"] == "0.333333333333333"
+        assert show["result_expression"] == "a**2 + 2*a*b + b**2"
+
+    def test_zero_self_check_is_the_outcome_for_all_sources(
+        self, fresh_session_manager
+    ):
+        """r14 task-08: the closing step outputs ``0`` but used to be skipped.
+
+        ``session_show.result_expression`` and ``session_complete.final_expression``
+        must report the zero convergence step, not the earlier unevaluated
+        symbolic step.
+        """
+        _ = fresh_session_manager
+        tools = _tools()
+        tools["session_start"](name="zero-convergence")
+        tools["session_load_formula"](expression="c*x + t", formula_id="f1")
+        tools["math"](
+            operation="simplify",
+            expression="c*x + t - (c*x + t)",
+            session=True,
+        )
+        tools["session_add_note"](note="residual is exactly zero")
+
+        show = tools["session_show"]()
+        complete = tools["session_complete"](
+            auto_save=False, require_target_match=False
+        )
+
+        assert show["result_expression"] == complete["final_expression"] == "0"
+        assert show["result_latex"] == complete["final_latex"]

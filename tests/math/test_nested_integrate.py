@@ -1,9 +1,17 @@
-"""r16 task-06: an inline nested integral must return its exact value, not ×x.
+"""Nested definite integrals must return exact values, never ×x.
 
-The parser evaluates ``integrate(integrate(f, (y, ...)), (x, ...))`` through
-SymPy's own ``integrate``; the dispatcher then re-integrated that already
-evaluated constant in the default variable and silently returned the correct
-value multiplied by ``x`` (``pi*R**4*sigma/2`` -> ``pi*R**4*sigma*x/2``).
+Merged from two files on the same defect family:
+
+- r16 task-06: an inline nested integral (``integrate(integrate(f, (y, ...)),
+  (x, ...))``) — the dispatcher re-integrated an already evaluated constant in
+  the default variable and silently returned the correct value multiplied by
+  ``x`` (``pi*R**4*sigma/2`` -> ``pi*R**4*sigma*x/2``).
+- r15 task-07: an ``Integral(...)`` literal with two limit tuples
+  (``Integral(sigma_*y**2, (y, ...), (x, -R, R))``) came back
+  ``success:true`` with a fabricated factor ``x`` — the engine re-integrated
+  an already-definite integral over its own bound variable. The value must be
+  correct or the call must fail structurally, never silently return a result
+  carrying a free variable that was not free in the input.
 """
 
 from __future__ import annotations
@@ -79,3 +87,33 @@ def test_unresolvable_inline_integral_fails_loud() -> None:
     result = math("integrate", "Integral(x**x, x)", session=False)
     assert result["success"] is False, result
     assert "integral" in result["error"].lower(), result
+
+
+# Literal ``Integral(...)`` form with two limit tuples (r15 task-07).
+_NESTED = (
+    "Integral(sigma_*y**2, (y, -sqrt(R**2-x**2), sqrt(R**2-x**2)), (x, -R, R))"
+)
+
+
+def test_nested_definite_integral_returns_the_correct_value() -> None:
+    result = _math_tool()(
+        "integrate",
+        _NESTED,
+        assumptions=["R positive", "sigma_ positive"],
+        session=False,
+    )
+    assert result["success"] is True, result
+    assert result["expression"] == "pi*R**4*sigma_/4", result
+
+
+def test_nested_definite_integral_never_returns_a_pseudo_variable() -> None:
+    result = _math_tool()("integrate", _NESTED, session=False)
+    if result["success"]:
+        value = sp.sympify(result["expression"])
+        # ``x`` was a bound variable, so it must not leak out as free.
+        assert not value.has(sp.Symbol("x")), result
+    else:
+        # Without assumptions SymPy may not produce a closed form; then the
+        # call must fail loud rather than hand back a wrong expression.
+        assert result.get("error")
+        assert "integral" in result["error"].lower()

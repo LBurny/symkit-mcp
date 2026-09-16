@@ -217,3 +217,33 @@ class TestReverseIntegrationHigherOrder:
         assert result.status == VerificationStatus.INCONCLUSIVE
         assert "Reverse integration skipped" in result.message
         assert "size budget" in result.message
+
+
+class TestF37DirectRecomputation:
+    """F37 (wave 3): a branching antiderivative must not blind the diff check."""
+
+    _INPUT = "Vs + (C1*sin(omegad*t) + C2*cos(omegad*t))*exp(-alpha*t)"
+
+    def test_correct_derivative_verifies_without_assumptions(self) -> None:
+        # Bare parameter symbols: reverse_integrate returns a Piecewise and the
+        # old comparison concluded nothing (the RLC sandbox card hit this 3/3).
+        derivative = str(sp.diff(sp.sympify(self._INPUT), sp.Symbol("t")))
+        step = _archived(
+            OperationType.DIFFERENTIATE, self._INPUT, derivative, sympy_command="diff(expr, t)"
+        )
+        result = StepVerifier().verify_step(step)
+        assert result.status is VerificationStatus.VERIFIED, result.message
+        assert result.reverse_check is True
+        assert "direct recomputation" in result.message
+
+    def test_wrong_derivative_is_not_verified(self) -> None:
+        wrong = (
+            "-alpha*(C1*sin(omegad*t) + C2*cos(omegad*t))*exp(-alpha*t) "
+            "+ (C1*omegad*cos(omegad*t) - C2*omegad*sin(omegad*t))*exp(-alpha*t) "
+            "+ omegad**3"
+        )
+        step = _archived(
+            OperationType.DIFFERENTIATE, self._INPUT, wrong, sympy_command="diff(expr, t)"
+        )
+        result = StepVerifier().verify_step(step)
+        assert result.status is not VerificationStatus.VERIFIED
