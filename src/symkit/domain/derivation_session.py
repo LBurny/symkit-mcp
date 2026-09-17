@@ -30,8 +30,8 @@ from symkit.domain.derivation_outcome import (
     completion_outcome,
     compute_goal_progress,
     failed_operation_steps,
+    finalize_target_reached,
     is_note_step,
-    resolve_target_reached,
     select_representative_expression,
     steps_summary,
 )
@@ -1377,11 +1377,9 @@ class DerivationSession:
             self, verification_summary.get("failed_steps") or [], final_override
         )
         progress = self.compute_progress(current_override=final_override)
-        target_reached = resolve_target_reached(progress.get("matches_target"), verification_summary.get("overall"))
-        progress["matches_target"] = target_reached  # one judgment, two fields (r23 F12b)
-
-        warnings: list[str] = []
-        if not target_reached and self.goal is not None and self.goal.has_explicit_target():
+        target_reached, disclosure = finalize_target_reached(progress, verification_summary.get("overall"))
+        warnings: list[str] = [disclosure] if disclosure else []
+        if not target_reached and progress.get("matches_target") is not True and self.goal is not None and self.goal.has_explicit_target():
             warnings.append("Current expression does not match the derivation target.")
         overall = verification_summary.get("overall")
         if overall != "verified":

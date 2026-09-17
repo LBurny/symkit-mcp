@@ -82,6 +82,54 @@ upstream SymPy behaviour). Test suite 1501 -> 1544.
 - The `session_record_step` guard message now names lists and comma-separated
   input only - matrices graduated to supported input.
 
+Acceptance re-run of the same 15 cards (14 completed clean, all with zero
+math errors; a P0 wedge was forced out of one card) reproduced 11 further
+defects, all fixed here:
+
+- **P0 wedge fixed.** A definite integral whose integrand has a symbolic
+  exponent on a trig power, e.g. `integrate(cos(theta)**(2*p - 1)*
+  sin(theta)**(2*q - 1), (theta, 0, pi/2))`, sent SymPy's `heurisch` route
+  into unbounded recursion and **froze the single-process server** (an
+  acceptance card burned two 10-minute kills on it). This shape now routes
+  through the bounded `meijerg` method, returns the integral unevaluated when
+  that cannot close it, and says so with the substitution that reaches the
+  Beta form. Numeric-exponent and ordinary integrals are untouched.
+- `solve` accepts the documented equation-system spellings: `"x + y = 3,
+  x - y = 1"` and `"[x + y = 3, x - y = 1]"` with `variable="x, y"` had both
+  failed to parse ("cannot assign to expression here") while the
+  expression-only list form worked.
+- `[[1, 1], [1, 0]]` matrix literals are accepted uniformly: `det` took them
+  while `simplify` and `session_record_step` rejected the same syntax.
+  Ragged rows and empty lists now fail with a clear message.
+- `series` no longer defaults to a single term: `series("sin(x)")` returned
+  `O(x)` because the shared `order` default is 1; the series default is now
+  six terms, and an inline call such as `series(sin(x), x, 0, 6)` keeps its
+  own expansion instead of being re-truncated (or raising when the outer
+  order was larger).
+- The value-preservation check for `simplify` honours active assumptions:
+  a correct reduction like `sqrt(A_cos**2 + A_sin**2) -> F0/sqrt(D)` under
+  `F0 > 0` was judged `failed` with a difference that is identically zero.
+- A correct indefinite integral could be judged `failed` by the reverse
+  check when closing it needs an identity (`gamma(5/4) = gamma(1/4)/4`) - the
+  difference is now simplified under the step's assumptions, and an
+  undecidable reverse check is `inconclusive`, never `failed`.
+- The unevaluated-integral honesty guard catches wrapped forms: the output
+  `Integral(...)/2` slipped past the bare-`Integral` check and was certified
+  by quadrature.
+- A matrix-valued step definition (`M == Matrix(...)`) no longer leaks
+  `TypeError: unsupported operand type(s) ... 'ImmutableDenseMatrix' and
+  'Symbol'`; it is judged as a definition, and the concrete matrix-equation
+  verdicts are unchanged.
+- `session_complete(final_expression=...)` keeps an equation-shaped
+  deliverable: `"f(x) = ..."` had been folded to the constant `True`,
+  silently losing the delivered formula.
+- Target tracking: `target_variables` accepts a comma-separated string
+  (`"A, phi"` was taken as one variable name); `progress_score` no longer
+  reads 1.0 while nothing matched; `matches_target` reports the expression
+  match while `target_reached` stays conservative for a session with failed
+  steps - and the response now discloses that difference instead of leaving
+  three fields to contradict each other.
+
 ## [1.12.0] - 2026-09-17
 
 ### Added

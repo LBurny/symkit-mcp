@@ -171,8 +171,15 @@ def pick_savable_expression(
     if isinstance(saved, sp.Basic) and saved.free_symbols:
         return saved, None
     if saved is not None:
+        # An equality deliverable with no free symbols is not a "bare constant":
+        # it keeps both sides (r23 G12), so the skip must say what it is.
+        kind = (
+            "an equality with no free symbols"
+            if isinstance(saved, sp.Equality)
+            else "a bare constant"
+        )
         return None, (
-            f"auto_save skipped: the outcome '{saved}' is a bare constant; "
+            f"auto_save skipped: the outcome '{saved}' is {kind}; "
             "no formula saved (record the derived formula with formula_add)"
         )
     return None, None

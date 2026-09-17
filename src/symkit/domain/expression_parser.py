@@ -35,7 +35,7 @@ from sympy.parsing.sympy_parser import (
 )
 
 from symkit.domain.expr_io import try_load_srepr
-from symkit.domain.expr_repair import repair_parsed_expression
+from symkit.domain.expr_repair import normalize_matrix_literals, repair_parsed_expression
 from symkit.domain.parser_call_sites import (
     bare_symbol_usage,
     build_undefined_function_local_dict,
@@ -632,6 +632,11 @@ def parse_expression_string(
     processed = preprocess_diff_to_derivative(processed) if preprocess else processed
     processed = preprocess_leibniz_derivatives(processed) if preprocess else processed
     processed = protect_min_max_calls(processed) if preprocess else processed
+    # Row-grid [[..],[..]] literals -> Matrix([..]) so det/simplify/session agree (G5).
+    try:
+        processed = normalize_matrix_literals(processed)
+    except ValueError as exc:
+        return None, str(exc)
 
     if convert_equation:
         processed = _convert_equals_to_eq(processed)
@@ -651,8 +656,7 @@ def parse_expression_string(
     if local_dict:
         _merge_caller_local_dict(merged_local_dict, processed, local_dict)
 
-    # parse_expr(..., evaluate=False) dies on an Eq whose RHS simplifies to
-    # zero ("integer division or modulo by zero"); parse the sides separately.
+    # evaluate=False dies on an Eq with a zero side; parse the sides evaluated.
     eq_args = _split_eq_args(processed)
     if eq_args is not None:
         lhs_str, rhs_str = eq_args
@@ -674,10 +678,7 @@ def parse_expression_string(
 
     try:
         expr = _parse_unevaluated(processed, merged_local_dict)
-        # A list literal is a matrix: a list-of-lists is the row-grid form
-        # (run-020) and a flat list is a column vector; leaving either as a
-        # Python list crashed the execution layer with
-        # ``'list' object has no attribute 'evalf'/'replace'``.
+        # A flat list literal is a column vector (a row grid was normalized).
         if isinstance(expr, list) and expr:
             expr = sp.Matrix(expr)
         return _rationalize_unevaluated_divisions(

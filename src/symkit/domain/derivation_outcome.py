@@ -194,10 +194,40 @@ def steps_summary(steps: list[DerivationStep]) -> list[dict[str, Any]]:
     return rows
 
 
+def split_target_variables(raw: str | list[str] | None) -> list[str]:
+    """Normalize caller-declared target variables (r23 G4).
+
+    ``target_variables="A, phi"`` crosses the MCP boundary as ``["A, phi"]``
+    (a scalar becomes a single-element list), so the comma form has to be split
+    here — mirroring how ``variable`` splits for ``solve``.  Each item is
+    stripped and blank items are dropped; ``None``, ``[]`` and the list form
+    (``["A", "phi"]`` or a mixed ``["A, phi"]``) are all accepted.
+    """
+    if not raw:
+        return []
+    items = [raw] if isinstance(raw, str) else list(raw)
+    out: list[str] = []
+    for item in items:
+        for piece in str(item).split(","):
+            name = piece.strip()
+            if name and name not in out:
+                out.append(name)
+    return out
+
+
 def target_coverage(
     session: DerivationSession, current: sp.Basic
 ) -> tuple[list[str], set[str], bool]:
-    """``(targets, missing, reached)`` for the goal's *explicit* targets."""
+    """``(targets, missing, reached)`` for the goal's *explicit* targets.
+
+    Explicit targets are a caller contract, so they are only split on commas —
+    never narrowed away.  Text-mined targets keep the phantom-narrowing
+    heuristic (r14 task-06/07/08).  A target named in the target expression
+    itself (e.g. ``E_n``, the LHS of ``E_n = ...``) is covered by that
+    expression: the delivered side matching the target already accounts for it
+    (r23 G9).  Only variables in neither the chain nor the target expression
+    are reported missing (r23 G4).
+    """
     symbols: list[set[str]] = []
     verified: list[set[str]] = []
     for step in session.steps:
@@ -213,8 +243,12 @@ def target_coverage(
             continue
     goal = session.goal
     raw_targets = goal.target_variables if goal is not None else []
-    targets = narrow_target_variables(raw_targets, symbols)
+    targets = split_target_variables(raw_targets)
+    if goal is None or not goal.has_explicit_target_variables():
+        targets = narrow_target_variables(targets, symbols)
     seen = {str(s) for s in _free_symbols(current)} | set().union(*symbols)
+    if goal is not None and goal.target_expression:
+        seen |= {str(s) for s in _free_symbols(parse_target_expression(goal.target_expression))}
     return targets, set(targets) - seen, target_variables_reached(targets, verified)
 
 
@@ -238,6 +272,33 @@ def resolve_target_reached(
     if reached and overall == "failed":
         return False
     return reached
+
+
+_DIRTY_TARGET_DISCLOSURE = (
+    "target expression matches, but the session contains failed steps "
+    "(see failed_steps); resolve or remove the audit steps before treating "
+    "the deliverable as reached."
+)
+
+
+def finalize_target_reached(
+    progress: dict[str, Any], overall: str | None
+) -> tuple[bool | None, str | None]:
+    """Resolve ``target_reached`` and disclose why it differs from ``matches``.
+
+    ``progress["matches_target"]`` keeps its expression-level meaning (does the
+    deliverable match the goal target?) and is deliberately NOT overwritten:
+    the two fields legitimately differ when a failed audit step blocks the
+    conservative ``target_reached`` (r23 G9, correcting F12b's over-alignment).
+    The returned disclosure string, when present, must be surfaced in the
+    response warnings so the caller is not left reading "not reached" as a
+    silent miss of a matching deliverable.
+    """
+    matches = progress.get("matches_target")
+    reached = resolve_target_reached(matches, overall)
+    if matches is True and reached is False:
+        return False, _DIRTY_TARGET_DISCLOSURE
+    return reached, None
 
 
 def completion_outcome(
@@ -316,18 +377,33 @@ def _expression_progress(
 def _reduction_progress(
     session: DerivationSession, current: sp.Basic, score: float
 ) -> tuple[float, str | None]:
-    """Score the ``reduce_symbols`` form against the first step's symbol count."""
+    """Score the ``reduce_symbols`` form against the first step's symbol count.
+
+    An unreadable first step is disclosed with an actionable gap rather than a
+    bare false: the caller otherwise cannot tell the reduction target was not
+    even measurable (task-15 operator confusion, r23 G9).
+    """
     if not session.steps:
-        return score, "No initial expression to compare"
+        return score, (
+            "No initial expression to measure symbol reduction against; record "
+            "a first step (or pass target_expression) before completing"
+        )
     initial = safe_load_expression(
         session.steps[0].output_expression, session.steps[0].output_srepr
     )
     if initial is None:
-        return score, "Could not load initial expression for comparison"
+        return score, (
+            "Could not load the first step's expression to measure symbol "
+            "reduction; re-record it with a parseable expression or pass "
+            "target_expression instead"
+        )
     try:
         initial_symbols = len(initial.free_symbols)
     except Exception:
-        return score, "Could not compute symbol reduction"
+        return score, (
+            "Could not compute the symbol reduction from the first step's "
+            "expression; re-record it in a form SymPy can parse"
+        )
     current_symbols = len(_free_symbols(current))
     if current_symbols < initial_symbols:
         return max(score, (initial_symbols - current_symbols) / initial_symbols), None
@@ -343,7 +419,13 @@ def _coverage_progress(
     score: float,
     matches: bool,
 ) -> tuple[float, bool]:
-    """Fold explicit-target coverage into ``(score, matches)``."""
+    """Fold explicit-target coverage into ``(score, matches)``.
+
+    A missing required variable demotes ``matches`` to ``False`` (an expression
+    equal to the target cannot green-light a goal whose target symbols are not
+    all present) and folds the uncovered fraction into the score, so a full
+    ``1.0`` never travels with ``matches_target: false`` (r23 G4).
+    """
     targets, missing, reached = target_coverage(session, current)
     if not targets:
         return score, matches
@@ -352,9 +434,11 @@ def _coverage_progress(
         # already supplied: it cannot be what is missing (r23 F12c).
         hint = "" if goal.target_expression else f"; {_MISSING_HINT}"
         gaps.append(f"Missing target variables: {', '.join(sorted(missing))}{hint}")
+        matches = False
+        score = min(score, (len(targets) - len(missing)) / len(targets))
     else:
         matches = matches or reached
-        score = max(score, 0.7)
+        score = max(score, 1.0 if matches else 0.7)
     if not goal.target_expression and not form.startswith("solve_for_"):
         score = max(score, 0.7 * (1.0 - len(missing) / max(len(targets), 1)))
     return score, matches

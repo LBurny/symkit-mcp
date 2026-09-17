@@ -15,6 +15,8 @@ Two defects from the 2026-09-12 complex-derivation black-box round
 
 from __future__ import annotations
 
+import json
+
 import sympy as sp
 
 from symkit.domain.derivation_goal import DerivationGoal
@@ -175,3 +177,37 @@ class TestEarlyZeroCheckDoesNotBecomeTheOutcome:
         result = session.complete()
 
         assert sp.sympify(result["final_expression"]) == sp.Integer(0)
+
+
+class TestReductionGapIsActionable:
+    def test_unloadable_initial_expression_is_disclosed_not_silent(self):
+        """G9/task-15: an unmeasurable reduction must say what to do about it."""
+        from symkit.domain.derivation_session import DerivationStep
+
+        session = _session("reduction-gap")
+        goal = DerivationGoal.from_text("reduce the number of variables")
+        assert goal.target_form == "reduce_symbols"
+        session.set_goal(goal)
+        session.steps = [
+            DerivationStep(
+                step_number=1,
+                operation=OperationType.SIMPLIFY,
+                description="unparseable first step",
+                input_expressions={},
+                output_expression="",
+                output_latex="",
+                sympy_command="math('simplify', ...)",
+                verification_result=json.dumps(
+                    {"status": "inconclusive", "message": "", "details": {}}
+                ),
+            )
+        ]
+        session.current_expression = sp.Symbol("x")
+
+        progress = session.compute_progress()
+
+        gaps = " ".join(progress["remaining_gaps"])
+        assert "Could not load the first step's expression" in gaps, progress
+        assert "target_expression" in gaps or "re-record" in gaps, progress
+        assert progress["matches_target"] is False, progress
+        assert progress["progress_score"] < 1.0, progress

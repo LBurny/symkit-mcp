@@ -236,12 +236,12 @@ class SymPyEngine(SymbolicEngine):
         """Integrate an expression using SymPy."""
         if not expr.is_valid:
             return expr
-
         var = resolve_assumed_symbol(variable, self._get_assumptions(variable, context))
         sym = expr.sympy_expr
-
         if lower is not None and upper is not None:
-            result = sp.integrate(sym, (var, self._to_sympy(lower), self._to_sympy(upper)))
+            from symkit.infrastructure.solution_guards import guarded_definite_integral
+            result, guard_warnings = guarded_definite_integral(
+                sym, var, self._to_sympy(lower), self._to_sympy(upper))
         elif isinstance(sym, sp.Integral) and str(var) in {str(lim[0]) for lim in sym.limits}:
             # Evaluating is required: integrating again treated the integral
             # as a constant and fabricated a factor ``var`` (r15 task-07).
@@ -254,12 +254,12 @@ class SymPyEngine(SymbolicEngine):
                 )
         else:
             result = sp.integrate(sym, var)
-
         return Expression(
             raw=str(result),
             latex=sp.latex(result),
             sympy_expr=result,
             expr_type=ExpressionType.CALCULUS,
+            warnings=guard_warnings if lower is not None and upper is not None else [],
         )
 
     def solve(
@@ -584,9 +584,9 @@ class SymPyEngine(SymbolicEngine):
             return _failed(f"{type(e).__name__}: {e}")
 
     def series(self, expr: Expression, var: str, point: str,
-               order: int = 6,
+               order: int | None = 6,
                context: MathContext | None = None) -> Expression:
-        """Compute series expansion of an expression."""
+        """Series expansion; an input already carrying ``O(...)`` is returned as is."""
         if not expr.is_valid:
             return expr
         try:
@@ -594,7 +594,9 @@ class SymPyEngine(SymbolicEngine):
             p, error = parse_expression_string(point, convert_equation=False)
             if p is None:
                 raise ValueError(error or f"cannot parse point '{point}'")
-            result = sp.series(expr.sympy_expr, v, p, order)
+            result = expr.sympy_expr if expr.sympy_expr.has(sp.Order) else (
+                sp.series(expr.sympy_expr, v, p, order) if order is not None
+                else sp.series(expr.sympy_expr, v, p))
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.ALGEBRAIC)
         except Exception as e:

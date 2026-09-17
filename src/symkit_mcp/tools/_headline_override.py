@@ -12,8 +12,10 @@ from __future__ import annotations
 from typing import Any
 
 import sympy as sp
+from sympy.logic.boolalg import BooleanFalse, BooleanTrue
 
 from symkit.domain.expression_parser import parse_user_expression
+from symkit.domain.recorded_claim import unevaluated_equality
 
 #: Attribute through which the override reaches ``pick_savable_expression``.
 OVERRIDE_ATTR = "_headline_override"
@@ -27,10 +29,20 @@ def parse_final_expression_override(
     Returns ``(expr, None)`` on success or ``(None, error)`` when the string
     cannot be understood.  The protected-name handling of the unified parser
     applies, so a declared ``E``/``I`` stays a symbol (r19 F20).
+
+    An equality whose sides fold to a boolean at construction (an identity like
+    ``Matrix([[1,0],[0,1]]) = Matrix([[1,0],[0,1]])``) is rebuilt through
+    :func:`unevaluated_equality`, so the deliverable keeps both sides instead of
+    collapsing to ``"True"`` (r23 G12).  Only that collapse is intercepted; a
+    bare constant or an ordinary symbolic expression is returned unchanged.
     """
     expr, error = parse_user_expression(final_expression, convert_equation=True)
     if expr is None or not isinstance(expr, sp.Basic):
         return None, error or f"Could not parse final_expression: {final_expression!r}"
+    if isinstance(expr, (BooleanTrue, BooleanFalse, bool)):
+        rebuilt = unevaluated_equality(final_expression)
+        if rebuilt is not None:
+            return rebuilt, None
     return expr, None
 
 

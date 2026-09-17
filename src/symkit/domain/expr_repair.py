@@ -72,6 +72,104 @@ def repair_inv_calls(expr: Any) -> Any:
     return expr.replace(_matrix_inv_query, _matrix_inverse)
 
 
+# A ``[[...],[...]]`` grid stands for a matrix, but SymPy builds a Python list
+# only when the literal *is* the whole expression; embedded in a larger
+# expression or an ``Eq`` side the list reaches ``sympify`` and dies (G5).  The
+# literal is rewritten to the equivalent ``Matrix(...)`` constructor.  A ``[``
+# that already sits inside a matrix constructor (including srepr forms such as
+# ``ImmutableDenseMatrix([...])``) is skipped so nothing is double-wrapped.
+_MATRIX_CTOR_TAIL_RE: re.Pattern[str] = re.compile(
+    r"(?:(?:Immutable|Mutable)?(?:Dense|Sparse)?Matrix)\s*\(\s*$"
+)
+_EMPTY_LIST_ERROR = (
+    "empty list literal is not a valid matrix; write Matrix([[...]]) with at "
+    "least one row"
+)
+
+
+def _split_top_level(text: str) -> list[str]:
+    """Split *text* on commas that are not nested inside brackets."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
+
+
+def _find_closing_bracket(text: str, start: int) -> int:
+    """Index of the ``]`` matching the ``[`` at *start*, or -1 if unbalanced."""
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "[":
+            depth += 1
+        elif text[i] == "]":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _row_length(part: str) -> int:
+    inner = part.strip()[1:-1]
+    if not inner.strip():
+        raise ValueError(_EMPTY_LIST_ERROR)
+    return len(_split_top_level(inner))
+
+
+def normalize_matrix_literals(expr_str: str) -> str:
+    """Rewrite top-level row-grid literals to ``Matrix([[...]])``.
+
+    A list-of-lists (every top-level item is itself a bracketed list) is the
+    matrix row-grid form; rewriting it to the ``Matrix(...)`` constructor makes
+    every parser entry point accept the same syntax as ``Matrix([[...]])``
+    (G5).  Flat lists (column vectors) and existing constructor calls are left
+    untouched.
+
+    Raises:
+        ValueError: an empty ``[]`` literal or a jagged grid
+            (``[[1, 2], [3]]``), with a message naming the problem.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(expr_str):
+        if expr_str[i] != "[" or _MATRIX_CTOR_TAIL_RE.search(expr_str[:i]):
+            out.append(expr_str[i])
+            i += 1
+            continue
+        close = _find_closing_bracket(expr_str, i)
+        if close == -1:
+            out.append(expr_str[i:])
+            break
+        literal = expr_str[i : close + 1]
+        rows = _split_top_level(literal[1:-1])
+        if rows and all(
+            part.strip().startswith("[") and part.strip().endswith("]")
+            for part in rows
+        ):
+            lengths = [_row_length(part) for part in rows]
+            if len(set(lengths)) != 1:
+                shown = ", ".join(str(n) for n in lengths)
+                raise ValueError(
+                    f"matrix literal rows must have equal length; got row "
+                    f"lengths {shown}"
+                )
+            out.append(f"Matrix({literal})")
+        elif not literal[1:-1].strip():
+            raise ValueError(_EMPTY_LIST_ERROR)
+        else:
+            out.append(literal)
+        i = close + 1
+    return "".join(out)
+
+
 def repair_parsed_expression(
     parsed: Any,
     expr_str: str,

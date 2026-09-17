@@ -43,11 +43,14 @@ from symkit.domain.value_objects import VerificationResult, VerificationStatus
 from symkit.domain.verification_guardrails import (
     collect_warnings,
     direct_differentiation_verdict,
-    drop_piecewise_constant_derivatives,
     reverse_integrate,
     verify_evalf,
 )
-from symkit.domain.verifier_heuristics import step_assumptions
+from symkit.domain.verifier_heuristics import (
+    reverse_check_verdict,
+    step_assumptions,
+    value_preserved,
+)
 
 if TYPE_CHECKING:
     from symkit.domain.derivation_session import DerivationStep
@@ -330,6 +333,7 @@ class StepVerifier:
                 message=f"{operation} returned boolean output; no automatic check",
             )
 
+        raw_diff = self._difference(input_expr, output_expr)
         diff = sp.simplify(
             self._difference(
                 evaluate_pending(input_expr), evaluate_pending(output_expr)
@@ -346,9 +350,7 @@ class StepVerifier:
             )
             details["suspect_identity"] = kind
             message += f", but {phrase}"
-        if is_numerically_zero(diff) or is_numerically_zero(
-            sp.simplify(sp.expand(self._difference(input_expr, output_expr)))
-        ):
+        if value_preserved(diff, raw_diff):
             return VerificationResult(
                 status=VerificationStatus.VERIFIED, message=message, details=details
             )
@@ -495,41 +497,7 @@ class StepVerifier:
                     " so the reverse check is trivially true — no verification"
                 ),
             )
-        return self._reverse_differentiation_verdict(
-            sp.diff(output_expr, var_sym), expected
-        )
-
-    def _reverse_differentiation_verdict(
-        self, derivative: sp.Basic, expected: sp.Basic
-    ) -> VerificationResult:
-        """Verdict from comparing ``d(output)/dv`` with the expected integrand."""
-        diff = sp.simplify(drop_piecewise_constant_derivatives(derivative) - expected)
-        if is_numerically_zero(diff):
-            return VerificationResult(
-                status=VerificationStatus.VERIFIED,
-                message="Integration verified by differentiation",
-                reverse_check=True,
-            )
-        status = residual_verdict(evaluate_pending(diff))
-        if status == VerificationStatus.VERIFIED:
-            return VerificationResult(
-                status=status,
-                message="Integration verified by numeric substitution",
-                reverse_check=True,
-            )
-        if status == VerificationStatus.INCONCLUSIVE:
-            return VerificationResult(
-                status=status,
-                message="Reverse differentiation did not match; numeric substitution inconclusive",
-                details={"derivative": str(derivative), "expected": str(expected)},
-                reverse_check=False,
-            )
-        return VerificationResult.failure(
-            "Differentiation of integral does not match original",
-            derivative=str(derivative),
-            expected=str(expected),
-            reverse_check=False,
-        )
+        return reverse_check_verdict(sp.diff(output_expr, var_sym), expected)
 
     def _verify_definite_integration(
         self,
@@ -539,10 +507,10 @@ class StepVerifier:
         assumptions: dict[str, dict[str, bool]],
     ) -> VerificationResult:
         """Verify a definite integral by numeric quadrature; disagreement stays INCONCLUSIVE (run-011)."""
-        if input_expr == output_expr or isinstance(output_expr, sp.Integral):
-            # An inert Integral returned unchanged, or an unevaluated Integral
-            # echoed for an integrand input: quadrature would compare the
-            # expression with itself and certify nothing (task-02, r22 task-15).
+        if input_expr == output_expr or output_expr.has(sp.Integral):
+            # An inert Integral returned unchanged, or an output still carrying an
+            # unevaluated Integral (bare or coefficient-wrapped): quadrature would
+            # compare the expression with itself and certify nothing (r23 G7).
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
                 message=(

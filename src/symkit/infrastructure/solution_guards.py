@@ -107,3 +107,65 @@ def dsolve_artifact_reason(equation: Any, solution: Any) -> str | None:
         "indicate a truncated power-series ansatz); solve via "
         "ansatz/substitution instead"
     )
+
+
+# Trig bases whose symbolic power exposes the unbound heurisch recursion.
+_TRIG_POWER_BASES = (sp.sin, sp.cos, sp.tan, sp.cot, sp.sec, sp.csc)
+
+_TRIG_POWER_WEDGE_WARNING = (
+    "the integrand has a trigonometric power with a symbolic exponent "
+    "({powers}); SymPy's default heurisch route recurses without bound on this "
+    "form, so it was routed through the bounded meijerg method and returned "
+    "unevaluated. Substitute u = sin({var})**2 to reach the Beta-function "
+    "form, or state numeric exponents."
+)
+
+
+def symbolic_trig_power_powers(integrand: Any, variable: Any) -> list[str]:
+    """Rendered trig powers whose exponent free symbols exclude *variable*.
+
+    Narrow by design: ``cos(theta)**2`` (numeric exponent) and ``x**(p-1)``
+    (non-trig base) are not matched, so their integration is untouched. The
+    comparison is by symbol *name* because the integration variable may carry
+    assumptions while the integrand's symbol does not.
+    """
+    if not hasattr(integrand, "atoms"):
+        return []
+    var_name = str(variable)
+    found: set[str] = set()
+    for power in integrand.atoms(sp.Pow):
+        base, exponent = power.base, power.exp
+        if not isinstance(base, _TRIG_POWER_BASES) or not base.args:
+            continue
+        if var_name not in {str(sym) for sym in base.args[0].free_symbols}:
+            continue
+        if {str(sym) for sym in exponent.free_symbols} - {var_name}:
+            found.add(str(power))
+    return sorted(found)
+
+
+def guarded_definite_integral(
+    integrand: Any, variable: Any, lower: Any, upper: Any
+) -> tuple[Any, list[str]]:
+    """Definite integral with the symbolic-trig-power recursion guard (G10).
+
+    Returns ``(result, warnings)``. The default route (and its behavior) is
+    kept for every integrand the guard does not match. A matched integrand
+    goes through ``meijerg=True``, which is bounded; if it still has no closed
+    form the unevaluated integral is returned with a warning instead of letting
+    ``heurisch`` recurse without bound. An exception in the guarded route also
+    falls back to the unevaluated integral, never to the wedge.
+    """
+    powers = symbolic_trig_power_powers(integrand, variable)
+    if not powers:
+        return sp.integrate(integrand, (variable, lower, upper)), []
+    try:
+        result = sp.integrate(integrand, (variable, lower, upper), meijerg=True)
+    except Exception:
+        result = sp.Integral(integrand, (variable, lower, upper))
+    if result.has(sp.Integral):
+        warning = _TRIG_POWER_WEDGE_WARNING.format(
+            powers=", ".join(powers), var=variable
+        )
+        return result, [warning]
+    return result, []

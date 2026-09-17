@@ -25,7 +25,11 @@ from symkit.domain.numeric_evidence import (
 )
 from symkit.domain.recorded_claim import numeric_difference_verdict
 from symkit.domain.value_objects import VerificationStatus
-from symkit.domain.verifier_heuristics import bare_symbol_definition, matrix_equality
+from symkit.domain.verifier_heuristics import (
+    bare_symbol_definition,
+    matrix_equality,
+    mixed_matrix_verdict,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -168,7 +172,7 @@ def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, st
     and a zero-free-symbol difference that is an unevaluated application.
     """
     if isinstance(expr, sp.Equality):
-        matrix = matrix_equality(expr.lhs, expr.rhs)
+        matrix = matrix_equality(expr.lhs, expr.rhs) or mixed_matrix_verdict(expr)
         if matrix is not None:
             return matrix
         lhs_eval = evaluate_pending(expr.lhs)

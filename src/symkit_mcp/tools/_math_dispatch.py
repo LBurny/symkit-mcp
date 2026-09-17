@@ -49,14 +49,14 @@ from symkit_mcp.tools._op_helpers import (
     solve_variable_name_error,
     symbol_names,
 )
+from symkit_mcp.tools._solve_system_input import equation_list_expressions
 from symkit_mcp.tools._state import get_context, get_session
 from symkit_mcp.tools._system_solve import solve_system
 from symkit_mcp.tools._unit_context import dimension_operation
 
 _engine = SymPyEngine()
 
-# Call-site names SymPy silently collapses to a symbol: ``S(t)``
-# (SingletonRegistry) and ``N(t)`` (evalf) both evaluate to ``t`` (r14 task-15).
+# ``S(t)``/``N(t)`` silently collapse to ``t`` (r14 task-15).
 _DEGENERATE_CALL_NAMES = ("S", "N")
 
 
@@ -137,9 +137,8 @@ def lambda_symbol_warning(expr_str: Any) -> str | None:
     )
 
 
-# Operations whose ``variable``/``with_respect_to`` is a single name: a comma list
-# is not a variable, and ``diff`` silently differentiated wrt a nonexistent Symbol
-# and returned 0 (task-01 G4). Vector op coordinate lists and ``solve`` are exempt.
+# Operations whose ``variable`` is a single name: a comma list is not one, and
+# ``diff`` silently differentiated wrt a nonexistent Symbol (task-01 G4).
 _SINGLE_VAR_OPS = frozenset({
     "collect", "apart", "diff", "integrate", "limit", "series",
     "dsolve", "laplace", "ilaplace", "fourier", "ifourier",
@@ -473,7 +472,8 @@ def _unconsumed_params(operation: str, provided: dict[str, Any]) -> list[str]:
     for name, default in _KNOB_DEFAULTS.items():
         if name in allowed:
             continue
-        if provided.get(name, default) != default:
+        # ``None`` means "not supplied" for any knob.
+        if (value := provided.get(name, default)) is not None and value != default:
             rejected.append(
                 f"Parameter '{name}' is not used by operation "
                 f"'{operation}' and the call was rejected."
@@ -490,7 +490,7 @@ def _execute_operation(
     substitution: dict[str, Any] | None = None,
     point: str | None = None,
     direction: str = "+-",
-    order: int = 1,
+    order: int | None = None,
     lower: str | None = None,
     upper: str | None = None,
     method: str = "auto",
@@ -546,7 +546,7 @@ def _execute_operation_inner(
     substitution: dict[str, Any] | None = None,
     point: str | None = None,
     direction: str = "+-",
-    order: int = 1,
+    order: int | None = None,
     lower: str | None = None,
     upper: str | None = None,
     method: str = "auto",
@@ -640,14 +640,15 @@ def _execute_operation_inner(
     # ── SOLVE ──
     elif operation == "solve":
         try:
-            # The shared parser already converts a single '=' to Eq(...).
-            parsed = _require_parse_with_assumptions(preprocessed)
+            # '=' lists need per-element parsing (G1).
+            parsed = equation_list_expressions(preprocessed, context)
+            if parsed is None:
+                parsed = _require_parse_with_assumptions(preprocessed)
             if isinstance(parsed, dict):
                 return parsed
             input_obj = parsed
-            # A bracket list parses to a Matrix (run-020); a flat one is an
-            # equation list, not a matrix op. A set literal has no solution
-            # semantics at all (F3/F15).
+            # A bracket list parses to a Matrix (run-020); a set literal has no
+            # equation-list semantics (F3/F15).
             parsed = flat_matrix_equations(parsed)
             if isinstance(parsed, (set, frozenset)):
                 return set_literal_solve_error()
@@ -673,8 +674,7 @@ def _execute_operation_inner(
                             "Pass one of them as variable."
                         ),
                     }
-            # A comma-separated expression parses to a python tuple — treat it
-            # as a system of equations (run-018).
+            # A comma-separated expression parses to a python tuple (run-018).
             if isinstance(parsed, (list, tuple)):
                 return solve_system(parsed, variable, context, input_obj, operation)
             # Curated refusals for a non-symbol solve variable and for a
@@ -762,7 +762,7 @@ def _execute_operation_inner(
         input_obj = expr_obj.sympy_expr
 
         if operation == "diff":
-            out = _engine.differentiate(expr_obj, v, order, context)
+            out = _engine.differentiate(expr_obj, v, order or 1, context)
         elif operation == "integrate":
             outcome = integrate_operation(
                 preprocessed, input_obj, expr_obj, variable, lower, upper,

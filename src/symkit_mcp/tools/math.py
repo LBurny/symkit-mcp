@@ -163,7 +163,7 @@ def _record_math_step(
     result_obj: Any,
     *,
     variable: str | None,
-    order: int,
+    order: int | None,
     lower: str | None,
     upper: str | None,
     point: str | None,
@@ -190,7 +190,7 @@ def _record_math_step(
             ),
             output_expr=result_obj,
             sympy_command=_sympy_command(
-                operation, variable, order, lower, upper, point
+                operation, variable, order or 1, lower, upper, point
             ),
             notes=notes,
             # Snapshot the session's assumptions onto the step record (r19 F19):
@@ -257,7 +257,7 @@ def _record_step_if_possible(
     result_obj: Any,
     *,
     variable: str | None,
-    order: int,
+    order: int | None,
     lower: str | None,
     upper: str | None,
     point: str | None,
@@ -299,7 +299,7 @@ def register_math_tools(mcp: Any) -> None:
         substitution: dict[str, Any] | None = None,
         point: str | None = None,
         direction: str = "+-",
-        order: int = 1,
+        order: int | None = None,
         lower: str | None = None,
         upper: str | None = None,
         assumptions: list[str] | None = None,
@@ -362,7 +362,7 @@ def register_math_tools(mcp: Any) -> None:
             substitution: Substitution mapping {"var": "replacement", ...}
             point: Limit point / series expansion point (default "0")
             direction: Limit direction "+-", "+", "-"
-            order: Differentiation order / number of series terms (default 1)
+            order: Differentiation order / number of series terms (defaults: 1 for diff, 6 for series)
             lower: Definite integral lower bound
             upper: Definite integral upper bound
             assumptions: Symbolic assumptions ["x is positive", "t is real"].
