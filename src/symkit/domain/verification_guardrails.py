@@ -140,6 +140,30 @@ def reverse_integrate(expr: sp.Basic, var: sp.Symbol, order: int) -> sp.Basic | 
     return expr
 
 
+def has_stuck_piecewise_derivative(expr: sp.Basic) -> bool:
+    """Unevaluated ``Subs``/``Derivative`` of ``floor``/``ceiling`` present.
+
+    sympy cannot differentiate the piecewise-constant ``floor``/``ceiling`` and
+    leaves the derivative inert; at every non-breakpoint that derivative is 0
+    (r22 task-05).
+    """
+    for node in sp.preorder_traversal(expr):
+        if isinstance(node, (sp.Subs, sp.Derivative)) and node.expr.has(
+            sp.floor, sp.ceiling
+        ):
+            return True
+    return False
+
+
+def drop_piecewise_constant_derivatives(expr: sp.Basic) -> sp.Basic:
+    """Replace stuck ``floor``/``ceiling`` derivative terms with 0 (see above)."""
+    return expr.replace(
+        lambda node: isinstance(node, (sp.Subs, sp.Derivative))
+        and node.expr.has(sp.floor, sp.ceiling),
+        lambda _node: sp.Integer(0),
+    )
+
+
 def direct_differentiation_verdict(
     input_expr: sp.Basic, output_expr: sp.Basic, var: sp.Symbol, order: int
 ) -> VerificationResult | None:
@@ -162,6 +186,17 @@ def direct_differentiation_verdict(
         return None
     if not is_numerically_zero(residual):
         return None
+    if has_stuck_piecewise_derivative(output_expr):
+        # Recomputation only reproduces the same inert floor/ceiling derivative,
+        # so a green here certifies nothing (r22 task-05).
+        return VerificationResult(
+            status=VerificationStatus.INCONCLUSIVE,
+            message=(
+                "the output keeps an unevaluated floor/ceiling derivative "
+                "(piecewise-constant, undefined at breakpoints); direct "
+                "recomputation reproduces the same stuck form"
+            ),
+        )
     return VerificationResult(
         status=VerificationStatus.VERIFIED,
         message="Differentiation verified by direct recomputation",

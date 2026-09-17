@@ -6,8 +6,8 @@ from datetime import datetime
 from typing import Any
 
 import sympy as sp
+from sympy.logic.boolalg import BooleanFalse
 
-from symkit.domain.derivation_goal import DerivationGoal
 from symkit.domain.derivation_pattern import (
     DerivationPattern,
     get_pattern_template,
@@ -15,6 +15,7 @@ from symkit.domain.derivation_pattern import (
 from symkit.domain.derivation_session import DerivationSession, StepStatus
 from symkit.domain.expression_parser import parse_user_expression
 from symkit.domain.formula import FormulaSource
+from symkit.domain.recorded_claim import unevaluated_equality
 from symkit_mcp.tools import _unit_context
 from symkit_mcp.tools._formula_governance import backfill_loaded_formula_units, similar_to
 from symkit_mcp.tools._headline_override import (
@@ -38,6 +39,7 @@ from symkit_mcp.tools._state import (
     get_session,
     set_session,
 )
+from symkit_mcp.tools._target_echo import build_goal
 
 
 def _as_str_list(value: list[str] | str | None) -> list[str]:
@@ -55,12 +57,7 @@ def _as_str_list(value: list[str] | str | None) -> list[str]:
 
 
 def _flag_unrecorded_math_step(result: dict[str, Any]) -> None:
-    """Mark a ``math(session=True)`` result as not recorded (no active session).
-
-    An operator following the documented workflow believed the step had been
-    captured; saying so explicitly stops the derivation from losing it silently
-    (r18 C3). The mathematical fields of ``result`` are left untouched.
-    """
+    """Flag an unrecorded ``math(session=True)`` result (no active session, r18 C3)."""
     result["session_recorded"] = False
     result.setdefault("warnings", []).append(
         "session=True was requested but no derivation session is active, so "
@@ -257,8 +254,7 @@ def register_session_tools(mcp: Any) -> None:
         target_variables: list[str] | str | None = None,
         target_expression: str | None = None,
     ) -> dict[str, Any]:
-        """
-        Start a new derivation session
+        """Start a new derivation session.
 
         Args:
             name: Derivation name
@@ -267,10 +263,8 @@ def register_session_tools(mcp: Any) -> None:
             pattern: Derivation pattern
             goal: Natural-language goal (optional)
             author: Author
-            target_variables: Optional explicit target variables (e.g. ["v_t"]);
-                overrides those extracted from the goal text.
-            target_expression: Optional explicit target expression (e.g.
-                "Omega_res = sqrt(omega0**2 - 2*beta**2)"); overrides the extracted one.
+            target_variables: Explicit targets (e.g. ["v_t"]); overrides goal text.
+            target_expression: Explicit target (e.g. "Z_c = 3/8"); echoed parsed.
 
         Returns:
             Session information
@@ -285,12 +279,11 @@ def register_session_tools(mcp: Any) -> None:
             author=author,
             auto_persist=True,
         )
-        if goal:
-            parsed_goal = DerivationGoal.from_text(goal, domain=domain)
-            if target_variables is not None:
-                parsed_goal.target_variables = _as_str_list(target_variables)
-            if target_expression:
-                parsed_goal.target_expression = target_expression
+        variables = _as_str_list(target_variables) if target_variables is not None else None
+        parsed_goal, target_parsed, target_warning = build_goal(
+            goal, domain, variables, target_expression
+        )
+        if parsed_goal is not None:
             session.set_goal(parsed_goal)
         set_session(session)
 
@@ -306,6 +299,10 @@ def register_session_tools(mcp: Any) -> None:
         }
         if resolved_pattern is None:
             result["warnings"] = [unknown_pattern_warning(pattern, session.pattern.value)]
+        if target_parsed is not None:
+            result["target_parsed"] = target_parsed
+        if target_warning:
+            result.setdefault("warnings", []).append(target_warning)
         return result
 
     @mcp.tool(meta={"category": "Session Management"})
@@ -613,11 +610,8 @@ def register_session_tools(mcp: Any) -> None:
             references: References (a bare string is coerced to a list)
             tags: Tags (a bare string is coerced to a list)
             auto_save: Persist the derived formula into the formula library
-                (default True). The session record JSON is always persisted
-                regardless; this flag only controls the formula-library write.
-                A bare-constant outcome (e.g. a trailing ``0`` self-check) is
-                never written as a formula: the write is skipped and the
-                operator records the real formula with ``formula_add``.
+                (default True). The session record JSON is always persisted;
+                a bare-constant outcome is never written as a formula.
             require_target_match: If True, the derivation will only be saved as
                 completed when the current expression matches the goal target.
                 Default is False for backward compatibility, but a warning is
@@ -625,8 +619,8 @@ def register_session_tools(mcp: Any) -> None:
             final_expression: The operator's declared deliverable. When given it
                 must parse; on failure the session is not completed and an error
                 is returned. When valid it becomes ``final_expression`` /
-                ``final_latex`` and is what ``auto_save`` writes, outranking the
-                heuristic outcome selection.
+                ``final_latex``, is what ``auto_save`` writes, and is the
+                expression judged against the goal target.
 
         Returns:
             Complete derivation record with a compact ``steps_summary``; the
@@ -706,9 +700,6 @@ def register_session_tools(mcp: Any) -> None:
     def session_rollback(to_step: int) -> dict[str, Any]:
         """
         Roll back to the specified step
-
-        Keep steps up to and including the specified step, and delete steps after it.
-        After rolling back, you can continue the derivation from that step (taking a different path).
 
         Args:
             to_step: Step number to roll back to (1-based); 0 = clear all
@@ -855,11 +846,8 @@ def register_session_tools(mcp: Any) -> None:
         Args:
             goal: Natural-language goal text.
             target_expression: Optional explicit target expression (e.g.
-                "v = sqrt(2*G*M/R)").  When provided, it overrides the
-                automatically-extracted target expression.
-            target_variables: Optional explicit list of target variables (e.g.
-                ["v_t"]).  When provided, it overrides the variables extracted
-                heuristically from the goal text.
+                "v = sqrt(2*G*M/R)"); echoed back parsed as ``target_parsed``.
+            target_variables: Optional explicit list of target variables.
 
         Returns:
             Parsed goal and session status.
@@ -870,18 +858,28 @@ def register_session_tools(mcp: Any) -> None:
                 "success": False,
                 "error": "No active session. Use session_start() first.",
             }
-        parsed_goal = DerivationGoal.from_text(goal, domain=session.domain)
-        if target_expression:
-            parsed_goal.target_expression = target_expression
-        if target_variables is not None:
-            parsed_goal.target_variables = _as_str_list(target_variables)
+        parsed_goal, target_parsed, target_warning = build_goal(
+            goal,
+            session.domain,
+            _as_str_list(target_variables)
+            if target_variables is not None
+            else None,
+            target_expression,
+        )
+        if parsed_goal is None:  # unreachable: ``goal`` is required here
+            return {"success": False, "error": "A goal is required."}
         session.set_goal(parsed_goal)
-        return {
+        result: dict[str, Any] = {
             "success": True,
             "goal": parsed_goal.to_dict(),
             "session_id": session.session_id,
             "message": f"Goal set: {parsed_goal.text}",
         }
+        if target_parsed is not None:
+            result["target_parsed"] = target_parsed
+        if target_warning:
+            result["warnings"] = [target_warning]
+        return result
 
     @mcp.tool(
         meta={
@@ -933,16 +931,14 @@ def register_session_tools(mcp: Any) -> None:
     ) -> dict[str, Any]:
         """Manually record a derivation step (e.g. a result computed outside the tool).
 
-        The ``expression`` argument is parsed through the unified parser, which
-        supports SymPy strings, natural equations (``A = B``), Leibniz derivative
-        notation (``dX/dY``), Greek/Unicode math, and LaTeX.
+        The ``expression`` argument goes through the unified parser (SymPy strings,
+        natural equations ``A = B``, Leibniz notation, LaTeX).
 
         Args:
             expression: Result expression string (SymPy or LaTeX).
             description: Human-readable step description.
-            operation: Ignored. Manual steps are always recorded as OperationType.CUSTOM
-                to prevent a user-supplied operation label (e.g. "simplify") from being
-                falsely reported as automatically verified.
+            operation: Ignored. Manual steps are always OperationType.CUSTOM so a
+                user label (e.g. "simplify") is not reported as auto-verified.
             notes: Human insight / observation.
             assumptions: Step-specific assumptions.
             limitations: Step-specific limitations.
@@ -965,6 +961,10 @@ def register_session_tools(mcp: Any) -> None:
             }
         # A folded claim's python bool does not round-trip; normalize it first.
         new_expr = sp.sympify(new_expr) if isinstance(new_expr, bool) else new_expr
+        if isinstance(new_expr, BooleanFalse):
+            # Folded numeric claim lost its sides; rebuild unevaluated (r22 task-04).
+            rebuilt = unevaluated_equality(expression)
+            new_expr = rebuilt if rebuilt is not None else new_expr
         if not isinstance(new_expr, sp.Basic):
             # Matrices and comma-separated tuples cannot become an expression.
             return {
@@ -978,9 +978,8 @@ def register_session_tools(mcp: Any) -> None:
 
         from symkit.domain.derivation_session import OperationType
 
-        # Manual steps have unknown provenance, so they must not be disguised as
-        # automatically verifiable canonical operations (e.g. simplify/differentiate):
-        # the verification result would read green with no check performed.
+        # Manual steps have unknown provenance and must not read as
+        # automatically verified canonical operations (r20 W2).
         op_type = OperationType.CUSTOM
 
         session.current_expression = new_expr
@@ -1013,11 +1012,7 @@ def register_session_tools(mcp: Any) -> None:
         }
     )
     def session_get_steps() -> dict[str, Any]:
-        """Return all recorded steps in the current session.
-
-        Returns:
-            List of steps with metadata.
-        """
+        """Return all recorded steps in the current session (metadata included)."""
         session = get_session()
         if session is None:
             return {

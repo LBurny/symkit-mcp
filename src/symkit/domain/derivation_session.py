@@ -30,6 +30,7 @@ from symkit.domain.derivation_goal import (
 from symkit.domain.derivation_outcome import (
     completion_outcome,
     compute_goal_progress,
+    failed_operation_steps,
     is_note_step,
     resolve_target_reached,
     select_representative_expression,
@@ -39,6 +40,7 @@ from symkit.domain.derivation_pattern import DerivationPattern
 from symkit.domain.derivation_planner import DerivationPlanner
 from symkit.domain.expr_io import safe_load_expression
 from symkit.domain.final_result import (
+    is_numerically_zero,
     suspect_identity_steps,
     suspect_identity_warning,
 )
@@ -52,7 +54,6 @@ from symkit.domain.math_domain import MathDomain
 from symkit.domain.paths import user_sessions_dir
 from symkit.domain.step_verifier import (
     StepVerifier,
-    is_numerically_zero,
     verification_result_from_json,
     verification_result_to_json,
 )
@@ -968,22 +969,17 @@ class DerivationSession:
         }
 
     def verify_derivation(self) -> dict[str, Any]:
-        """Verify the entire derivation chain and return a summary.
+        """Verify the whole derivation chain and return a summary.
 
-        Pure note steps (``session_add_note`` and the failed-call traces) carry
-        no mathematical claim, so they are excluded from every count and from
-        the step-number lists — they remain visible in ``session_get_steps``
-        (r19 F5).
+        Pure note steps (``session_add_note``, failed-call traces) carry no
+        mathematical claim: excluded from every count and step-number list,
+        still visible in ``session_get_steps`` (r19 F5).
         """
         substantive = [step for step in self.steps if not is_note_step(step)]
         summary: dict[str, Any] = {
             "total": len(substantive),
-            "verified": 0,
-            "failed": 0,
-            "inconclusive": 0,
-            "failed_steps": [],
-            "inconclusive_steps": [],
-            "suspect_identity_steps": [],
+            "verified": 0, "failed": 0, "inconclusive": 0,
+            "failed_steps": [], "inconclusive_steps": [], "suspect_identity_steps": [],
             "assumption_conflicts": self.assumption_engine.detect_conflicts(),
         }
 
@@ -1009,10 +1005,8 @@ class DerivationSession:
                 summary["inconclusive"] += 1
                 summary["inconclusive_steps"].append(step.step_number)
 
-        # Graded semantics: a chain is "verified" when nothing failed and at
-        # least one substantive step was positively verified. Inconclusive
-        # steps (e.g. notes, or operations without an automatic checker)
-        # lower confidence but do not poison an otherwise verified chain.
+        # Graded semantics: "verified" = nothing failed and at least one
+        # substantive step verified; inconclusive steps do not poison the chain.
         if summary["failed"] > 0:
             summary["overall"] = "failed"
         elif verified_substantive > 0:
@@ -1025,6 +1019,13 @@ class DerivationSession:
         summary["suspect_identity_steps"] = flagged
         if flagged:
             summary["warnings"] = [suspect_identity_warning(flagged)]
+
+        # Failed ``math(session=True)`` calls are kept as note-type traces and
+        # stay out of every count above (r19 F5); an operator reading only the
+        # summary cannot tell an attempt failed at all (r22 task-07).
+        failed_ops = failed_operation_steps(self.steps)
+        if failed_ops:
+            summary["failed_operation_steps"] = failed_ops
 
         return summary
 
@@ -1094,14 +1095,13 @@ class DerivationSession:
         except Exception:
             return False
 
-    def compute_progress(self) -> dict[str, Any]:
-        """Progress of the current expression relative to the goal.
+    def compute_progress(self, current_override: sp.Basic | None = None) -> dict[str, Any]:
+        """Progress relative to the goal (tri-state ``matches_target``, r19 F4).
 
-        Delegates to :func:`symkit.domain.derivation_outcome.compute_goal_progress`,
-        which owns the tri-state ``matches_target`` contract (r19 F4): ``None``
-        when the goal defines no checkable target, else a bool.
+        ``current_override``: an explicit deliverable (``complete``'s
+        ``final_expression``) is judged instead of the chain current (r22).
         """
-        return compute_goal_progress(self)
+        return compute_goal_progress(self, current_override)
 
     def get_steps(self) -> list[dict[str, Any]]:
         """Get all steps."""
@@ -1380,7 +1380,7 @@ class DerivationSession:
         outcome, headline_fields = completion_outcome(
             self, verification_summary.get("failed_steps") or [], final_override
         )
-        progress = self.compute_progress()
+        progress = self.compute_progress(current_override=final_override)
         target_reached = resolve_target_reached(progress.get("matches_target"), verification_summary.get("overall"))
 
         warnings: list[str] = []

@@ -5,7 +5,7 @@ Step-by-step symbolic math for AI agents: derive, verify, and certify formulas o
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-1434%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1501%20passed-brightgreen.svg)]()
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -42,7 +42,7 @@ Example — deriving the angular frequency of a simple harmonic oscillator from 
 
 ## Tools
 
-46 MCP tools across 9 categories. Most work flows through a few high-level tools; power users can drive each step individually.
+47 MCP tools across 10 categories. Most work flows through a few high-level tools; power users can drive each step individually.
 
 | Category | Count | Highlights |
 |---|---|---|
@@ -55,6 +55,7 @@ Example — deriving the angular frequency of a simple harmonic oscillator from 
 | Output | 1 | `generate_output` (`markdown_report` / `latex` / `python` / `sympy_script`) |
 | Orchestration | 3 | `derive`, `intent_execute`, `list_patterns` |
 | Meta | 2 | `tool_categories`, `tool_recommend` |
+| Execution | 1 | `python_exec` — one-shot Python/sympy snippets in an isolated subprocess |
 
 ## Derivation sessions
 
@@ -178,9 +179,9 @@ src/
 │   ├── domain/           # Entities, derivation engine, verifier contracts
 │   ├── application/      # Use cases
 │   └── infrastructure/   # SymPy engine, Lean checker, persistence, adapters
-└── symkit_mcp/           # MCP server layer (FastMCP) + 46 tools
+└── symkit_mcp/           # MCP server layer (FastMCP) + 47 tools
 formulas/                 # Seed formula library (source tree)
-tests/                    # 1434 tests
+tests/                    # 1501 tests
 ```
 
 Domain-driven design: the core is independent of MCP and SymPy, engines are pluggable via protocols, and formulas/sessions persist as readable YAML/JSON.

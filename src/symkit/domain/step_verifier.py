@@ -24,26 +24,26 @@ from symkit.domain.final_result import (
     boolean_equation_verdict,
     classify_suspect_identity,
     definite_integral_variables,
-    equation_claim_sides,
     equation_identity,
     equations_equivalent,
     evaluate_pending,
     extract_order_from_command,
     extract_variable_from_command,
+    is_numerically_zero,
     matching_variable,
     numeric_integral_verdict,
     recorded_step_verdict,
     residual_verdict,
     reverse_integration_operands,
+    scaled_numeric_zero,
 )
-from symkit.domain.final_result import (
-    is_numerically_zero as is_numerically_zero,
-)
+from symkit.domain.recorded_claim import equation_claim_sides, unevaluated_equality
 from symkit.domain.symbol_registry import SymbolRegistry
 from symkit.domain.value_objects import VerificationResult, VerificationStatus
 from symkit.domain.verification_guardrails import (
     collect_warnings,
     direct_differentiation_verdict,
+    drop_piecewise_constant_derivatives,
     reverse_integrate,
     verify_evalf,
 )
@@ -156,6 +156,14 @@ class StepVerifier:
     ) -> VerificationResult:
         """Content-check a manually recorded step (see ``recorded_step_verdict``)."""
         expr = self._parse_archived(step.output_expression, step.output_srepr, assumptions)
+        if isinstance(expr, BooleanFalse):
+            # A recorded numeric ``A = B`` folds to a bare Boolean at parse and
+            # again at srepr reload; a False fold loses the sides, so no residual
+            # can be disclosed (r22 task-04). A True fold means definitely equal.
+            original = (step.input_expressions or {}).get("original", "")
+            rebuilt = unevaluated_equality(original) if original else None
+            if rebuilt is not None:
+                expr = rebuilt
         status, message = recorded_step_verdict(expr)
         if status == VerificationStatus.VERIFIED and conflicts:
             return VerificationResult.failure(
@@ -192,11 +200,9 @@ class StepVerifier:
         srepr_str: str,
         assumptions: dict[str, dict[str, bool]] | None = None,
     ) -> sp.Basic | None:
-        """Rebuild an archived expression, preferring the machine-readable srepr.
-
-        Display strings do not round-trip (``str(E)``/``str(I)`` parse back to
-        protected Symbols), so re-parsing produced false FAILED verdicts (I2).
-        """
+        """Rebuild an archived expression, preferring the machine-readable srepr
+        (display strings do not round-trip: ``str(E)``/``str(I)`` re-parse to
+        protected Symbols, which produced false FAILED verdicts — I2)."""
         if srepr_str:
             from symkit.domain.expr_io import safe_load_expression
 
@@ -329,11 +335,11 @@ class StepVerifier:
                 evaluate_pending(input_expr), evaluate_pending(output_expr)
             )
         )
-        # Operator fidelity is what this certifies; factorisation answers, not
-        # claims (task-01).
+        # Operator fidelity is what this certifies; factorisation and expansion
+        # answer a different question than an identity claim (task-01, r22 task-07).
         details: dict[str, Any] = {}
         message = f"{operation.capitalize()} verified: output matches the recomputed operator result"
-        if (difference_input and operation != "factor" and not
+        if (difference_input and operation not in ("factor", "expand") and not
                 is_numerically_zero(evaluate_pending(output_expr))):
             kind, phrase = classify_suspect_identity(
                 evaluate_pending(output_expr), asserted=isinstance(input_expr, sp.Equality)
@@ -497,7 +503,7 @@ class StepVerifier:
         self, derivative: sp.Basic, expected: sp.Basic
     ) -> VerificationResult:
         """Verdict from comparing ``d(output)/dv`` with the expected integrand."""
-        diff = sp.simplify(derivative - expected)
+        diff = sp.simplify(drop_piecewise_constant_derivatives(derivative) - expected)
         if is_numerically_zero(diff):
             return VerificationResult(
                 status=VerificationStatus.VERIFIED,
@@ -533,9 +539,10 @@ class StepVerifier:
         assumptions: dict[str, dict[str, bool]],
     ) -> VerificationResult:
         """Verify a definite integral by numeric quadrature; disagreement stays INCONCLUSIVE (run-011)."""
-        if input_expr == output_expr:
-            # An inert Integral returned unchanged: quadrature would compare the
-            # expression with itself and certify nothing (task-02).
+        if input_expr == output_expr or isinstance(output_expr, sp.Integral):
+            # An inert Integral returned unchanged, or an unevaluated Integral
+            # echoed for an integrand input: quadrature would compare the
+            # expression with itself and certify nothing (task-02, r22 task-15).
             return VerificationResult(
                 status=VerificationStatus.INCONCLUSIVE,
                 message=(
@@ -638,7 +645,7 @@ class StepVerifier:
             )
 
         diff = sp.simplify(self._difference(expected, output_expr))
-        if is_numerically_zero(diff):
+        if is_numerically_zero(diff) or scaled_numeric_zero(diff, expected, output_expr):
             return VerificationResult.success("Substitution verified")
 
         return VerificationResult.failure(

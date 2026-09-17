@@ -28,6 +28,7 @@ EXPECTED_CATEGORIES: dict[str, set[str]] = {
     "Output": {"generate_output"},
     "High-Level Orchestration": {"derive", "intent_execute", "list_patterns"},
     "Meta": {"tool_categories", "tool_recommend"},
+    "Execution": {"python_exec"},
 }
 
 
@@ -37,8 +38,8 @@ def _registered_tools():
     return mcp._tool_manager._tools  # noqa: SLF001
 
 
-def test_tool_count_is_46():
-    assert len(_registered_tools()) == 46
+def test_tool_count_is_47():
+    assert len(_registered_tools()) == 47
 
 
 def test_every_tool_has_known_category():

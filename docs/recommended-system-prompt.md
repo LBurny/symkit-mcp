@@ -122,3 +122,19 @@ derivation that is correct, clearly explained, and reproducible.
   the others briefly.
 - Write the explanatory prose in the language of the question. Define every
   symbol the first time it appears.
+
+## Code execution escape hatch
+
+- Prefer the curated tools (`math`, the session chain, `assume`, the formula
+  library) first. Use `python_exec` only when they cannot express the
+  computation — for example a custom manipulation or a batch numeric probe.
+- `python_exec` runs your code in a fresh subprocess on every call; no state
+  persists between calls, so carry intermediate values in the code itself.
+  `from sympy import *` is preloaded. Define a top-level `result` variable to
+  receive its repr and srepr; the srepr pastes directly into any `expression`
+  field (`math`, `session_record_step`) with symbol assumptions intact.
+- A `python_exec` result is self-computed, not a verification. If it matters
+  to an active derivation, record it with `session_record_step` and verify it
+  with `session_verify_step`; never cite it as "verified by symkit".
+- Filesystem, network, and process access are rejected by design. Never use
+  `python_exec` to read files or call external programs.

@@ -129,7 +129,11 @@ def test_solve_exact_input_no_warning() -> None:
         "solve", "(1/2)*A*C_d*rho*v**2 - g*m = 0", variable="v", session=False
     )
     assert result["success"], result.get("error")
-    assert not result.get("warnings")
+    # Exact fractions must not earn the float-truncation warning; a quadratic
+    # in v legitimately carries the two-root headline disclosure (r22 task-07).
+    assert not any(
+        "float" in warning.lower() for warning in result.get("warnings", [])
+    )
 
 def test_substitute_folds_zero_derivative() -> None:
     """substitute 代入后应折叠可求值的未求值导数（Derivative(0, x) → 0）。"""

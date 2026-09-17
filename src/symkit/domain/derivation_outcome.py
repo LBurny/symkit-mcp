@@ -56,6 +56,19 @@ def is_note_step(step: DerivationStep) -> bool:
     ).strip()
 
 
+def failed_operation_steps(steps: list[DerivationStep]) -> list[int]:
+    """Step numbers of failed ``math(session=True)`` traces (r19 F10 notes).
+
+    They stay out of every verification count (r19 F5), so a summary reader
+    cannot tell an attempt failed at all unless they are disclosed (r22 task-07).
+    """
+    return [
+        step.step_number
+        for step in steps
+        if (step.input_expressions or {}).get("note_type") == "failure"
+    ]
+
+
 def select_representative_expression(
     steps: list[DerivationStep],
     targets: list[str],
@@ -305,7 +318,10 @@ def _coverage_progress(
     return score, matches
 
 
-def compute_goal_progress(session: DerivationSession) -> dict[str, Any]:
+def compute_goal_progress(
+    session: DerivationSession,
+    current_override: sp.Basic | None = None,
+) -> dict[str, Any]:
     """Progress of the current expression relative to the session goal.
 
     Tri-state contract (r19 F4): when a goal exists but defines NEITHER a
@@ -313,6 +329,10 @@ def compute_goal_progress(session: DerivationSession) -> dict[str, Any]:
     default), nothing is checkable — ``matches_target`` is ``None``,
     ``remaining_gaps`` is empty and the score is 0.0.  Text-mined variables are
     a heuristic and never confer a match.
+
+    ``current_override`` is the caller-declared deliverable (``session_complete``'s
+    explicit ``final_expression``): when present it, not the chain's trailing
+    expression, is judged against the target (r22 task-01).
     """
     goal = session.goal
     if goal is None:
@@ -334,7 +354,7 @@ def compute_goal_progress(session: DerivationSession) -> dict[str, Any]:
             "remaining_gaps": [],
         }
 
-    current = session.current_expression
+    current = current_override if current_override is not None else session.current_expression
     if current is None:
         return {
             "has_goal": True,

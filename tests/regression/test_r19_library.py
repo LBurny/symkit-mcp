@@ -113,7 +113,12 @@ class TestSolveHeadlineUnderAssumptions:
             _USEFUL_ROOT,
         ], res
         assert res["filtered_by_assumptions"] == [], res
-        assert res["warnings"] == [], res
+        # r22 task-07: a 3-root solve discloses that the headline shows one
+        # root; no other warning may appear on the assumption-free control.
+        assert res["warnings"] == [
+            "The headline 'solution' shows the first of 3 solutions; "
+            "see all_solutions for the full set."
+        ], res
 
     def test_control_simple_root_filtering_unchanged(
         self, fresh_session_manager: Any

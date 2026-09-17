@@ -350,6 +350,14 @@ def assemble_solve_response(
     # assumptions make SymPy collapse it to a Boolean (F22).
     result = sp.Eq(v, sol, evaluate=False)
     warnings = _solve_disclosure_warnings(eq, reported_filtered, restored, variable)
+    if len(kept) > 1:
+        # The scalar path kept every root in ``all_solutions`` but the headline
+        # showed one without saying so (r22 task-07); the system path already
+        # discloses this ("first of N solutions").
+        warnings.append(
+            f"The headline 'solution' shows the first of {len(kept)} solutions; "
+            "see all_solutions for the full set."
+        )
     if dropped_booleans:
         warnings.insert(
             0,

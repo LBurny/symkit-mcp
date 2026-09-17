@@ -21,7 +21,7 @@ from sympy.core.function import AppliedUndef
 
 from symkit.domain.assumption_binding import apply_assumptions, resolve_assumed_symbol
 from symkit.domain.derivation_session import OperationType
-from symkit.domain.expr_io import dense_matrix_form
+from symkit.domain.expr_io import dense_matrix_form, is_srepr_form
 from symkit.domain.expression_parser import (
     parse_expression_string,
     parse_user_expression,
@@ -107,16 +107,16 @@ def _effective_context(assumption_context: MathContext | None) -> MathContext:
 
 
 def _preprocess(expr_str: Any) -> Any:
-    """Convert Unicode math chars to SymPy-compatible ASCII."""
+    """Convert Unicode math chars to SymPy-compatible ASCII; srepr passes through."""
+    if is_srepr_form(expr_str):
+        return expr_str
     if not isinstance(expr_str, str):
         return expr_str
     return rename_lambda_word(preprocess_unicode(expr_str))
 
 
-#: A bare ``lambda`` word cannot be parsed (Python keyword), and
-#: ``preprocess_unicode`` maps "λ" straight into it; the dispatcher renames it
-#: to ``lambda_`` after that pass.  A LaTeX ``\lambda`` is left to the LaTeX
-#: parser, which reads ``Symbol('lambda')``.
+#: A bare ``lambda`` word cannot be parsed (Python keyword); the dispatcher
+#: renames it to ``lambda_``.  LaTeX ``\lambda`` is left to the LaTeX parser.
 _LAMBDA_WORD = re.compile(r"(?<![\w.\\])lambda(?!\w)")
 
 

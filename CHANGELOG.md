@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-09-17
+
+### Added
+
+- `python_exec` tool (Execution category, 47th tool): one-shot Python/sympy
+  code execution in an isolated subprocess as an escape hatch for derivations
+  the curated tool surface cannot express. Fresh interpreter per call (no
+  state persists), `from sympy import *` preloaded, tree-kill timeout
+  (default 10s, clamped to [1, 60]) reusing `lean_process.run_with_tree_timeout`,
+  AST courtesy screen against obvious filesystem/network/process escapes
+  (a speed bump, not a sandbox), optional top-level `result` variable captured
+  as repr + srepr, and per-channel output truncation. Disable with
+  `SYMKIT_DISABLE_CODE_EXEC=1`.
+- Expression fields across all tools now accept machine-shaped `srepr`
+  constructor strings (e.g. `Mul(Rational(1, 2), Symbol('c', positive=True),
+  ...)`), so a `python_exec` result's srepr pastes straight back into `math`
+  or `session_record_step` with symbol assumptions intact. Unicode/lambda
+  preprocessing no longer mangles quoted symbol names inside such strings.
+
+### Fixed
+
+- `run_with_tree_timeout` now starts children with `stdin=DEVNULL`: under an
+  MCP stdio server the inherited stdin pipe wedged the child interpreter
+  during startup (the call then burned its full timeout and every such call
+  could have swallowed protocol bytes). Applies to `python_exec` and the Lean
+  toolchain runner alike.
+
+Round-22 black-box round (`symkit-mcp-test-r22`, 15 cards over the new
+`python_exec` escape hatch plus regular derivations in six domains; 20
+distinct defects reproduced via deterministic probes, all fixed):
+
+- `python_exec` surface: rejection/screen failures and syntax errors now
+  report `exit_code: null` (no fabricated success signal) with an actionable
+  reason; a killed tree keeps whatever stdout/stderr was captured with a
+  `reason` field; a clamped `timeout_seconds` is echoed back; result payloads
+  truncate `result.repr` and `result.srepr` as separate disclosed channels.
+- Target matching: `session_complete(final_expression=...)` judges the
+  declared deliverable against the target (not the chain's trailing
+  expression); `session_start`/`session_set_goal` accept a bare
+  `target_expression` without `goal` and echo the parsed form as
+  `target_parsed`, warning when it cannot be parsed.
+- Recorded numeric equations: a claim like `pi = 3.14` no longer archives as
+  a bare `False`; the unevaluated equality is rebuilt so the verdict discloses
+  the residual, and a truncated decimal equal within tolerance is inconclusive
+  (with the residual shown) instead of a flat failure. The Python-style
+  spelling `A == B` is rescued the same way (a single `==` splits into sides;
+  chains and inequalities still are not claims).
+- Verifier: `substitute` compares float results with a scale-relative
+  tolerance (absolute 1e-9 misjudged ~1e8 operands); a definite `integrate`
+  that echoes an unevaluated `Integral` is inconclusive rather than
+  self-verified by quadrature; `integrate` of `1/(2 + cos x)`-style
+  antiderivatives verifies (stuck `floor`/`ceiling` derivative terms vanish at
+  generic points), while a `diff` output still carrying such a term is
+  inconclusive and names `floor`; `expand` of an `A - B` input is no longer
+  flagged `suspect_identity` (only value-claiming rewrites like `simplify`
+  are); `session_verify_session` discloses `failed_operation_steps` for failed
+  tool-call traces that the counts exclude.
+- Parser: `E1` binds as a plain symbol (it is sympy's `expint` alias and
+  crashed division at parse time); dual-use native functions like
+  `beta(alpha, beta)` parse (the bare argument is re-symbolized instead of
+  resolving to the `FunctionClass`).
+- Scalar `solve` with several roots warns that the headline `solution` shows
+  the first of N solutions (see `all_solutions`), matching the system path.
+- Structural formula fingerprints render a symbol's non-default assumption
+  signature, so an assumed and a plain symbol no longer collide.
+
 ## [1.11.1] - 2026-09-16
 
 An operator-applicability round against a purpose-built lab

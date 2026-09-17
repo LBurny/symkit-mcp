@@ -17,10 +17,56 @@ This module is pure domain: it depends only on SymPy and the domain parser.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import sympy as sp
 from sympy.integrals.risch import NonElementaryIntegral
+
+_SREPR_HEAD = re.compile(r"^\s*([A-Z][A-Za-z0-9_]*)\(")
+
+_KNOWN_CONSTRUCTORS = frozenset(
+    {
+        "Add", "Mul", "Pow", "Rational", "Integer", "Float", "Symbol",
+        "Function", "Equality", "Unequality", "GreaterThan", "LessThan",
+        "StrictGreaterThan", "StrictLessThan", "Derivative", "Integral",
+        "Sum", "Product", "Limit", "ImmutableDenseMatrix",
+        "ImmutableSparseMatrix", "MutableDenseMatrix", "MutableSparseMatrix",
+        "Lambda", "Tuple", "Dict", "NonElementaryIntegral",
+    }
+)
+
+
+def is_srepr_form(text: str) -> bool:
+    """True when ``text`` has an srepr constructor head (whitelist-gated)."""
+    if not isinstance(text, str):
+        return False
+    match = _SREPR_HEAD.match(text)
+    return match is not None and match.group(1) in _KNOWN_CONSTRUCTORS
+
+
+def try_load_srepr(text: str) -> sp.Basic | None:
+    """Load ``text`` when it is an srepr constructor form, else ``None``.
+
+    ``python_exec`` returns a result's ``srepr``; pasting that string into any
+    expression field must rebuild the object — assumptions on symbols included
+    (``Symbol('c', positive=True)``) — which the restricted text grammar
+    rejects.  Detection is a constructor-name whitelist, so ordinary text never
+    reaches this path; any load failure returns ``None`` and the caller falls
+    back to the normal grammar.
+    """
+    if not is_srepr_form(text):
+        return None
+    try:
+        # Same trust level as safe_load_expression's sympify path: the string
+        # is machine-shaped srepr, and the whitelist keeps prose out.
+        return _basic_or_none(
+            sp.sympify(
+                text, locals={"NonElementaryIntegral": NonElementaryIntegral}
+            )
+        )
+    except Exception:
+        return None
 
 
 def _plain_integrals(expr: sp.Basic) -> sp.Basic:

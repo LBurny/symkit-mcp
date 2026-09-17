@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/tests-1434%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1501%20passed-brightgreen.svg)]()
 
 [English](README.md) | **简体中文**
 
@@ -42,7 +42,7 @@
 
 ## 工具
 
-46 个 MCP 工具，分 9 个类别。多数工作通过少数高层工具完成；高级用户可以精细控制每一步。
+47 个 MCP 工具，分 10 个类别。多数工作通过少数高层工具完成；高级用户可以精细控制每一步。
 
 | 类别 | 数量 | 代表工具 |
 |---|---|---|
@@ -55,6 +55,7 @@
 | 输出 | 1 | `generate_output`（`markdown_report` / `latex` / `python` / `sympy_script`） |
 | 高层编排 | 3 | `derive`、`intent_execute`、`list_patterns` |
 | 元工具 | 2 | `tool_categories`、`tool_recommend` |
+| 代码执行 | 1 | `python_exec` — 隔离子进程中运行一次性 Python/sympy 代码 |
 
 ## 推导会话
 
@@ -178,9 +179,9 @@ src/
 │   ├── domain/           # 实体、推导引擎、验证器契约
 │   ├── application/      # 用例
 │   └── infrastructure/   # SymPy 引擎、Lean 检查器、持久化、适配器
-└── symkit_mcp/           # MCP 服务器层（FastMCP）+ 46 个工具
+└── symkit_mcp/           # MCP 服务器层（FastMCP）+ 47 个工具
 formulas/                 # 种子公式库（源码树）
-tests/                    # 1434 个测试
+tests/                    # 1501 个测试
 ```
 
 领域驱动设计：核心逻辑与 MCP、SymPy 解耦；引擎经协议可插拔；公式与会话以可读的 YAML/JSON 持久化。

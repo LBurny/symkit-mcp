@@ -127,3 +127,20 @@ def test_multi_solution_solve_flags_headline_bias(fresh_session_manager):
         "first of 4 solutions" in warning for warning in res["warnings"]
     ), res
     assert any("all_solutions" in warning for warning in res["warnings"]), res
+
+
+def test_scalar_solve_with_two_roots_warns_about_headline(fresh_session_manager):
+    """r22 task-07 (probe S13): a scalar quadratic keeps both roots in
+    ``all_solutions`` while the headline shows one — that must be disclosed,
+    like the system path already does ("first of N solutions")."""
+    _ = fresh_session_manager
+    tools = _tools()
+    res = tools["math"](
+        operation="solve",
+        expression="s**2 + (R/L)*s + 1/(L*C) = 0",
+        variable="s",
+        session=False,
+    )
+    assert res["success"], res
+    assert len(res["all_solutions"]) == 2, res
+    assert any("all_solutions" in warning for warning in res["warnings"]), res

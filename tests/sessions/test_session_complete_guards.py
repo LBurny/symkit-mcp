@@ -184,7 +184,7 @@ def _suspect_session(tools: dict, name: str) -> None:
     tools["session_start"](name)
     # A genuine two-sided difference whose value is nonzero (2xy), so the step
     # carries details.suspect_identity="unreduced".
-    tools["math"](operation="expand", expression="(x + y)**2 - (x**2 + y**2)", session=True)
+    tools["math"](operation="simplify", expression="(x + y)**2 - (x**2 + y**2)", session=True)
 
 
 def _suspect_warning(result: dict) -> str:

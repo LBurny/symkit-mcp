@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import sympy as sp
 from sympy.parsing.sympy_parser import (
@@ -34,9 +34,12 @@ from sympy.parsing.sympy_parser import (
     standard_transformations,
 )
 
+from symkit.domain.expr_io import try_load_srepr
 from symkit.domain.parser_call_sites import (
+    bare_symbol_usage,
     build_undefined_function_local_dict,
     protect_min_max_calls,
+    reserved_call_wrapper,
     split_dual_use_call_sites,
 )
 
@@ -77,11 +80,9 @@ _SUBSCRIPTS: dict[str, str] = {
     "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
 }
 
-# Names that SymPy exposes as functions/classes in the default namespace.
-# When a user writes these as bare variables (e.g. ``beta * x``), we force
-# SymPy to treat them as Symbols via ``local_dict``. When they are called as
-# functions (e.g. ``beta(x, y)``), we leave them alone so SymPy's native
-# semantics apply.
+# Names that SymPy exposes as functions/classes in the default namespace; bare
+# use (``beta * x``) binds a Symbol via ``local_dict``, while call sites
+# (``beta(x, y)``) keep SymPy's native semantics.
 _RESERVED_NAMES: frozenset[str] = frozenset({
     "beta",
     "gamma",
@@ -161,22 +162,20 @@ _RESERVED_NAMES: frozenset[str] = frozenset({
     "genocchi",
     "spherical_harmonic",
     "diff",
-    # Upper-case special functions/classes that are also common physics symbols
+    # Upper-case special functions that are also common physics symbols
     "Beta",
     "Gamma",
     "Lambda",
-    # ``E``/``I`` are variables here, not Euler's number / the imaginary unit:
-    # SymPy silently captured them, yielding a *verified* but wrong cantilever
-    # solution (run-020).  ``Q`` (assumptions key holder) and ``O`` (Big-O) sit
-    # in the same trap; ``O(x**2)`` still means Big-O.  Constants: exp(1), 1j.
+    # ``E``/``I`` are variables here, not Euler's number / the imaginary unit
+    # (run-020); ``Q``/``O`` sit in the same trap.  Constants: exp(1), 1j.
     "E",
+    "E1",  # sympy's plain-python expint alias; bare use crashed sympify (r22 task-08)
     "I",
     "Q",
     "O",
 })
 
-# Constants that should keep their native SymPy meaning. We intentionally do NOT
-# protect these as Symbols.
+# Constants keeping their native SymPy meaning (never protected as Symbols).
 _CONSTANT_NAMES: frozenset[str] = frozenset({
     "pi",
     "oo",
@@ -187,10 +186,9 @@ _CONSTANT_NAMES: frozenset[str] = frozenset({
     "TribonacciConstant",
 })
 
-# Reserved names whose *call site* must not keep native SymPy semantics:
-# ``S`` is the SingletonRegistry and ``N`` the evalf shortcut, both of which
-# return their argument (``S(x)`` -> ``Symbol('x')``, task-01 G7). Bare use
-# still binds a Symbol via ``_RESERVED_NAMES``.
+# Reserved names whose *call site* must not keep native SymPy semantics: ``S``
+# (SingletonRegistry) and ``N`` (evalf) return their argument (task-01 G7);
+# bare use still binds a Symbol via ``_RESERVED_NAMES``.
 _SINGLETON_CALL_NAMES: tuple[str, ...] = ("S", "N")
 
 # Vector calculus operators that should be treated as user-defined symbolic
@@ -454,6 +452,9 @@ def _build_local_dict(expr: str) -> dict[str, Any]:
             # ``S`` (SingletonRegistry) / ``N`` (evalf) evaluate a call site to
             # its argument, collapsing ``S(x)`` to Symbol('x') (task-01 G7).
             local_dict[name] = sp.Function(name)
+        elif bare_symbol_usage(expr, name) and callable(getattr(sp, name, None)):
+            # Dual use (``beta(alpha, beta)``): keep the call, re-symbolize the bare arg (r22 task-10).
+            local_dict[name] = reserved_call_wrapper(name)
     return local_dict
 
 
@@ -769,28 +770,27 @@ def parse_user_expression(
     *,
     convert_equation: bool = True,
 ) -> tuple[sp.Expr | None, str | None]:
-    """Parse a user-facing expression that may be LaTeX or a SymPy-style string.
+    """Parse a user-facing expression that may be LaTeX, srepr, or SymPy-style.
 
     This is the recommended entry point for MCP tools that accept arbitrary
-    mathematical input.  It automatically detects LaTeX and routes it through
-    ``FormulaParser``; otherwise it uses the shared parser with Unicode,
-    reserved-name, equation and Leibniz-derivative support.
+    mathematical input.  srepr constructor forms (``python_exec`` round-trips)
+    load directly; LaTeX routes through ``FormulaParser``; otherwise the shared
+    parser handles Unicode, reserved names, equations and Leibniz derivatives.
 
     Args:
         expr_str: The mathematical expression as a string.
         convert_equation: If ``True`` (default), convert a single ``=`` into
             ``Eq(...)`` for SymPy-style inputs.
 
-    Returns:
-        A tuple ``(sympy_expr, error)``. On success, ``error`` is ``None``; on
-        failure, ``sympy_expr`` is ``None`` and ``error`` is a message string.
+    Returns: ``(sympy_expr, error)``; exactly one of the two is ``None``.
     """
     if not isinstance(expr_str, str) or not expr_str.strip():
         return None, "Empty or non-string expression"
 
-    # Lazy import to avoid a circular module dependency: ``symkit.domain.formula``
-    # is used here only when LaTeX is detected, while ``formula.py`` may reuse
-    # helpers from this module for SymPy-string parsing.
+    if (srepr_obj := try_load_srepr(expr_str)) is not None:
+        return cast(sp.Expr, srepr_obj), None
+
+    # Lazy import: formula.py reuses helpers from this module (circular dep).
     from symkit.domain.formula import FormulaParser, FormulaSource, ParseError
 
     if FormulaParser._is_latex(expr_str):

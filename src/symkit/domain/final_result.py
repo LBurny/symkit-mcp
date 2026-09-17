@@ -20,6 +20,10 @@ from symkit.domain.numeric_evidence import (
     is_numerically_zero as is_numerically_zero,
 )
 from symkit.domain.numeric_evidence import numeric_residual_verdict
+from symkit.domain.numeric_evidence import (
+    scaled_numeric_zero as scaled_numeric_zero,
+)
+from symkit.domain.recorded_claim import numeric_difference_verdict
 from symkit.domain.value_objects import VerificationStatus
 
 if TYPE_CHECKING:
@@ -134,13 +138,6 @@ _DEFINITION_NOT_IDENTITY_MESSAGE = (
     " notes; a derived identity needs sides that share symbols."
 )
 
-_UNEVALUATED_DIFFERENCE_MESSAGE = (
-    "Recorded equation is not verified: the difference contains an unevaluated function"
-    " application or operation ({terms}) — boundary conditions and model data are not"
-    " checkable as identities; record them as notes or leave the function undefined."
-)
-
-
 def _definition_shape(expr: sp.Equality) -> str | None:
     """Definitional-closure wording, or ``None`` for an identity claim.
 
@@ -156,14 +153,6 @@ def _definition_shape(expr: sp.Equality) -> str | None:
     if isinstance(expr.lhs, sp.Symbol) and str(expr.lhs) not in lhs_symbols:
         return "the left side is a name absent from the right"
     return None
-
-
-def _unevaluated_terms(diff: sp.Basic) -> str:
-    """Unevaluated applications/operations in a zero-free-symbol difference; ``""`` is a constant."""
-    from sympy.core.function import AppliedUndef
-
-    terms = diff.atoms(AppliedUndef) | diff.atoms(sp.Integral, sp.Derivative, sp.Sum)
-    return ", ".join(sorted(str(term) for term in terms))
 
 
 def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, str]:
@@ -190,13 +179,7 @@ def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, st
         if diff == 0:
             return VerificationStatus.VERIFIED, "Identity verified: both sides are equal"
         if not diff.free_symbols:
-            terms = _unevaluated_terms(diff)
-            if terms:
-                return (
-                    VerificationStatus.INCONCLUSIVE,
-                    _UNEVALUATED_DIFFERENCE_MESSAGE.format(terms=terms),
-                )
-            return VerificationStatus.FAILED, f"Equation is false: the sides differ by {diff}"
+            return numeric_difference_verdict(diff)
         shape = _definition_shape(expr)
         if shape is not None:
             return (
@@ -385,43 +368,6 @@ def boolean_equation_verdict(
         "verifier cannot confirm",
         {},
     )
-
-
-_CLAIM_EQ = re.compile(r"^\s*Eq\s*\((.*)\)\s*$", re.DOTALL)
-
-
-def equation_claim_sides(text: str) -> tuple[str, str] | None:
-    """Split a recorded ``Eq(lhs, rhs)`` / ``lhs = rhs`` claim into its sides.
-
-    Returns ``None`` for an ordinary expression.  Sides are returned as written,
-    never re-parsed, so the caller binds symbols with its assumption-aware parser.
-    """
-    stripped = text.strip()
-    match = _CLAIM_EQ.match(stripped)
-    if match is not None:
-        return _split_claim(match.group(1), ",")
-    if any(op in stripped for op in ("==", "<=", ">=", "!=")):
-        return None
-    return _split_claim(stripped, "=")
-
-
-def _split_claim(inner: str, separators: str) -> tuple[str, str] | None:
-    """Split ``inner`` at its first depth-0 separator, skipping quotes."""
-    depth = 0
-    quoted = False
-    for index, char in enumerate(inner):
-        if char == "'":
-            quoted = not quoted
-        elif quoted:
-            continue
-        elif char in "([{":
-            depth += 1
-        elif char in ")]}":
-            depth -= 1
-        elif depth == 0 and char in separators:
-            left, right = inner[:index].strip(), inner[index + 1:].strip()
-            return (left, right) if left and right else None
-    return None
 
 
 def asserted_equation_verdict(

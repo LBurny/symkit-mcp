@@ -119,13 +119,26 @@ class TestSuspectIdentity:
         assert "suspect_identity" not in result.details
         assert result.message.endswith("output matches the recomputed operator result")
 
-    def test_expand_nonzero_difference_is_unreduced(self, verifier):
+    def test_expand_difference_is_not_flagged_suspect(self, verifier):
+        # r22 task-07: expansion answers a different question than an identity
+        # claim, so an ``A - B`` input must NOT earn the advisory (the r19 F1
+        # advisory is for value-preserving rewrites like simplify).
+        step = _make_step(
+            OperationType.EXPAND,
+            "(x + y)**2 - (x**2 + y**2)",
+            "2*x*y",
+        )
+        result = verifier.verify_step(step, prior_expr=None)
+        assert result.status == VerificationStatus.VERIFIED
+        assert "suspect_identity" not in result.details
+
+    def test_simplify_nonzero_difference_is_unreduced(self, verifier):
         # A genuine two-sided ``A - B`` whose value is nonzero: ``(x+y)^2`` minus
         # the group ``x^2 + y^2`` reduces to 2xy, so the identity is false.  (A
         # bare three-term sum ``... - x**2 - y**2`` no longer earns the advisory:
         # it is an ordinary simplification, r19 F1.)
         step = _make_step(
-            OperationType.EXPAND,
+            OperationType.SIMPLIFY,
             "(x + y)**2 - (x**2 + y**2)",
             "2*x*y",
         )

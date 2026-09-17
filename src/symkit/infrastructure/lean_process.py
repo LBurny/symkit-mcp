@@ -30,6 +30,10 @@ def _run_child(command: Sequence[str], cwd: Path) -> subprocess.Popen[bytes]:
     return subprocess.Popen(
         list(command),
         cwd=cwd,
+        # DEVNULL keeps the child from inheriting our stdin: when the server
+        # itself runs over MCP stdio, an inherited pipe handle wedges the
+        # child's interpreter init and could let it swallow protocol bytes.
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         # A fresh session makes the child a process-group leader (killpg target).
@@ -72,5 +76,9 @@ def run_with_tree_timeout(
         ), False
     except subprocess.TimeoutExpired:
         _kill_tree(process)
-        process.communicate()
-        return _TIMEOUT_EXIT, "", "", True
+        # Collect whatever the tree flushed before the kill: silently dropping
+        # it leaves the caller with no hint where the run died (r22 task-14).
+        out, err = process.communicate()
+        return _TIMEOUT_EXIT, out.decode("utf-8", "replace"), err.decode(
+            "utf-8", "replace"
+        ), True

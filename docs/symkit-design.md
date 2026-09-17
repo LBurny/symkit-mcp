@@ -59,7 +59,7 @@ SymKit is a **domain-agnostic** general-purpose formula derivation engine suitab
 - **Human-AI Collaboration**: Supports inserting assumptions, limitations, observations, and correction suggestions into the derivation.
 - **LaTeX Friendly**: Natively supports LaTeX input, subscript symbols, Greek letters, and physical star superscripts (e.g., `\beta^*`).
 
-The external contract is a set of 46 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
+The external contract is a set of 47 MCP tools, where `math()` handles fast stateless/stateful computation, `session_start()` / `session_show()` / `session_complete()` provide interactive derivation sessions, and `derive()` provides a high-level automation entry point.
 
 ---
 
@@ -170,7 +170,7 @@ Technical implementation details:
 
 ### 4.4 MCP Tool Layer
 
-Exposes 46 MCP tools; each module focuses on one capability area:
+Exposes 47 MCP tools; each module focuses on one capability area:
 
 | File | Responsibility |
 |---|---|
@@ -351,19 +351,20 @@ When rolling back, deleting, or inserting notes, `DerivationSession` no longer d
 
 ### 8.1 Tool Categories
 
-SymKit exposes 46 MCP tools organized into 9 categories:
+SymKit exposes 47 MCP tools organized into 10 categories:
 
 | Category | Representative Tools | Count | Purpose |
 |---|---|---|---|
 | Unified Math | `math()` | 1 | Unified computation entry (33 operations) |
 | Assumptions | `assume`, `show_assumptions`, `unassume`, `clear_assumptions`, `assume_for_step`, `list_assumptions`, `clear_step_assumptions` | 7 | Global and step-level assumption management |
-| Verification | `session_verify_step`, `session_verify_session`, `session_certify`, `check_assumption_conflicts` | 4 | Step/session verification, assumption-conflict detection, optional Lean 4 + Mathlib kernel certification |
+| Verification | `session_verify_step`, `session_verify_session`, `session_certify`, `check_assumption_conflicts`, `lean_status` | 5 | Step/session verification, assumption-conflict detection, optional Lean 4 + Mathlib kernel certification |
 | Symbol Semantics | `register_symbol`, `lookup_symbol`, `list_domain_symbols`, `check_symbol_conflicts` | 4 | Symbol semantics management |
 | Formula Library | `formula_search`, `formula_get`, `formula_add`, `formula_remove`, `formula_categories`, `formula_promote`, `formula_reindex`, `formula_stats` | 8 | Indexed formula library search, curation, and external search |
 | Session Management | `session_start`, `session_show`, `session_complete`, ... | 15 | Unified derivation session workflow |
 | Output | `generate_output` (`format` = `markdown_report` / `latex` / `python` / `sympy_script`) | 1 | Code/report generation |
 | High-Level Orchestration | `derive()`, `intent_execute()`, `list_patterns()` | 3 | High-level automation orchestration |
 | Meta | `tool_categories()`, `tool_recommend()` | 2 | Tool discovery and recommendation |
+| Execution | `python_exec()` | 1 | One-shot Python/sympy code execution in an isolated subprocess (escape hatch) |
 
 `math()` consolidates functionality previously scattered across many tools into a single entry point, preventing LLMs from getting lost among many similar tools.
 

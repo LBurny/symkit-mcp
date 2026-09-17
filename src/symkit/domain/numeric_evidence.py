@@ -75,6 +75,25 @@ def is_numerically_zero(diff: sp.Basic) -> bool:
         return False
 
 
+def scaled_numeric_zero(diff: sp.Basic, *references: sp.Basic) -> bool:
+    """True when a pure-numeric residual vanishes *relative to operand scale*.
+
+    The absolute 1e-9 floor of :func:`is_numerically_zero` misjudges
+    substitutions whose operands are far from 1: substituting float constants
+    into ``(G*M*T**2/(4*pi**2))**(1/3)`` lands near 4.2e7, where double-precision
+    rounding alone is already ~1e-8 (r22 task-06).  The residual must be below
+    ``_NUM_ZERO_TOL * max(1, |references|)``; anything symbolic stays False.
+    """
+    if diff.free_symbols:
+        return False
+    try:
+        residual = abs(complex(diff.evalf()))
+        scale = max([1.0, *(abs(complex(ref.evalf())) for ref in references)])
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return residual <= _NUM_ZERO_TOL * scale
+
+
 def _sample_value(symbol: sp.Symbol, index: int) -> sp.Basic | None:
     """A sample value compatible with ``symbol``'s assumptions, or None."""
     for offset in range(len(_NUMERIC_SAMPLES)):

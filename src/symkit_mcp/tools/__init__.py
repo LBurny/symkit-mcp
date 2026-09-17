@@ -9,6 +9,7 @@ Unified tool surface:
 - assumptions.py: Multi-level assumption management
 - orchestration.py: High-level derive() / intent routing
 - certification.py: Lean kernel certification (session_certify)
+- execute.py:    One-shot Python/sympy code execution (python_exec)
 
 Design Principles:
 1. math() is the primary tool — LLMs only need to know ONE tool name for math.
@@ -24,6 +25,7 @@ from typing import Any
 from symkit_mcp.tools.assumptions import register_assumption_tools
 from symkit_mcp.tools.certification import register_certification_tools
 from symkit_mcp.tools.codegen import register_codegen_tools
+from symkit_mcp.tools.execute import register_execute_tools
 from symkit_mcp.tools.formula import register_formula_tools
 from symkit_mcp.tools.math import register_math_tools
 from symkit_mcp.tools.orchestration import register_orchestration_tools
@@ -57,3 +59,6 @@ def register_all_tools(mcp: Any) -> None:
 
     # Lean kernel certification
     register_certification_tools(mcp)
+
+    # One-shot code execution escape hatch
+    register_execute_tools(mcp)

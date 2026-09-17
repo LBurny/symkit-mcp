@@ -104,8 +104,22 @@ def _render(node: Any, cache: dict[Any, str]) -> str:
     SymPy's own printer orders commutative operands by symbol name; sorting
     the (already-renamed) operand strings removes that name dependence.
     """
-    from sympy import Basic
+    from sympy import Basic, Symbol
 
+    if isinstance(node, Symbol):
+        # Placeholders keep their source symbol's assumptions; str() drops them,
+        # so an assumed and a plain symbol rendered identically (r22: the srepr
+        # parse channel exposed the collision). Encode only the entries that
+        # differ from a default symbol's derived closure.
+        extra = {
+            key: value
+            for key, value in node.assumptions0.items()
+            if _default_symbol_closure().get(key) != value
+        }
+        if extra:
+            sig = ",".join(f"{k}={v}" for k, v in sorted(extra.items()))
+            return f"{node.name}[{sig}]"
+        return str(node)
     if not isinstance(node, Basic) or not node.args:
         return str(node)
     if node in cache:
@@ -117,6 +131,19 @@ def _render(node: Any, cache: dict[Any, str]) -> str:
     text = f"{name}({','.join(parts)})"
     cache[node] = text
     return text
+
+
+_DEFAULT_SYMBOL_CLOSURE: dict[str, Any] | None = None
+
+
+def _default_symbol_closure() -> dict[str, Any]:
+    """Derived assumption closure of a plain ``Symbol`` (lazily cached)."""
+    global _DEFAULT_SYMBOL_CLOSURE
+    if _DEFAULT_SYMBOL_CLOSURE is None:
+        from sympy import Symbol
+
+        _DEFAULT_SYMBOL_CLOSURE = dict(Symbol("_default").assumptions0)
+    return _DEFAULT_SYMBOL_CLOSURE
 
 
 # A symbol occurrence's embedding context: the chain of (ancestor signature,

@@ -44,7 +44,7 @@ _CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "Session Management": "Create, resume, and control derivation sessions",
     "Output": "Generate executable code and reports from derivations",
     "High-Level Orchestration": "Goal-driven derivation and intent routing",
-    "Meta": "Tool discovery and recommendations",
+    "Meta": "Tool discovery and recommendations", "Execution": "One-shot code execution",
     "Other": "",
 }
 

@@ -4,7 +4,7 @@ Workspace instructions for ZCode agents working in `symkit-mcp-master`.
 
 ## Repository Purpose
 
-**SymKit MCP** (`symkit-mcp`) — a FastMCP server exposing 45 MCP tools for symbolic formula derivation over SymPy. Domain-agnostic: physics, engineering, chemistry, biology, economics. The server runs over MCP stdio; AI agents (Claude, etc.) are the clients.
+**SymKit MCP** (`symkit-mcp`) — a FastMCP server exposing 47 MCP tools for symbolic formula derivation over SymPy. Domain-agnostic: physics, engineering, chemistry, biology, economics. The server runs over MCP stdio; AI agents (Claude, etc.) are the clients.
 
 Entry point: `src/symkit_mcp/server.py` → `symkit-mcp` console script. The single `math()` tool covers 32 symbolic operations; `session_*` tools manage step-by-step derivations with full provenance persisted to `derivation_sessions/`.
 

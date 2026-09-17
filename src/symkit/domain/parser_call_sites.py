@@ -21,6 +21,7 @@ import re
 from typing import Any
 
 import sympy as sp
+from sympy.core.function import FunctionClass
 
 # Matches ``name(`` call sites, excluding attribute access (``a.name(``).
 _UNDEFINED_FUNC_CALL_RE: re.Pattern[str] = re.compile(
@@ -117,3 +118,32 @@ def build_undefined_function_local_dict(
             continue
         local_dict[name] = sp.Function(name)
     return local_dict
+
+
+def bare_symbol_usage(expr_str: str, name: str) -> bool:
+    """True when ``name`` occurs as a bare symbol, not only as a call site."""
+    return _bare_usage_re(name).search(expr_str) is not None
+
+
+def reserved_call_wrapper(name: str) -> Any:
+    """Callable for a reserved SymPy function that also occurs as a bare argument.
+
+    ``beta(alpha, beta)`` means the beta *function* applied to a variable named
+    beta.  A single ``local_dict`` binding cannot be both, and leaving the name
+    unbound makes the bare occurrence resolve to the ``FunctionClass`` itself,
+    whose ``.args`` is a property — sympify then dies with "'property' object
+    is not iterable" (r22 task-10).  The wrapper keeps the call semantics and
+    re-symbolizes any self-reference / FunctionClass argument.
+    """
+    func = getattr(sp, name)
+
+    def _call(*args: Any) -> Any:
+        fixed = [
+            sp.Symbol(name)
+            if arg is _call or isinstance(arg, FunctionClass)
+            else arg
+            for arg in args
+        ]
+        return func(*fixed)
+
+    return _call
