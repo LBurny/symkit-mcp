@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-09-16
+
 An operator-applicability round against a purpose-built lab
 (`symkit-mcp-test-r21`): a 92-assertion master battery across the whole
 `math()` operator surface plus 16 operator cards, and long derivations in six
