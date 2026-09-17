@@ -28,7 +28,14 @@ from symkit.domain.derivation_goal import (
 )
 from symkit.domain.expr_io import safe_load_expression
 from symkit.domain.final_result import candidate_names, headline_fallback, symbol_names
-from symkit.domain.step_verifier import verification_result_from_json
+from symkit.domain.step_verifier import (
+    verification_result_from_json,
+    verification_result_to_json,
+)
+from symkit.domain.value_objects import (
+    VerificationResult,
+    VerificationStatus,
+)
 
 if TYPE_CHECKING:
     from symkit.domain.derivation_session import DerivationSession, DerivationStep
@@ -67,6 +74,40 @@ def failed_operation_steps(steps: list[DerivationStep]) -> list[int]:
         for step in steps
         if (step.input_expressions or {}).get("note_type") == "failure"
     ]
+
+
+def apply_auto_verification(
+    session: DerivationSession,
+    step: DerivationStep,
+    prior_expr: sp.Basic | None,
+) -> None:
+    """Auto-verify a recorded step, tolerating a verifier crash.
+
+    A symbolic-order ``Derivative`` (``Derivative(f(t), (t, k))``) makes the
+    verifier's ``simplify`` raise ("Cannot give expansion for symbolic count");
+    that failure must not abort the recording, so the step lands with an
+    inconclusive record instead of being dropped (r23 F11).
+    """
+    from symkit.domain.derivation_session import StepStatus
+
+    try:
+        verification = session.verifier.verify_step(
+            step, prior_expr=prior_expr, assumption_engine=session.assumption_engine
+        )
+    except Exception as exc:
+        step.status = StepStatus.PENDING_VERIFICATION
+        step.verification_result = verification_result_to_json(
+            VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                message=f"Automatic verification failed: {type(exc).__name__}: {exc}",
+            )
+        )
+        return
+    step.status = {
+        VerificationStatus.VERIFIED: StepStatus.SUCCESS,
+        VerificationStatus.INCONCLUSIVE: StepStatus.PENDING_VERIFICATION,
+    }.get(verification.status, StepStatus.FAILED)
+    step.verification_result = verification_result_to_json(verification)
 
 
 def select_representative_expression(
@@ -307,9 +348,10 @@ def _coverage_progress(
     if not targets:
         return score, matches
     if missing:
-        gaps.append(
-            f"Missing target variables: {', '.join(sorted(missing))}; {_MISSING_HINT}"
-        )
+        # The "pass target_expression instead" advice is noise when one was
+        # already supplied: it cannot be what is missing (r23 F12c).
+        hint = "" if goal.target_expression else f"; {_MISSING_HINT}"
+        gaps.append(f"Missing target variables: {', '.join(sorted(missing))}{hint}")
     else:
         matches = matches or reached
         score = max(score, 0.7)

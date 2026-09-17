@@ -46,8 +46,7 @@ def _as_str_list(value: list[str] | str | None) -> list[str]:
     """Coerce a scalar string to a single-element list.
 
     MCP clients often send ``"x real"`` where ``["x real"]`` is meant; the
-    schema union alone only avoids the validation error — the stored record
-    must still be list-typed (run-011).
+    stored record must still be list-typed (run-011).
     """
     if value is None:
         return []
@@ -69,10 +68,8 @@ def _flag_unrecorded_math_step(result: dict[str, Any]) -> None:
 def _suspect_identity_warning(suspect_steps: list[Any], auto_save: bool) -> list[str]:
     """Warn about unreduced differences without claiming an unwritten save.
 
-    ``session_complete(auto_save=false)`` writes nothing to the formula library,
-    yet the message used to say "the formula is saved with verified=false"
-    (r18 C2). The unreduced-difference half is true and stays; only the save
-    claim follows the actual ``auto_save`` flag.
+    ``session_complete(auto_save=false)`` writes nothing, yet the message used
+    to claim a save (r18 C2); only the save half follows ``auto_save``.
     """
     if not suspect_steps:
         return []
@@ -174,8 +171,7 @@ def _suggest_next_steps(session: DerivationSession) -> list[dict[str, Any]]:
 
     expr_str = str(session.current_expression)
     has_equation = "=" in expr_str or isinstance(session.current_expression, sp.Equality)
-    # Non-Basic current expressions (legacy tuple parses) have no free_symbols
-    # and would crash the suggestion builder (run-017).
+    # Non-Basic tuple parses have no free_symbols and would crash (run-017).
     has_multiple_symbols = isinstance(session.current_expression, sp.Basic) and (
         len(session.current_expression.free_symbols) > 1
     )
@@ -426,13 +422,11 @@ def register_session_tools(mcp: Any) -> None:
                 })
             result["steps"] = steps_summary
 
-        # Collect next-step suggestions and risks
         next_steps = _suggest_next_steps(session)
         risks = _detect_risks(session)
         verification = _verification_summary(session)
         goal_steps = session.plan_next_steps(max_steps=3) if session.goal else []
 
-        # Use pattern recorded in session (fallback to direct-manipulation)
         pattern_used = session.pattern.value
 
         result.update({
@@ -446,7 +440,6 @@ def register_session_tools(mcp: Any) -> None:
             ).description,
         })
 
-        # Enhance display text with suggestions and risks
         display_lines = [result["display_text"]]
         if goal_steps:
             display_lines.append("\n🧭 **Goal-aware next steps:**")
@@ -646,6 +639,13 @@ def register_session_tools(mcp: Any) -> None:
 
         verification_summary = result.get("verification_summary", {})
         warnings = list(result.get("warnings", []))
+        # Ending a session reclaims its assumptions; disclose the loss (r23 F10).
+        discarded = session_assumption_strings(session)
+        if discarded:
+            warnings.append(
+                "Session assumptions no longer apply to future calls: "
+                f"{', '.join(discarded)}. Re-declare via assume() if needed."
+            )
         # The library label is a stronger claim than the chain's graded
         # ``overall``: an unreduced difference (suspect_identity) is unresolved
         # mathematics and must not be labelled ``verified: true`` in the
@@ -966,13 +966,13 @@ def register_session_tools(mcp: Any) -> None:
             rebuilt = unevaluated_equality(expression)
             new_expr = rebuilt if rebuilt is not None else new_expr
         if not isinstance(new_expr, sp.Basic):
-            # Matrices and comma-separated tuples cannot become an expression.
+            # Lists and tuples cannot become one expression (matrices supported since r23).
             return {
                 "success": False,
                 "error": (
-                    "Cannot record this input as a derivation step: matrices, "
-                    "lists and comma-separated input are not supported here; "
-                    "record a single expression per step, or use session_add_note."
+                    "Cannot record this input as a derivation step: lists and "
+                    "comma-separated input are not supported here; record a "
+                    "single expression per step, or use session_add_note."
                 ),
             }
 

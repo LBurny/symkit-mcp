@@ -7,7 +7,7 @@ This is the core domain library for symbolic reasoning,
 independent of the MCP transport layer.
 """
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 
 from symkit.application.use_cases import (
     CalculateUseCase,

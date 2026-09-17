@@ -25,6 +25,7 @@ from symkit.domain.numeric_evidence import (
 )
 from symkit.domain.recorded_claim import numeric_difference_verdict
 from symkit.domain.value_objects import VerificationStatus
+from symkit.domain.verifier_heuristics import bare_symbol_definition, matrix_equality
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -167,6 +168,9 @@ def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, st
     and a zero-free-symbol difference that is an unevaluated application.
     """
     if isinstance(expr, sp.Equality):
+        matrix = matrix_equality(expr.lhs, expr.rhs)
+        if matrix is not None:
+            return matrix
         lhs_eval = evaluate_pending(expr.lhs)
         rhs_eval = evaluate_pending(expr.rhs)
         if (
@@ -186,6 +190,9 @@ def recorded_step_verdict(expr: sp.Basic | None) -> tuple[VerificationStatus, st
                 VerificationStatus.INCONCLUSIVE,
                 _DEFINITION_NOT_IDENTITY_MESSAGE.format(shape=shape, diff=diff),
             )
+        definition = bare_symbol_definition(expr, diff)
+        if definition is not None:
+            return VerificationStatus.INCONCLUSIVE, definition
         if numeric_residual_verdict(diff) is True:
             return (
                 VerificationStatus.FAILED,
@@ -378,8 +385,19 @@ def asserted_equation_verdict(
     An operator that collapsed an asserted ``A = B`` to a boolean must be judged
     on the claim, not on the boolean it preserved — a DISPROVEN equation
     otherwise read as a green "boolean value preserved" step (r19 F9).  Runs
-    :func:`boolean_equation_verdict` on the recovered claim.
+    :func:`boolean_equation_verdict` on the recovered claim; two concrete
+    matrices are compared directly (r23 F7).
     """
+    matrix = matrix_equality(lhs, rhs)
+    if matrix is not None:
+        status, message = matrix
+        if status == VerificationStatus.VERIFIED:
+            return (
+                status,
+                f"{operation.capitalize()} verified: the asserted matrix equation holds",
+                {},
+            )
+        return status, f"{operation.capitalize()} failed: {message}", {}
     status, message, details = boolean_equation_verdict(
         operation, sp.Eq(lhs, rhs, evaluate=False)
     )

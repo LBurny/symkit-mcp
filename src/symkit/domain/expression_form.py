@@ -96,12 +96,99 @@ def recorded_difference_form(
     algebra: the parsed-object test already excludes it, and the archive
     fallback — which cannot see that ordering — is gated by the recorded display
     string (r19 F1).
+
+    The recorded *text* is the primary gate (r23 F4): SymPy's argument order is
+    not the written order, so a ``re(...)``-wrapped expression or an expanded
+    residual polynomial whose value holds one negated compound must not be read
+    as a submitted ``A - B`` claim.  Only text written as a difference reaches
+    the structural checks.
     """
+    text = _recorded_difference_text(input_expressions)
+    if text is not None and not _text_difference_form(text):
+        return False
     if is_difference_form(expr):
         return True
     if recorded_leading_negative(input_expressions):
         return False
     return bool(input_srepr) and archived_difference_form(input_srepr)
+
+
+def _recorded_difference_text(input_expressions: Mapping[str, str]) -> str | None:
+    """The recorded display string a difference claim would have been written in."""
+    for key in ("original", "equation"):
+        text = input_expressions.get(key, "")
+        if text:
+            return text
+    return None
+
+
+_IDENTIFIER = re.compile(r"[A-Za-z_]")
+_BARE_IDENTIFIER = re.compile(r"^\s*[A-Za-z_]\w*\s*$")
+
+
+def _text_difference_form(text: str) -> bool:
+    """Whether ``text`` was *written* as a two-sided ``A - B`` claim.
+
+    SymPy canonicalises ``Add`` arguments, so ``expr.args`` order (and ``str``)
+    is not the user's written order; this reads the text at bracket depth 0
+    instead.  One positive operand followed by one subtracted compound is a
+    difference claim (``cos x - (1 - 2 sin^2 x)``); a leading negated compound
+    (``-x**2 + x*(x + 1)``), a polynomial sum with two subtracted compounds, a
+    purely numeric subtraction and a function-wrapped value (``re(...)``) are
+    ordinary algebra (r23 F4).
+    """
+    terms = _top_level_terms(text)
+    if not terms:
+        return False
+    positives = 0
+    negatives = 0
+    seen_positive = False
+    for sign, body in terms:
+        has_identifier = bool(_IDENTIFIER.search(body))
+        if sign == "-":
+            if seen_positive and has_identifier and not _BARE_IDENTIFIER.match(body):
+                negatives += 1
+        else:
+            if has_identifier:
+                positives += 1
+            seen_positive = True
+    return positives == 1 and negatives == 1
+
+
+def _top_level_terms(text: str) -> list[tuple[str, str]]:
+    """Split ``text`` into ``(sign, body)`` at depth-0 additive operators."""
+    terms: list[tuple[str, str]] = []
+    sign = "+"
+    chars: list[str] = []
+    started = False
+    depth = 0
+    quoted = False
+    for char in text:
+        if char == "'":
+            quoted = not quoted
+        elif quoted:
+            pass
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif depth == 0 and char in "+-" and started:
+            terms.append((sign, "".join(chars).strip()))
+            sign, chars, started = char, [], False
+            continue
+        chars.append(char)
+        if not char.isspace():
+            started = True
+    terms.append((sign, "".join(chars).strip()))
+    normalized: list[tuple[str, str]] = []
+    for term_sign, body in terms:
+        if not body:
+            continue
+        if body.startswith("-"):
+            term_sign = "-" if term_sign == "+" else "+"
+            body = body[1:].strip()
+        normalized.append((term_sign, body))
+    return normalized
 
 
 def archived_difference_form(srepr_str: str) -> bool:

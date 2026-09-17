@@ -579,7 +579,7 @@ def register_math_tools(mcp: Any) -> None:
             return {
                 "success": True,
                 "assumptions": {},
-                "message": "No assumptions set. Use assume() to set variable properties.",
+                "message": "No assumptions set; session-scoped assumptions are discarded when a session ends. Use assume() to set variable properties.",
             }
 
         lines = []

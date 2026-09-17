@@ -94,8 +94,10 @@ def unevaluated_equality(expression: str) -> sp.Equality | None:
 
     ``Eq`` folds to a Boolean at construction when both sides are numeric, so a
     recorded claim like ``pi = 3.14`` archives as ``False`` and the verdict
-    loses the sides — no residual can be disclosed (r22 task-04).  Returns
-    ``None`` when the text is not an equality or a side does not parse.
+    loses the sides — no residual can be disclosed (r22 task-04).  Concrete
+    matrix sides are rebuilt too, so a false matrix equation still reports its
+    elementwise difference (r23 F7).  Returns ``None`` when the text is not an
+    equality or a side does not parse.
     """
     sides = equation_claim_sides(expression)
     if sides is None and expression.count("==") == 1 and "=" not in expression.replace(
@@ -111,6 +113,8 @@ def unevaluated_equality(expression: str) -> sp.Equality | None:
 
     lhs, _ = parse_user_expression(sides[0])
     rhs, _ = parse_user_expression(sides[1])
-    if not isinstance(lhs, sp.Basic) or not isinstance(rhs, sp.Basic):
+    if not isinstance(lhs, (sp.Basic, sp.MatrixBase)) or not isinstance(
+        rhs, (sp.Basic, sp.MatrixBase)
+    ):
         return None
     return sp.Eq(lhs, rhs, evaluate=False)

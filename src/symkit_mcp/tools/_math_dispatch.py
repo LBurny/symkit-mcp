@@ -115,8 +115,7 @@ def _preprocess(expr_str: Any) -> Any:
     return rename_lambda_word(preprocess_unicode(expr_str))
 
 
-#: A bare ``lambda`` word cannot be parsed (Python keyword); the dispatcher
-#: renames it to ``lambda_``.  LaTeX ``\lambda`` is left to the LaTeX parser.
+#: A bare ``lambda`` word cannot be parsed (Python keyword) and becomes ``lambda_``.
 _LAMBDA_WORD = re.compile(r"(?<![\w.\\])lambda(?!\w)")
 
 
@@ -138,10 +137,9 @@ def lambda_symbol_warning(expr_str: Any) -> str | None:
     )
 
 
-# Operations whose ``variable``/``with_respect_to`` is a single name: a comma
-# list is not a variable, and ``diff`` silently differentiated wrt a
-# nonexistent Symbol and returned 0 (task-01 G4).  Vector operations take
-# coordinate lists; ``solve`` takes a system variable list — both are exempt.
+# Operations whose ``variable``/``with_respect_to`` is a single name: a comma list
+# is not a variable, and ``diff`` silently differentiated wrt a nonexistent Symbol
+# and returned 0 (task-01 G4). Vector op coordinate lists and ``solve`` are exempt.
 _SINGLE_VAR_OPS = frozenset({
     "collect", "apart", "diff", "integrate", "limit", "series",
     "dsolve", "laplace", "ilaplace", "fourier", "ifourier",
@@ -422,8 +420,8 @@ ALL_OPS = sorted(_SYNTACTIC_OPS | _ENGINE_OPS |
 
 
 # ── Parameter-consumption audit ─────────────────────────────────────────
-# Fail-loud: a caller-supplied parameter must be consumed by the operation or
-# the call is rejected; defaults the caller did not deviate from never reject.
+# Fail-loud: a caller-supplied parameter must be consumed by the operation or the
+# call is rejected; defaults the caller did not deviate from never reject.
 
 _KNOB_DEFAULTS: dict[str, Any] = {
     "variable": None, "with_respect_to": None, "substitution": None,
@@ -573,7 +571,8 @@ def _execute_operation_inner(
     def _require_parse(expr: str) -> sp.Expr | dict[str, Any]:
         parsed, error = _parse(expr)
         if parsed is None:
-            return {"success": False, "error": f"Cannot parse: {error}"}
+            detail = f" ({error})" if error else ""
+            return {"success": False, "error": f"Cannot parse: {expr}{detail}"}
         return parsed
 
     # Helper to require a successful parse and apply context assumptions
@@ -912,6 +911,7 @@ def _execute_operation_inner(
             if not out.is_valid:
                 return {"success": False, "error": _engine_failure(operation, out.error)}
             result = out.sympy_expr
+            op_warnings.extend(out.warnings)
 
         if operation == "integrate":
             op_warnings.extend(antiderivative_warnings(result, lower, upper))

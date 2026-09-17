@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-09-18
+
+Round-23 black-box round (`symkit-mcp-test-r23`: 15 derivation, theorem and
+physics cards over three lanes, all SUCCESS; 12 defects reproduced with
+deterministic probes and fixed; 9 further claims rejected as by-design or
+upstream SymPy behaviour). Test suite 1501 -> 1544.
+
+### Added
+
+- Concrete matrices are a supported step input kind: a matrix expression
+  recorded via `session_record_step` lands as an honest step, and a matrix
+  *equation* is verified by direct elementwise comparison - equal sides give
+  `verified`, differing sides give `failed` with the elementwise difference
+  (previously every matrix equation was `inconclusive`, even ones the engine
+  itself evaluated to `False`).
+- `math` responses gained a non-fatal `warnings` channel on `Expression`; the
+  Laplace transform uses it to disclose degenerate convergence conditions.
+
+### Fixed
+
+- **Matrix expressions with a matrix literal were silently rewritten
+  element-wise.** SymPy's `evaluate=False` transformer distributes
+  `Pow(Matrix, -1)` over the right operand's entries ("block broadcast"), so
+  `Matrix([[1, 2], [3, 4]])**-1 * Matrix([[1, 1], [1, 0]])` returned a 2x2
+  matrix of 2x2 blocks instead of the product, and `doit()` could not undo it.
+  Any input mentioning a matrix literal is now parsed with normal evaluation
+  (matrices are eager in SymPy); the immutable form is restored so srepr
+  round-trips keep working.
+- `inv(Matrix(...))` was bound to an undefined function and stayed inert
+  (`simplify(inv(inv(M)))` returned its own input with `success: true`);
+  concrete matrix arguments now evaluate to the inverse. `Cannot parse:`
+  errors carry the offending input instead of an empty message.
+- `evalf` on tuple/list input raised `AttributeError: 'tuple' object has no
+  attribute 'evalf'`; elements are now evaluated individually.
+- Step-level `assumptions` passed to `session_record_step` were archived but
+  never reached that step's identity check: a true identity such as
+  `2*a/z**2 == 2*a*z/(z**2)**(3/2)` under `z is positive` was judged
+  `disproven`. They are now merged into the step's verification context.
+- `suspect_identity` false-fired on ordinary simplify inputs (an `re(...)`
+  factor that expands to a difference form, a residual polynomial): the
+  heuristic now reads the recorded user text at depth 0, so a genuine
+  submitted difference is still flagged while those inputs are not.
+- A recorded definition whose left side is a single free symbol
+  (`tau_c = pi/2`) was judged `failed`/`disproven`, contradicting the
+  "model axioms must not be judged failed" rule; it is now `inconclusive`
+  with a hint. The `solve` verification path is untouched, so solution
+  claims recorded through it still verify.
+- `dsolve` returned truncated power-series pseudo-solutions carrying SymPy
+  artifacts (`r(3)`, `O(x**6)`) with `success: true`; a single-unknown
+  explicit solution failing `checkodesol` now reports the failure and names
+  the artifact instead of shipping it silently. Forcing-term and implicit
+  integral solutions keep their previous behaviour.
+- `laplace_transform` passed `noconds=True`, discarding SymPy's convergence
+  conditions - for `Heaviside(tau - t)` with unassumed `tau` the discarded
+  conditions were unsatisfiable (`tau > 0` and `tau < 0`) while the returned
+  expression was the rising-edge form. Degenerate condition sets now add a
+  warning naming the parameters to declare. No mathematical output changed.
+- `session_complete` silently discarded the session's assumptions; the
+  completion response now discloses them, and both assumption viewers name
+  the session-end discard consistently.
+- Step recording dropped the whole step when a symbolic-order derivative
+  (e.g. `Derivative(f(t), (t, k + 1))` inside a `Sum`) made the automatic
+  check raise: the call reported `success: true` with no step. Recording now
+  degrades the verdict instead of losing the step.
+- Target matching: an equation-form `target_expression` is reached by a
+  `final_expression` equal to either side; `target_reached` and
+  `progress.matches_target` share one verdict instead of disagreeing in the
+  same response; the missing-target hint no longer advises passing
+  `target_expression` when it was already passed.
+
+### Changed
+
+- The `session_record_step` guard message now names lists and comma-separated
+  input only - matrices graduated to supported input.
+
 ## [1.12.0] - 2026-09-17
 
 ### Added

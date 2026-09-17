@@ -6,8 +6,6 @@ Stateful derivation process management, supporting:
 - Complete provenance recording
 - Persistence (prevents interruption)
 - Automatic verification for each step
-
-The "Forge" in SymKit means we CREATE new formulas through derivation.
 """
 
 from __future__ import annotations
@@ -28,6 +26,7 @@ from symkit.domain.derivation_goal import (
     DerivationGoal,
 )
 from symkit.domain.derivation_outcome import (
+    apply_auto_verification,
     completion_outcome,
     compute_goal_progress,
     failed_operation_steps,
@@ -369,20 +368,9 @@ class DerivationSession:
             status=status,
         )
 
-        # Automatic verification
+        # Automatic verification (resilient: a verifier crash must not drop the step)
         if self.auto_verify:
-            verification = self.verifier.verify_step(
-                step,
-                prior_expr=prior_expr,
-                assumption_engine=self.assumption_engine,
-            )
-            if verification.status == VerificationStatus.VERIFIED:
-                step.status = StepStatus.SUCCESS
-            elif verification.status == VerificationStatus.INCONCLUSIVE:
-                step.status = StepStatus.PENDING_VERIFICATION
-            else:
-                step.status = StepStatus.FAILED
-            step.verification_result = verification_result_to_json(verification)
+            apply_auto_verification(self, step, prior_expr)
 
         self.steps.append(step)
         self._update_timestamp()
@@ -863,9 +851,7 @@ class DerivationSession:
             "limitations": limitations or [],
         }
 
-    # ═══════════════════════════════════════════════════════════════════════
     # Step verification
-    # ═══════════════════════════════════════════════════════════════════════
 
     def _last_computed_expression(self) -> sp.Basic | None:
         """The most recent step output, walking past steps that have none.
@@ -1081,6 +1067,8 @@ class DerivationSession:
         orderings of the sides still match.  With *assumptions* both sides are
         simplified first, so ``sqrt(2*G*M/R)`` matches
         ``sqrt(2)*sqrt(G)*sqrt(M)/sqrt(R)`` under a positive assumption.
+        When only one side is an Equality, the other matches either side of it:
+        a target ``Eq(Phi, rhs)`` is reached by the bare ``rhs`` (r23 F12a).
         """
         if current == target:
             return True
@@ -1091,6 +1079,15 @@ class DerivationSession:
                 current_form = current.lhs - current.rhs
                 target_form = target.lhs - target.rhs
                 return is_numerically_zero(sp.simplify(current_form - target_form))
+            if isinstance(current, sp.Equality) != isinstance(target, sp.Equality):
+                eq, other = (
+                    (current, target)
+                    if isinstance(current, sp.Equality)
+                    else (target, current)
+                )
+                return self._expressions_equivalent(
+                    eq.lhs, other, assumptions
+                ) or self._expressions_equivalent(eq.rhs, other, assumptions)
             return is_numerically_zero(sp.simplify(current - target))
         except Exception:
             return False
@@ -1367,7 +1364,6 @@ class DerivationSession:
 
     def complete(self, require_target_match: bool = False, final_override: sp.Basic | None = None) -> dict[str, Any]:
         """Complete the derivation.
-
         With ``require_target_match`` the session pauses (and reports failure)
         unless the current expression matches the goal target.  ``final_override``
         is a caller-declared deliverable: it supplies the headline and removes
@@ -1382,6 +1378,7 @@ class DerivationSession:
         )
         progress = self.compute_progress(current_override=final_override)
         target_reached = resolve_target_reached(progress.get("matches_target"), verification_summary.get("overall"))
+        progress["matches_target"] = target_reached  # one judgment, two fields (r23 F12b)
 
         warnings: list[str] = []
         if not target_reached and self.goal is not None and self.goal.has_explicit_target():
@@ -1443,9 +1440,7 @@ class DerivationSession:
 
         return result
 
-    # ═══════════════════════════════════════════════════════════════════════
     # Persistence
-    # ═══════════════════════════════════════════════════════════════════════
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""

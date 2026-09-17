@@ -35,6 +35,7 @@ from sympy.parsing.sympy_parser import (
 )
 
 from symkit.domain.expr_io import try_load_srepr
+from symkit.domain.expr_repair import repair_parsed_expression
 from symkit.domain.parser_call_sites import (
     bare_symbol_usage,
     build_undefined_function_local_dict,
@@ -533,19 +534,17 @@ def _split_eq_args(expr_str: str) -> tuple[str, str] | None:
 
 
 def _parse_unevaluated(expr: str, local_dict: dict[str, Any]) -> Any:
-    """Parse with ``evaluate=False``, tolerating the attribute-chain bug.
+    """Parse with ``evaluate=False``, then repair matrix/``inv`` results.
 
-    SymPy's ``EvaluateFalseTransformer.flatten`` reads ``arg.id`` on every
-    binary operand, so an attribute chain such as
-    ``Matrix(...).inv() - Matrix(...).inv()`` raises ``AttributeError:
-    'Attribute' object has no attribute 'id'``; those chains have no
-    unevaluated form, so evaluation falls back to the normal path.
+    Attribute chains have no unevaluated form (SymPy's ``arg.id`` bug) and
+    fall back to normal evaluation; matrix parses are repaired (r23 F1/F2).
     """
     try:
-        return parse_expr(
+        parsed = parse_expr(
             expr, local_dict=local_dict, transformations=TRANSFORMATIONS,
             evaluate=False,
         )
+        return repair_parsed_expression(parsed, expr, local_dict, TRANSFORMATIONS)
     except (AttributeError, RecursionError) as exc:
         if isinstance(exc, AttributeError) and "object has no attribute 'id'" not in str(exc):
             raise

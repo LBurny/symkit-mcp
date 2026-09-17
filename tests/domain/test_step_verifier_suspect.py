@@ -59,7 +59,12 @@ def _make_archived_step(
     input_expression: str,
     output_expression: str,
 ) -> DerivationStep:
-    """Mirror the live recorder: ``input_srepr`` carries the live parsed input."""
+    """Mirror the live recorder: user text plus the live parsed input srepr.
+
+    ``input_expressions["original"]`` keeps the *user's* text (as the recorder
+    does), not ``str(parsed)``: the reloaded srepr reorders ``-(A - B)``, so the
+    form test falls back to the recorded text (r23 F4).
+    """
     import sympy as sp
 
     parsed, _ = parse_expression_string(input_expression, convert_equation=True)
@@ -68,7 +73,7 @@ def _make_archived_step(
         step_number=1,
         operation=operation,
         description="archived suspect-identity test step",
-        input_expressions={"original": str(parsed)},
+        input_expressions={"original": input_expression},
         output_expression=output_expression,
         output_latex=output_expression,
         sympy_command="",

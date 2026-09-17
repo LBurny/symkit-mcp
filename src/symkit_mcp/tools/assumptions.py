@@ -15,8 +15,7 @@ from symkit.domain.assumption_engine import AssumptionLevel, validate_assumption
 from symkit.domain.value_objects import MathContext
 from symkit_mcp.tools._state import get_context, get_session, set_context
 
-# Assumption levels a user can have set (domain defaults are preserved by
-# removal tools: they come from the domain profile, not from user calls).
+# User-settable levels; removal keeps domain defaults (from the domain profile).
 _USER_LEVELS = (AssumptionLevel.GLOBAL, AssumptionLevel.SESSION, AssumptionLevel.STEP)
 
 
@@ -52,8 +51,7 @@ def register_assumption_tools(mcp: Any) -> None:
                 "error": "No active session. Use session_start() or derive() first.",
             }
 
-        # A variadic *args signature cannot be expressed in the MCP tool
-        # schema — the generated schema demanded a single ``args`` string and
+        # A variadic *args signature cannot be expressed in the MCP tool schema;
         # every call failed with "unexpected keyword argument" (run-021).
         tokens = args.split() if isinstance(args, str) else list(args)
 
@@ -110,7 +108,7 @@ def register_assumption_tools(mcp: Any) -> None:
         if session is None:
             return {
                 "success": False,
-                "error": "No active session. Use session_start() or derive() first.",
+                "error": "No active session; session-scoped assumptions are discarded when a session completes or aborts. Use session_start() or derive() first.",
             }
 
         if level is None or level == "merged":

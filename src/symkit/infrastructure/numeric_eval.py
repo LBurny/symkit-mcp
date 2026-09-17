@@ -143,8 +143,18 @@ def numeric_evalf(
     substituted exactly first, preserving the previous values bit for bit.
 
     Returns ``(value, warnings)``.  Non-``Basic`` inputs (e.g. a matrix) are
-    handled exactly as the plain ``evalf`` call did before.
+    handled exactly as the plain ``evalf`` call did before; a tuple/list (a
+    comma-separated parse) is evaluated element-wise and returned as a SymPy
+    ``Tuple`` so ``.evalf`` never reaches a Python container (r23 F3).
     """
+    if isinstance(expr, (list, tuple)):
+        values: list[Any] = []
+        warnings: list[str] = []
+        for item in expr:
+            item_value, item_warnings = numeric_evalf(item, subs)
+            values.append(item_value)
+            warnings.extend(item_warnings)
+        return sp.Tuple(*values), warnings
     if subs and _needs_numeric_substitution(subs):
         return _evalf_numerically(expr, subs)
     if subs:

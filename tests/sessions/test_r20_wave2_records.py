@@ -285,19 +285,36 @@ class TestMathStepDescription:
 
 
 class TestRecordStepGuardMessage:
-    def test_matrix_input_message_names_matrices(
+    def test_matrix_input_is_now_a_supported_step(
         self, fresh_session_manager: Any
     ) -> None:
+        # r23 F1/F7 graduated concrete matrices to a supported input kind:
+        # the r20 guard only fires for non-Basic inputs (lists / tuples) now,
+        # and a recorded matrix step gets an honest inconclusive verdict.
         _ = fresh_session_manager
         tools = _tools()
-        tools["session_start"]("matrix-guard")
+        tools["session_start"]("matrix-step")
 
         result = tools["session_record_step"](
             "Matrix([[a, b], [c, d]])", "matrix input"
         )
 
+        assert result["success"] is True
+        summary = tools["session_verify_session"]()
+        assert summary["failed_steps"] == [], summary
+        assert summary["verified"] == 0, summary
+
+    def test_list_input_message_names_lists(
+        self, fresh_session_manager: Any
+    ) -> None:
+        _ = fresh_session_manager
+        tools = _tools()
+        tools["session_start"]("list-guard")
+
+        result = tools["session_record_step"]("[a, b, c]", "list input")
+
         assert result["success"] is False
-        assert "matrices" in result["error"]
+        assert "lists" in result["error"]
         assert "session_add_note" in result["error"]
 
     def test_comma_tuple_still_says_single_expression(

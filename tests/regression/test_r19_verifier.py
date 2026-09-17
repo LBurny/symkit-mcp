@@ -35,7 +35,11 @@ def _archived(
     output_expression: str,
     sympy_command: str = "",
 ) -> DerivationStep:
-    """A live-recorder-shaped archived step (``input_srepr`` present)."""
+    """A live-recorder-shaped archived step (``input_srepr`` present).
+
+    ``original`` keeps the *user's* text, as the recorder does; ``str(parsed)``
+    reorders a difference, which the r23 F4 written-form gate must reject.
+    """
     parsed, _ = parse_expression_string(input_expression, convert_equation=True)
     out, _ = parse_expression_string(output_expression, convert_equation=True)
     assert parsed is not None and out is not None
@@ -43,7 +47,7 @@ def _archived(
         step_number=1,
         operation=operation,
         description="r19 regression",
-        input_expressions={"original": str(parsed)},
+        input_expressions={"original": input_expression},
         output_expression=output_expression,
         output_latex=output_expression,
         sympy_command=sympy_command,

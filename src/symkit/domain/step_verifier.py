@@ -47,6 +47,7 @@ from symkit.domain.verification_guardrails import (
     reverse_integrate,
     verify_evalf,
 )
+from symkit.domain.verifier_heuristics import step_assumptions
 
 if TYPE_CHECKING:
     from symkit.domain.derivation_session import DerivationStep
@@ -71,7 +72,7 @@ class StepVerifier:
         """
         from symkit.domain.derivation_session import OperationType
 
-        assumptions = assumption_engine.get_assumptions() if assumption_engine else {}
+        assumptions = step_assumptions(assumption_engine, step)
         conflicts = assumption_engine.detect_conflicts() if assumption_engine else []
 
         op = step.operation
@@ -314,8 +315,7 @@ class StepVerifier:
                 return VerificationResult(status=status, message=message, details=identity)
             in_bool = self._boolean_value(input_expr)
             if in_bool is not None:
-                # Under session assumptions the parser may collapse an Eq to a
-                # boolean before recording (run-016): a flip is a bug.
+                # Under assumptions the parser may collapse an Eq to a boolean (run-016).
                 if in_bool == out_bool:
                     return VerificationResult.success(
                         f"{operation.capitalize()} verified: boolean value preserved"

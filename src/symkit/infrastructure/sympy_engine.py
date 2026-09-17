@@ -15,14 +15,13 @@ from symkit.domain.expression_parser import (
 from symkit.domain.final_result import evaluate_pending
 from symkit.domain.services import SymbolicEngine
 from symkit.domain.value_objects import MathContext, SimplificationLevel
+from symkit.infrastructure.solution_guards import dsolve_artifact_reason, laplace_condition_warnings
 from symkit.infrastructure.vector_input import build_vector_field
 
 
 def _failed(error: str) -> Expression:
     """Invalid Expression carrying an engine failure (one shared error shape)."""
-    return Expression(
-        raw="", latex="", sympy_expr=None, expr_type=ExpressionType.UNKNOWN, error=error,
-    )
+    return Expression(raw="", latex="", sympy_expr=None, expr_type=ExpressionType.UNKNOWN, error=error)
 
 
 def coupled_undefined_functions(
@@ -30,8 +29,8 @@ def coupled_undefined_functions(
 ) -> list[str]:
     """Undefined functions sharing an additive term with the dependent one.
 
-    A forcing term alone stays solvable; one times the dependent variable or
-    derivative couples in a second equation (r14 task-15).
+    A forcing term alone stays solvable; one times the dependent variable
+    couples in a second equation (r14 task-15).
     """
     extra_set = set(extra)
     lhs = ode_expr.lhs - ode_expr.rhs if isinstance(ode_expr, sp.Equality) else ode_expr
@@ -44,13 +43,11 @@ def coupled_undefined_functions(
 
 
 def nonpolynomial_ode_reason(ode_expr: sp.Basic, dependent: str) -> str | None:
-    """A reason string when ``dsolve`` is likely to hang without bound.
+    """A reason when ``dsolve`` is likely to hang without bound.
 
-    ``sympy.dsolve`` has no time limit and does not raise on an unsolvable
-    nonlinear ODE — it spins, wedging the single-process server (a pendulum
-    stalled every tool for 30+ minutes). Detected class: a dependent function
-    under a transcendental, e.g. ``sin(theta(t))``; a true bound needs a
-    separate process, which this module does not do.
+    SymPy has no time limit and raises nothing on a non-terminating nonlinear
+    ODE (a pendulum wedged the server); detected: a dependent function under a
+    transcendental, e.g. ``sin(theta(t))``.
     """
     if not isinstance(ode_expr, sp.Equality):
         return None
@@ -78,9 +75,8 @@ def restore_zero_root(
 ) -> tuple[list[Any], list[str], bool]:
     """Re-add the trivial root 0 that symbol assumptions filtered out.
 
-    ``solve`` cancels a factor nonzero under the solve variable's assumptions
-    and drops the zero root of a factored equation (r14 task-15). Returns
-    ``(solutions, filtered, restored)``.
+    ``solve`` drops the zero root of a factored equation (r14 task-15).
+    Returns ``(solutions, filtered, restored)``.
     """
     plain_v = sp.Symbol(str(v))
 
@@ -113,9 +109,8 @@ def restore_zero_root(
 def _coord_sub_symbol(expr: Any, name: str, coord: Any) -> Any:
     """Substitute the coordinate symbol ``name`` into *expr* by NAME.
 
-    A bare ``sp.Symbol(name)`` subs key would not match an assumption-bearing
-    ``Symbol('x', positive=True)``, so the substitution silently no-opped and
-    gradient returned a zero vector (run-017).
+    A bare subs key misses an assumption-bearing ``Symbol`` (gradient was
+    silently zero, run-017).
     """
     target = next(
         (s for s in getattr(expr, "free_symbols", ()) if str(s) == name), None
@@ -342,9 +337,8 @@ class SymPyEngine(SymbolicEngine):
                  context: MathContext | None = None) -> Expression:
         """Gradient of a scalar field.
 
-        ``{x, y, z}`` coordinates keep the sympy.vector basis form (r13); any
-        other symbol name gives plain partials — a ``Tuple`` for several, one
-        derivative for a single one — and a missing coordinate fails by name.
+        The ``{x, y, z}`` coordinates keep the sympy.vector basis form (r13);
+        other names give plain partials and a missing coordinate fails by name.
         """
         if not expr.is_valid:
             return expr
@@ -532,6 +526,8 @@ class SymPyEngine(SymbolicEngine):
             result, refusal = dsolve_with_ics(equation, f, v, ics)
             if refusal:
                 return _failed(f"dsolve: {refusal}")
+            if (artifact := dsolve_artifact_reason(equation, result)) is not None:
+                return _failed(f"dsolve: {artifact}")
             return Expression(raw=str(result), latex=sp.latex(result),
                             sympy_expr=result, expr_type=ExpressionType.EQUATION)
         except Exception as e:
@@ -624,9 +620,11 @@ class SymPyEngine(SymbolicEngine):
                     f"laplace: the expression does not contain '{time_var}'; "
                     "the variable is the time-domain symbol (typically t)"
                 )
-            result = sp.laplace_transform(expr.sympy_expr, t, s, noconds=True)
+            # noconds=False keeps SymPy's convergence condition for r23 F8 disclosure.
+            result, _abscissa, cond = sp.laplace_transform(expr.sympy_expr, t, s)
             return Expression(raw=str(result), latex=sp.latex(result),
-                            sympy_expr=result, expr_type=ExpressionType.CALCULUS)
+                            sympy_expr=result, expr_type=ExpressionType.CALCULUS,
+                            warnings=laplace_condition_warnings(cond, t, s))
         except Exception as e:
             return _failed(f"{type(e).__name__}: {e}")
 

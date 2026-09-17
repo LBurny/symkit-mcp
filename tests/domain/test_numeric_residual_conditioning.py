@@ -101,7 +101,10 @@ class TestSuspectMessageHonesty:
             step_number=1,
             operation=OperationType.SIMPLIFY,
             description="r18 audit5 case A",
-            input_expressions={"original": str(input_expr)},
+            # The recorder archives the *user's* text; ``str(parsed)`` would
+            # render this as ``-tan(x)**2 + sec(x)**2``, which the r23 F4
+            # written-form gate correctly rejects as ordinary algebra.
+            input_expressions={"original": "sec(x)**2 - tan(x)**2"},
             output_expression="1",
             output_latex="1",
             sympy_command="simplify(sec(x)**2 - tan(x)**2)",

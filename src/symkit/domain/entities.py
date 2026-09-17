@@ -35,6 +35,10 @@ class Expression:
     sympy_expr: Any = None  # SymPy expression object
     expr_type: ExpressionType = ExpressionType.UNKNOWN
     error: str = ""  # Root cause when invalid ("{ExceptionType}: {message}")
+    # Non-fatal disclosures carried by a valid result (e.g. a conditional
+    # Laplace transform); the engine fills these, the presentation layer
+    # surfaces them as response warnings (r23 F8).
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def is_valid(self) -> bool:
