@@ -10,6 +10,7 @@
    - **验证深水区轮**——压验证器判定语义、量纲、Lean 认证。
    - **对抗轮**——卡片里故意埋错（错符号、错条件），看验证器能否拦截。
    - **验证轮**——被测的是一批确定性修复契约（进程/环境/报告语义、判定口径）。模糊卡压不出结论，主体是主控亲写预期值的探针（见 [probes.md](probes.md) 的验证轮段与 `assets/probe_lean_regress.py`），操作员卡只留 1–2 张压 UX 发现性。先例：lab `symkit-mcp-test-lean`。
+   - **现场报告核实轮**——用户/外部提交的黑箱报告或会话 JSON（如 SST 四轮、v1.11.0 后两轮报告）。**不开 lab 不跑卡**：主控直接按报告逐条写探针复现（历史驳回率过半——29 条里 7 误报、9 条里 7 误报都出现过），坐实的进仓库 TDD 修复，探针转绿即验收；会话 JSON 审计注意内嵌转义字段要用 python 解析（见 [probes.md](probes.md)）。
 2. **目标 wheel**：
    - **HEAD 构建**（测未发布修复）：master 里 `uv build --out-dir <lab>/dist`。`uv build` 不受运行中服务器锁 `.venv\Scripts\symkit-mcp.exe` 影响（`uv run` 会，`uv build` 不会）。
    - **已发布版**（测 PyPI 版本）：装 `symkit-mcp==X.Y.Z` 时必须 `--default-index https://pypi.org/simple`——本机默认 pip 索引是阿里镜像，滞后官方数小时。
@@ -67,6 +68,6 @@ export RUN_PREFIX=rNN   # run_suite.sh 用；analyze.py 用 argv
 5. **重计算卡加护栏**：大 n 禁显式分数链、单表达式 ≤200 显式加项、数值求和给上限（教训：n=10⁶ 调和数逐项分数链让 lcm 失控，单卡 32 分钟 4.5GB）。
 6. **回归类检查不进模糊卡**——模糊卡会自由发挥甚至照录假 PASS；确定性断言一律进 regress 探针。
 7. **要测客户端系统提示词就注入它**：`SYSTEM_PROMPT_FILE=<abs path> bash run_task.sh ...` / `bash run_task_lean.sh ...`（内部转 `--append-system-prompt-file`；用 append，替换默认提示词会连带废掉 harness 自己的工具说明）。这样每张卡同时检验"服务器是否按其推荐提示词所描述的方式工作"——把提示词里每条工具名/语法/判定来源写成 regress 探针的确定性断言（先例 r18 的 T/P 段，21 条里一条 P10 直接查出提示词里的 `assume` 调用式不合法）。
-7. 卡片路径**必须是本 lab 绝对路径**。
+8. 卡片路径**必须是本 lab 绝对路径**。
 
 卡片数量参考：综合轮 15–20 张（3 lane），专项轮 5–6 张。单卡预算 max-turns 50（Lean 卡 60），实际 2–8 分钟/卡，历史综合轮总成本 $10–60。

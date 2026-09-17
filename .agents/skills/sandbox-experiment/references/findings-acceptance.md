@@ -35,6 +35,9 @@ uv build --out-dir /i/Formulation/example/symkit-mcp-test-rNN/dist
 cd /i/Formulation/example/symkit-mcp-test-rNN
 uv pip install --python .venv/Scripts/python.exe --force-reinstall --no-deps dist/symkit_mcp-*.whl
 
+# 2b. 新鲜度哨兵：断言本轮新符号/新行为在 lab venv 里真实可见
+.venv/Scripts/python.exe -c "from symkit.domain.recorded_claim import unevaluated_equality; ..."  # 锚点换成本轮的新东西
+
 # 3. 探针全绿
 .venv/Scripts/python.exe probe/smoke.py
 .venv/Scripts/python.exe probe/regress.py   # 退出码 0
@@ -47,6 +50,7 @@ RUN_PREFIX=rNN bash run_suite.sh data/<lane> <n> <n>
 ```
 
 - **重跑验收卡用新 run-id**（旧 findings 整目录备份到 `findings_rNNa/`）——**新前缀必须避开本轮所有 lane 前缀**：lane 划分常用 `rNNa/rNNb/rNNc`，而"重跑用 rNNb"的示例恰好会与 lane B 撞名（r20 实际事故：`runs/r20b-task-10/stream.jsonl` 原始产物被重跑覆盖，仅 findings 备份幸免）。用不冲突的词（如 `rNNv` / `rNNacc`）。新旧产物可比对，不许覆盖。
+- **2b 新鲜度哨兵不可省**：`--force-reinstall` 装的是 `dist/` 目录里的文件——忘了先 `uv build` 就静默验收旧轮子（dim 轮实际事故，此后 d36–d38 与 r22 都靠哨兵拦住）。哨兵断言要选本轮才有的符号或行为，一轮一换。
 - 验收报告写 `runs/_analysis/ACCEPTANCE.md`：探针结果、重跑卡结果、对操作员指控的独立复核结论（哪些坐实、哪些驳回）、遗留 reported-not-fixed 清单及优先级。
 - 白盒佐证（支撑 CHANGELOG 量化断言的 sweep 脚本与基线指纹）移到 `runs/_analysis/whitebox/` 留存——一次性 scratch 删掉，可复现的 harness 留下。
 
@@ -54,8 +58,8 @@ RUN_PREFIX=rNN bash run_suite.sh data/<lane> <n> <n>
 
 - `CHANGELOG.md`：本轮版本条目（缺陷修复按严重度列，量化断言要有 whitebox 佐证）。
 - `README.md` / `README.zh-CN.md` / `docs/symkit-design*.md`：工具数、类目数、测试数同步（**5 份对外文档中英同步**）。
-- `docs/recommended-system-prompt.md`：本轮若动了工具语义、输入解析、保留名或判定口径，逐条核对该文档里的断言是否仍然成立——它是给真客户端的引导，说错会让客户端按错的方式调工具（如把 `f(x)` 当乘积、把 `E` 当自然常数）。提示词自身要改时保持"文件即提示词"体例（无标题/前言/分隔线）。
-- 版本号与发布流程按既有惯例（tag push → OIDC 发 PyPI；`pypi.org/pypi/<pkg>/json` 是 CDN 缓存的，验发布看版本专属 URL）。
+- `docs/recommended-system-prompt.md`：本轮若动了工具语义、输入解析、保留名或判定口径，逐条核对该文档里的断言是否仍然成立——它是给真客户端的引导，说错会让客户端按错的方式调工具（如把 `f(x)` 当乘积、把 `E` 当自然常数）。提示词自身要改时保持"文件即提示词"体例（无标题/前言/分隔线）且 ≤80 行（约束已记入 AGENTS.md）。
+- 发版三处版本号同步 bump：`pyproject.toml` + `src/symkit/__init__.py` + `src/symkit_mcp/__init__.py`（r20 教训：漏一处只能发版后再补一个 commit）。发布流程按既有惯例（tag push → OIDC 发 PyPI；`pypi.org/pypi/<pkg>/json` 是 CDN 缓存的，验发布看版本专属 URL `.../pypi/<pkg>/<version>/json`）。
 
 ## 收尾：知识沉淀与清理
 

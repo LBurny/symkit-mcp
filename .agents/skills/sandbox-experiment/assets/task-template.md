@@ -10,7 +10,7 @@
 ## 要求
 
 1. 会话名 `<kebab-name>`。
-2. 每个调用的完整 JSON 输出都要摘录（包括 details 与 warning）。
+2. 判定与异常字段的**原文摘录**：`verification_status` / `details` / `warning` / `reason` / `certification`，含反例。不要逐个调用 dump 完整 JSON（r18 教训：操作员为回收产物 Grep 自己转录 8 次，纯属开销）。
 3. <失败时的替代路径，如：若 sqrt 失败，尝试平方后检查，记录两条路径。>
 4. <不一致/异常情形必须给出原文，如 mismatch 字段原文。>
 

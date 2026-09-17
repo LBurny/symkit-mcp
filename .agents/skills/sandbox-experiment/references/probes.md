@@ -17,7 +17,7 @@ bash run_task_lean.sh tasks/task-15-*.md r16-task-15 60
 - 多 lane 并行：开多个终端各跑一条 `run_suite.sh`，data-dir 互不相同。**并行 ≤3**。
 - **系统提示词注入**：`SYSTEM_PROMPT_FILE=<lab 内副本>` 对单卡、lane、Lean 三个 runner 都生效（`run_suite.sh` 靠环境变量透传）。A/B 用法：同一张卡注入与不注入各跑一次（run-id 加 `-p` / `-nop` 后缀），两次都错才是引擎缺陷，只有不注入时错说明是提示词没交代清——归因结论回写 `docs/recommended-system-prompt.md`（硬规则 13）。
 - 产物：`runs/<run-id>/stream.jsonl`（完整事件流）、`stderr.log`。**会话 JSON 落在用户 AppData，不理会 CWD**——需要留证时从 `%LOCALAPPDATA%\symkit\symkit\derivation_sessions\` 拷回 `runs/<run-id>/`。
-- 监控：`wc -l runs/*/stream.jsonl` 看进度；单卡超 10 分钟查 CPU——卡死的真身是最内层 python.exe（stub .exe → venv python → anaconda python 三层链里 CPU 最高的那个）。杀树：`taskkill /PID <pid> /T /F`；Agent 被取消后 `claude.exe` 孤儿树会存活，也要杀。
+- 监控：`wc -l runs/*/stream.jsonl` 看进度；单卡超 10 分钟查 CPU——卡死的真身是最内层 python.exe（stub .exe → venv python → anaconda python 三层链里 CPU 最高的那个）。杀树：`taskkill /PID <pid> /T /F`；Agent 被取消后 `claude.exe` 孤儿树会存活，也要杀。**疑似楔死先抓死帧再杀**：`py-spy dump --pid <pid>`（加 `--native` 看 C 扩展栈）——r19 的 heurisch 多项式环、r22 的子进程 stdin 楔死都靠死帧一次定位，盲杀只会丢掉现场。
 - **`claude` 的进程名是 `node.exe`**（npx shim），`tasklist | grep -i claude` 在三条 lane 全忙时也会返回 0——别据此判断"跑完了"。判断卡死看 `stream.jsonl` 尾部的 `tool_progress` 心跳（`"elapsed_time_seconds"`）：单个 `math` 调用涨到几百秒就是楔死（r17：order=4 的 diff 卡了 15 分钟，`tasklist` 里只看得到 node.exe 与 python.exe）。孤儿 MCP 服务器会锁 lab 的 `.venv/Scripts/symkit-mcp.exe`，`uv pip install --force-reinstall` 报 `os error 32` 时先按可执行路径筛进程并杀掉。
 - 超长单卡的处理不是干等：先评估是否触发了卡片护栏遗漏（如显式分数链），kill 后给卡加护栏换 run-id 重跑。
 - **验收重跑自己的卡本身就是缺陷来源**：r17 的 P0 楔死是重跑 task-01 时才出现的（同一表达式 `session=False` 0.06s、`session=True` 无限），任何探针都没覆盖到——验收轮必须真的重跑受影响的卡，不能只跑确定性探针。
@@ -41,8 +41,8 @@ bash run_task_lean.sh tasks/task-15-*.md r16-task-15 60
 探针是 stdio MCP client 脚本（`mcp.client.stdio` 驱动 lab venv 里的 `symkit-mcp.exe`），输出存 `probe/*-out.txt`。三类：
 
 1. **smoke**（[assets/probe_smoke.py](../assets/probe_smoke.py)）：建 lab 后、花钱前必跑。列工具数、关键工具在位。
-2. **regress**：确定性断言 lane，**主控亲写预期值**，每轮针对本轮风险面重写（历史缺陷回归、判定语义、治理、certify 降级路径、探针退出码）。15 条左右。不交给模糊卡，也不让子代理改预期值——只跑 + 照录。
-3. **audit\***：单个缺陷的复现脚本（audit.py、audit2.py…递增），一个缺陷一个最小复现，附对照实验。
+2. **regress**：确定性断言 lane，**主控亲写预期值**，每轮针对本轮风险面重写（历史缺陷回归、判定语义、治理、certify 降级路径、探针退出码）。15 条左右。不交给模糊卡，也不让子代理改预期值——只跑 + 照录。**但亲写不等于写对**：FAIL 时先用独立路径（直调 sympy / 手算）核对预期值再定缺陷——r19 首跑 4 FAIL 全是探针写错，r21 电池预期错 9 处（硬规则 15）。
+3. **audit\***：单个缺陷的复现脚本（audit.py、audit2.py…递增），一个缺陷一个最小复现，附对照实验。**入参逐字抄 stream.jsonl 里的翻车现场字符串**，不要改写拼写/化简数值——改写变体可能恰好绕开真漏洞（r22 的 `=`/`==` 差：变体全绿、原句仍 failed，硬规则 14）。
 
 **验证轮专用**（被测的是确定性契约，如一轮修复的进程/环境/报告语义）：模糊卡压不出结论，改用两层——
 （a）主控亲写预期值的确定性探针（模板 [assets/probe_lean_regress.py](../assets/probe_lean_regress.py)：每个 check 独立、异常记为 FAIL 不中断后续，覆盖 trivial 分桶 / certify 时 assumptions / toolchain 守卫 / 健康安装仍认证）；
@@ -54,7 +54,7 @@ bash run_task_lean.sh tasks/task-15-*.md r16-task-15 60
 - 用 `StdioServerParameters` + `ClientSession`，`env` 里显式注入 `SYMKIT_DATA_DIR`（要打外部安装时再注入 `ELAN_HOME`）。
 - 支持 `SYMKIT_MCP_EXE` 环境变量覆写 exe 路径，让未发布构建走真实 stdio 接口。
 - `math` 的成功响应**不含 verdict**——判定看 `session_verify_step {step_number}` 或 `session_verify_session`。
-- 步骤级真相在 `data/derivation_sessions/session_<id>.json`（`operation` / `output_expression` / `input_srepr` / `verification_result`），操作员可直接读来核对工具改名、笔记继承这类元数据行为。
+- 步骤级真相在 `data/derivation_sessions/session_<id>.json`（`operation` / `output_expression` / `input_srepr` / `verification_result`），操作员可直接读来核对工具改名、笔记继承这类元数据行为。**注意 `verification_result` 等字段是内嵌转义字符串**——审计用 python `json.loads` 两层解析，别 grep（`grep '"lean"'` 曾全 miss 导致漏判认证计数）。
 - 仓库里有 `scripts/lean_oracle.py`：对持久化会话批量重跑 Lean 认证，疑似验证器假阴性上 exit 1——黑箱轮用它审计 StepVerifier。
 
 ### 诊断铁律
