@@ -49,6 +49,7 @@ from symkit_mcp.tools._op_helpers import (
     solve_variable_name_error,
     symbol_names,
 )
+from symkit_mcp.tools._operator_input import matrix_operand_error, normalize_operator_input
 from symkit_mcp.tools._solve_system_input import equation_list_expressions
 from symkit_mcp.tools._state import get_context, get_session
 from symkit_mcp.tools._system_solve import solve_system
@@ -332,10 +333,9 @@ def _parse_ode(
 
     result_str = preprocess_unicode(expr_str)
 
-    # Leibniz notation, any order (higher orders first): d^2C/dt^2, dC/dt.
-    # Mismatched numerator/denominator orders stay untouched so the parser
-    # fails loudly instead of guessing (run-020: the hardcoded order-2 regex
-    # made d^4 input report "order not supported" though dsolve handles it).
+    # Leibniz notation, any order (higher orders first): d^2C/dt^2, dC/dt.  Mismatched
+    # numerator/denominator orders stay untouched so the parser fails loudly instead of
+    # guessing (run-020: the order-2 regex made d^4 report "order not supported").
     def _leibniz_ho_repl(m: re.Match[str]) -> str:
         n_num = m.group(1) or m.group(2)
         n_den = m.group(3) or m.group(4)
@@ -555,7 +555,7 @@ def _execute_operation_inner(
     assumption_context: MathContext | None = None,
 ) -> dict[str, Any]:
     """Execute one operation; see :func:`_execute_operation` for the contract."""
-    preprocessed = _preprocess(expr_str)
+    preprocessed, variable = normalize_operator_input(operation, _preprocess(expr_str), variable)
     if (guard := matrix_exp_guard(operation, preprocessed, substitution)) is not None:
         return guard
     context = _effective_context(assumption_context)
@@ -581,8 +581,8 @@ def _execute_operation_inner(
         if isinstance(parsed, dict) and "success" in parsed:
             return parsed
         if isinstance(parsed, dict):
-            # ``factorint(1)`` / ``divisors(...)`` parse to a python dict; the
-            # dispatch's error-dict convention must not swallow it (r17 task-17).
+            # ``factorint(1)``/``divisors(...)`` parse to a python dict; the error-dict
+            # convention must not swallow it (r17 task-17).
             return {"success": False, "error": f"Cannot use {expr}: it evaluates to a mapping, not an expression"}
         return _apply_context_assumptions(parsed, context)
 
@@ -847,14 +847,15 @@ def _execute_operation_inner(
             else:
                 out = _engine.laplacian(expr_obj, coords, context)
         elif operation in ("det", "inv", "eigenvals", "eigenvects"):
+            if (bad_operand := matrix_operand_error(operation, input_obj)) is not None:
+                return bad_operand
             if operation == "det":
                 out = _engine.matrix_det(expr_obj, context)
             elif operation == "inv":
                 out = _engine.matrix_inv(expr_obj, context)
             elif operation == "eigenvals":
                 vals = _engine.matrix_eigenvals(expr_obj, context)
-                # A sympy Tuple keeps the result a valid Basic so the step
-                # records into the chain and the display renders (run-017).
+                # A sympy Tuple keeps the result a valid Basic so the step records (run-017).
                 result_obj = sp.Tuple(*[v.sympy_expr for v in vals])
                 return {
                     "success": True,
@@ -868,8 +869,7 @@ def _execute_operation_inner(
                 }
             else:  # eigenvects
                 vects = _engine.matrix_eigenvects(expr_obj, context)
-                # As with eigenvals (run-017), wrap the result in a sympy Tuple so it
-                # records into the session chain and renders (run-020).
+                # As with eigenvals (run-017), wrap in a Tuple so it records and renders (run-020).
                 vects_obj: sp.Basic | None = None
                 try:
                     items = []

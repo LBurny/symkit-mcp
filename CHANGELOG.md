@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Round-23 black-box round (`symkit-mcp-test-r23`: 15 derivation, theorem and
 physics cards over three lanes, all SUCCESS; 12 defects reproduced with
 deterministic probes and fixed; 9 further claims rejected as by-design or
-upstream SymPy behaviour). Test suite 1501 -> 1544.
+upstream SymPy behaviour). Test suite 1501 -> 1656: 12 defects fixed in the
+first wave, then 12 more surfaced by the acceptance re-run.
 
 ### Added
 
@@ -83,7 +84,7 @@ upstream SymPy behaviour). Test suite 1501 -> 1544.
   input only - matrices graduated to supported input.
 
 Acceptance re-run of the same 15 cards (14 completed clean, all with zero
-math errors; a P0 wedge was forced out of one card) reproduced 11 further
+math errors; a P0 wedge was forced out of one card) reproduced 12 further
 defects, all fixed here:
 
 - **P0 wedge fixed.** A definite integral whose integrand has a symbolic
@@ -129,6 +130,14 @@ defects, all fixed here:
   match while `target_reached` stays conservative for a session with failed
   steps - and the response now discloses that difference instead of leaving
   three fields to contradict each other.
+- An operation repeated inside its own expression no longer runs twice:
+  `operation="det"` with `expression="det(Matrix([[...]]))"` crashed with
+  SymPy's `TypeError: Data type not understood`, `diff(x**3)` returned the
+  second derivative (`6*x`) and `eigenvals(Matrix(...))` returned nothing.
+  A same-named call that wraps the whole expression is now stripped (the
+  two-argument form `diff(sin(t), t)` also supplies the variable), and a
+  non-matrix operand for a matrix operation is refused with a message naming
+  the expected input shape.
 
 ## [1.12.0] - 2026-09-17
 
